@@ -80,8 +80,11 @@ jobs:
       - name: Build UI assets
         run: pnpm --dir ui build
 
-      - name: Build release binaries
-        run: cargo build --workspace --release --target ${{ matrix.target }}
+      - name: Build release CLI binary
+        run: cargo build --package knox --release --target ${{ matrix.target }}
+
+      - name: Build release Desktop binary
+        run: pnpm --dir ui tauri build --target ${{ matrix.target }} --no-bundle
 
       - name: Package release archives (Unix)
         if: ${{ !matrix.use_zip }}
