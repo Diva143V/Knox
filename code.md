@@ -1,332 +1,216 @@
-# Knox — Code Production Guide
+# Knox v1.2.0 — Code Production Guide
 
-> **This document defines HOW Knox code must be written. It is the single source of truth for system architecture, module boundaries, file layout, naming conventions, error handling, and implementation order. Every AI agent and human contributor MUST read this before writing any Knox code.**
+> **This document defines how Knox code must be written. It is the source of truth for module boundaries, IPC contracts, frontend conventions, and verification. Every AI agent and human contributor MUST read it before changing Knox.**
 
 ---
 
-## System Architecture — Layer Diagram
+## Non-Negotiable Architecture
 
-Knox is a **layered system** with strict dependency direction: upper layers depend on lower layers, never the reverse. No circular dependencies. No layer-skipping.
+Knox v1.2.0 is a consumer desktop application built from three deliberately separated parts:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Layer 5: CLI                             │
-│  Binary entry point. Parses args (clap), dispatches to Layer 4  │
-│  Files: src/main.rs, src/cli/                                   │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ calls
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Layer 4: MCP Server                          │
-│  stdio JSON-RPC transport. Exposes tools. Translates MCP       │
-│  requests → Layer 3 calls. Handles sessions.                   │
-│  Files: src/mcp/                                                │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ calls
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Layer 3: Commands                            │
-│  Business logic for each operation: init, ingest, query,       │
-│  status, scan. Orchestrates Layers 1+2. No I/O of its own.     │
-│  Files: src/commands/                                           │
-└──────────┬─────────────────────────────┬───────────────────────┘
-           │ calls                       │ calls
-           ▼                             ▼
-┌────────────────────────┐   ┌───────────────────────────────────┐
-│   Layer 2: Graph       │   │     Layer 2: Ingest               │
-│   petgraph loading,    │   │     TranscriptMapper trait,       │
-│   subgraph extraction, │   │     Antigravity mapper,           │
-│   traversal, caching   │   │     action group clustering       │
-│   Files: src/graph/    │   │     Files: src/ingest/            │
-└──────────┬─────────────┘   └──────────────┬────────────────────┘
-           │ calls                          │ calls
-           ▼                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Layer 1: Storage                             │
-│  SQLite schema, migrations, CRUD operations for nodes/edges.   │
-│  The ONLY layer that touches the database file.                │
-│  Files: src/storage/                                            │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ uses
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Layer 0: Core Types                          │
-│  Shared data structures, error types, config. ZERO logic.      │
-│  No dependencies on any other Knox layer.                      │
-│  Files: src/core/                                               │
-└─────────────────────────────────────────────────────────────────┘
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│ ui/ — React 19 + Vite + Tailwind v4 + shadcn/ui                  │
+│ Owns presentation, interaction, client-side UI state, layout.    │
+└──────────────────────────┬───────────────────────────────────────┘
+                           │ typed Tauri invoke only
+┌──────────────────────────▼───────────────────────────────────────┐
+│ src-tauri/ — Tauri v2 application shell                          │
+│ Owns IPC boundary, desktop capabilities, process/window wiring.  │
+└──────────────────────────┬───────────────────────────────────────┘
+                           │ typed Rust calls only
+┌──────────────────────────▼───────────────────────────────────────┐
+│ src/ — Knox Rust library and CLI                                 │
+│ Owns domain data, storage, graph, ingest, commands, and MCP.     │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-### Dependency Rules
+The governing principle is: **Rust owns the data; React owns the experience.**
 
-| Rule | Description |
+### Protected Core Rule
+
+Layers 0–5 are stable domain code. Do not modify `src/core/`, `src/storage/`, `src/graph/`, `src/ingest/`, `src/commands/`, `src/mcp/`, or their integration tests while implementing desktop UI features unless the requested work explicitly requires a domain capability that cannot be exposed through the existing command API. Never move business logic into `src-tauri/` or `ui/` for convenience.
+
+`src/gui/` is obsolete. Never add, restore, or reference `egui`, `eframe`, `rfd`, `handle_gui`, `Commands::Gui`, or `GuiArgs`.
+
+---
+
+## Workspace Layout
+
+```text
+Knox/
+├── Cargo.toml                    # Workspace root; `.` and `src-tauri` members
+├── src/                          # Knox library + slim CLI binary
+│   ├── lib.rs                    # Public Rust library modules; no gui module
+│   ├── main.rs                   # clap CLI dispatch only
+│   ├── core/                     # Layer 0: types, ids, config, errors
+│   ├── storage/                  # Layer 1: SQLite access and migrations
+│   ├── graph/                    # Layer 2: read-only petgraph loading/traversal
+│   ├── ingest/                   # Layer 2: transcript mapping
+│   ├── commands/                 # Layer 3: domain operation orchestration
+│   ├── mcp/                      # Layer 4: MCP transport and handlers
+│   └── cli/                      # Layer 5: clap argument definitions
+├── src-tauri/                    # Tauri v2 desktop shell
+│   ├── Cargo.toml
+│   ├── build.rs
+│   ├── tauri.conf.json
+│   ├── capabilities/default.json
+│   └── src/
+│       ├── main.rs               # Calls knox_desktop_lib::run()
+│       ├── lib.rs                # Builder, plugins, AppState, command registration
+│       └── commands/             # One typed IPC wrapper per domain
+├── ui/                           # Vite React frontend
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── public/fonts/             # Bundled Inter and JetBrains Mono
+│   └── src/
+│       ├── main.tsx
+│       ├── App.tsx
+│       ├── globals.css           # Tailwind v4 and design tokens
+│       ├── services/api.ts       # Only frontend IPC boundary
+│       ├── types/knox.ts         # Rust DTO mirrors
+│       ├── store/useKnoxStore.ts # Zustand UI state
+│       ├── hooks/
+│       └── components/
+│           ├── layout/
+│           ├── graph/
+│           ├── views/
+│           └── ui/               # Vendored shadcn primitives/shared UI
+├── tests/                        # Rust cross-module integration tests
+└── fixtures/                     # Stable test inputs
+```
+
+### Ownership and Dependency Rules
+
+| Area | May depend on | Must not depend on |
+|---|---|---|
+| `src/core` | External crates | Any Knox module |
+| `src/storage` | `core` | Graph, ingest, commands, MCP, Tauri, UI |
+| `src/graph`, `src/ingest` | `core`, `storage` | Commands, MCP, Tauri, UI |
+| `src/commands` | Core, storage, graph, ingest | MCP, Tauri, UI, CLI |
+| `src/mcp`, `src/cli` | Commands and lower layers | Tauri, UI |
+| `src-tauri` | Public Knox library APIs | Private Knox internals, UI implementation |
+| `ui` | `services/api.ts`, UI types/components | Rust source, SQLite, filesystem, shell APIs directly |
+
+Additional rules:
+
+- The Tauri shell is an adapter, never a second domain layer.
+- React never reads the DB or invokes shell/filesystem APIs except through a reviewed Tauri command or approved plugin API.
+- Tauri commands never contain raw SQL, transcript parsing, graph traversal rules, or duplicated command business logic.
+- `src-tauri` must depend on the root `knox` library crate, not copy its code.
+- `src/graph/` remains read-only; only storage owns SQLite connections and raw SQL.
+- `mod.rs` files re-export modules only. Do not hide business logic there.
+
+---
+
+## Desktop Application Configuration
+
+The root Cargo manifest is a workspace with `members = [".", "src-tauri"]` and `resolver = "2"`. The root `knox` package exposes both a library (`src/lib.rs`) and the CLI binary (`src/main.rs`). The desktop crate consumes the root library via `knox = { path = ".." }`.
+
+### Required Tauri Shell Configuration
+
+`src-tauri/tauri.conf.json` must describe a v2 application with:
+
+| Setting | Required value or intent |
 |---|---|
-| **Down only** | A layer may only call layers below it. `cli` → `mcp` → `commands` → `storage`/`graph`/`ingest` → `core`. Never upward. |
-| **Core depends on nothing** | `src/core/` has zero imports from other Knox modules. Only external crates. |
-| **Storage is the DB gatekeeper** | No other module opens a SQLite connection or writes raw SQL. All DB access goes through `src/storage/`. |
-| **Graph never writes** | `src/graph/` is read-only. It loads data from storage into petgraph for traversal. It never mutates the DB. |
-| **MCP never touches storage directly** | MCP handlers call `src/commands/` functions. Commands call storage. MCP is a transport layer, not a business logic layer. |
+| Product | `Knox`, version `1.2.0`, identifier `dev.knox.desktop` |
+| Frontend | `../ui/dist` for release and `http://localhost:5173` for development |
+| Window | Default 1280×820; minimum 960×640; centered; background `#0d1117` |
+| Titlebar | Custom frameless titlebar (`decorations: false`) with a React `data-tauri-drag-region` |
+| Bundle | Active for all supported platform targets; icons from `src-tauri/icons/` |
+| Security | Do not broaden CSP or capabilities without a specific need and review |
 
----
+The system tray is part of the v1.2 desktop behavior: closing the window hides it to the tray while the MCP server can remain alive. Auto-updates are deferred; do not add an updater implementation as incidental work.
 
-## Project File Layout
+### Capabilities and Plugins
 
-```
-knox/
-├── Cargo.toml                      # Workspace root / single crate
-├── Cargo.lock
-├── README.md
-├── LICENSE                          # MIT
-├── goal.md                          # Design decisions (do not delete)
-├── code.md                          # This file (do not delete)
-│
-├── src/
-│   ├── main.rs                      # Entry point: clap parse → dispatch
-│   │
-│   ├── core/                        # Layer 0: Shared types
-│   │   ├── mod.rs                   # Re-exports everything in core
-│   │   ├── types.rs                 # KnoxAction, KnoxNode, KnoxEdge, Actor, Session
-│   │   ├── error.rs                 # KnoxError enum (thiserror)
-│   │   ├── config.rs                # KnoxConfig (KG path, global vs per-project, timeouts)
-│   │   └── ids.rs                   # ID generation (UUID v4 wrappers)
-│   │
-│   ├── storage/                     # Layer 1: SQLite persistence
-│   │   ├── mod.rs                   # Re-exports
-│   │   ├── db.rs                    # Database struct: open, close, migrate
-│   │   ├── migrations.rs            # Schema versioning (CREATE TABLE, ALTER TABLE)
-│   │   ├── nodes.rs                 # CRUD for nodes (Project, File, Action, Actor)
-│   │   ├── edges.rs                 # CRUD for edges (contains, acted_on, targets, etc.)
-│   │   ├── sessions.rs              # Session lifecycle (start, end, timeout, list)
-│   │   └── queries.rs               # Complex read queries (scoped BFS, full-text search, filters)
-│   │
-│   ├── graph/                       # Layer 2: petgraph traversal (read-only)
-│   │   ├── mod.rs                   # Re-exports
-│   │   ├── loader.rs                # Load subgraph / full graph from storage → petgraph
-│   │   ├── traversal.rs             # Path queries, ancestor/descendant walks, causal chains
-│   │   └── cache.rs                 # LRU subgraph cache with write-through invalidation
-│   │
-│   ├── ingest/                      # Layer 2: Transcript ingestion
-│   │   ├── mod.rs                   # Re-exports + auto-detection logic (which mapper to use)
-│   │   ├── mapper.rs                # TranscriptMapper trait definition
-│   │   ├── antigravity.rs           # Antigravity transcript.jsonl mapper (v1)
-│   │   ├── action_group.rs          # Action group clustering state machine
-│   │   └── summary.rs              # Heuristic summary generation (no LLM)
-│   │
-│   ├── commands/                    # Layer 3: Business logic
-│   │   ├── mod.rs                   # Re-exports
-│   │   ├── init.rs                  # knox init: create .knox/, generate knox.md, register project
-│   │   ├── ingest.rs                # knox ingest: read transcript → mapper → storage
-│   │   ├── query.rs                 # knox query: parse pattern → storage/graph → format output
-│   │   ├── status.rs                # knox status: aggregate stats from storage
-│   │   ├── scan.rs                  # knox scan: git staged changes → detect human edits
-│   │   └── hook.rs                  # knox hook install/uninstall: git pre-commit hook management
-│   │
-│   ├── mcp/                         # Layer 4: MCP server
-│   │   ├── mod.rs                   # Re-exports
-│   │   ├── server.rs                # Tokio stdio transport, JSON-RPC dispatch loop
-│   │   ├── protocol.rs              # MCP protocol types (Request, Response, Tool, etc.)
-│   │   ├── tools.rs                 # Tool registration (list of all Knox MCP tools)
-│   │   ├── handlers/                # One handler per MCP tool
-│   │   │   ├── mod.rs
-│   │   │   ├── start_session.rs     # knox_start_session handler
-│   │   │   ├── end_session.rs       # knox_end_session handler
-│   │   │   ├── record_action.rs     # knox_record_action handler
-│   │   │   ├── record_decision.rs   # knox_record_decision handler
-│   │   │   ├── get_context.rs       # knox_get_context handler
-│   │   │   ├── get_history.rs       # knox_get_history handler
-│   │   │   ├── search.rs            # knox_search handler
-│   │   │   ├── list_stale.rs        # knox_list_stale handler
-│   │   │   └── scan_staged.rs       # knox_scan_staged handler
-│   │   └── session_manager.rs       # In-memory session state + 30-min auto-timeout
-│   │
-│   └── cli/                         # Layer 5: CLI argument parsing
-│       ├── mod.rs                   # Re-exports
-│       └── args.rs                  # clap derive structs: KnoxCli, InitArgs, IngestArgs, etc.
-│
-├── tests/                           # Integration tests
-│   ├── test_storage.rs              # SQLite schema + CRUD tests
-│   ├── test_graph.rs                # petgraph loading + traversal tests
-│   ├── test_ingest.rs               # Transcript mapper + action grouping tests
-│   ├── test_mcp.rs                  # MCP tool handler tests (mock stdio)
-│   └── test_commands.rs             # End-to-end command tests
-│
-├── fixtures/                        # Test data
-│   ├── transcript_antigravity.jsonl # Sample Antigravity transcript
-│   ├── knox.db                      # Pre-seeded test database
-│   └── knox_md_sample.md            # Expected knox.md output
-│
-└── .github/
-    └── workflows/
-        └── ci.yml                   # Build + test for Windows, macOS, Linux
-```
+Use only the Tauri plugins specified for this app: dialog, filesystem, and shell. Their permissions must appear explicitly in `src-tauri/capabilities/default.json` alongside `core:default`. Add the narrowest available permission; do not replace scoped permissions with unrestricted access.
 
-### File Naming Rules
+### Frontend Toolchain
 
-| Rule | Example |
+The UI package is ESM and uses these product dependencies:
+
+| Concern | Package |
 |---|---|
-| **One concern per file** | `nodes.rs` does node CRUD. `edges.rs` does edge CRUD. Never both in one file. |
-| **File name = what it contains** | `antigravity.rs` contains the Antigravity mapper. Not `mapper1.rs` or `impl.rs`. |
-| **`mod.rs` only re-exports** | `mod.rs` files contain `pub mod X;` and `pub use X::*;` only. No logic. |
-| **Handlers match tool names** | `handlers/record_action.rs` handles `knox_record_action`. 1:1 mapping. |
-| **No `utils.rs` or `helpers.rs`** | If something is shared, it belongs in `src/core/`. If it's module-specific, it stays in that module. |
+| Desktop IPC | `@tauri-apps/api`, `@tauri-apps/plugin-dialog` |
+| Rendering | `react`, `react-dom` |
+| Graph | `@xyflow/react`, `d3-force`, `elkjs` |
+| Command palette | `cmdk` |
+| State | `zustand` |
+| UI | `lucide-react`, `clsx`, `tailwind-merge`, vendored shadcn/ui primitives |
+| Build/style | Vite, TypeScript, `@tailwindcss/vite`, Tailwind v4 |
+
+`vite.config.ts` uses React and Tailwind plugins, maps `@` to `ui/src`, runs on port 5173 with `strictPort: true`, ignores `src-tauri` in watch mode, and builds for the Tauri WebView targets. Do not introduce a browser-only API or remote backend assumption.
 
 ---
 
-## Module Contracts
+## Rust Core Standards
 
-Each module has a strict public API. Internal details are private.
+### Layer Contracts
 
-### `core` — Layer 0
+| Layer | Responsibility | Contract |
+|---|---|---|
+| Core | Data types, IDs, errors, config | No Knox-layer imports; no business logic. |
+| Storage | SQLite schema, migrations, CRUD | The only DB gatekeeper. |
+| Graph | Read-only graph loading and traversal | Never writes the DB. |
+| Ingest | Transcript detection and mapping | Produces typed `KnoxAction` values. |
+| Commands | Domain orchestration | Calls storage/graph/ingest; is the public domain operation boundary. |
+| MCP | JSON-RPC transport | Deserializes, validates, calls commands, serializes. |
+| CLI | Argument parsing and presentation | Dispatches only; no domain logic. |
 
-```rust
-// src/core/types.rs — The universal data structures. Every layer uses these.
+### Rust Coding Rules
 
-/// A single action recorded in the KG
-pub struct KnoxAction {
-    pub id: ActionId,
-    pub actor: String,              // free string: "gemini", "cursor", "human"
-    pub action_type: String,        // free string: "write", "plan", "decide", "debug"
-    pub summary: String,
-    pub files: Vec<String>,         // relative paths
-    pub tags: Vec<String>,
-    pub confidence: Option<f64>,    // 0.0–1.0, hint only
-    pub timestamp: DateTime<Utc>,
-    pub session_id: Option<SessionId>,
-    pub parent_action_id: Option<ActionId>,
-    pub supersedes: Option<ActionId>,
-    pub is_current: bool,           // false if superseded by another action
-}
+- Use `KnoxError` and `KnoxResult<T>` in library code. `anyhow` is allowed only at binary/application entry points for top-level presentation.
+- Propagate expected failures with `?`. Do not `unwrap()` or `expect()` in production core code.
+- Public functions need `///` documentation describing behavior, returned data, and failure modes.
+- Use typed structs between layers. Deserialize JSON only at a transport boundary (MCP or Tauri), then pass typed values.
+- Keep functions below 50 lines where practical. At more than five parameters, define an input struct.
+- Default to private; make an item `pub` only when a higher layer needs it.
+- Do not create `utils.rs` or `helpers.rs`. Put shared domain utilities in their proper core/domain module.
+- Do not silently discard errors (`let _ = ...`). Propagate, intentionally handle, or log them.
+- Avoid unnecessary `clone()`; borrow unless ownership is genuinely required.
 
-/// Unique ID wrapper (UUID v4 string)
-pub struct ActionId(pub String);
-pub struct SessionId(pub String);
-pub struct ProjectId(pub String);
+### Persistence Rules
 
-/// A session represents one continuous work block
-pub struct Session {
-    pub id: SessionId,
-    pub actor: String,
-    pub project: Option<String>,
-    pub started_at: DateTime<Utc>,
-    pub ended_at: Option<DateTime<Utc>>,
-    pub is_open: bool,
-}
+- No raw SQL outside `src/storage/`.
+- Migrations are versioned; never edit an already-released migration to change production data shape.
+- Knox history is append-only: do not add destructive deletes for actions. Use `is_current` and supersession links.
+- Store UUIDs as text and timestamps as UTC RFC 3339 text.
+- Rust storage tests use `KnoxDb::open_memory()` whenever filesystem behavior is not under test.
 
-/// Query filters for knox_get_context / knox_search
-pub struct QueryFilter {
-    pub file_path: Option<String>,
-    pub project: Option<String>,
-    pub session_id: Option<SessionId>,
-    pub actor: Option<String>,
-    pub since: Option<DateTime<Utc>>,
-    pub current_only: bool,         // default: true
-    pub tags: Vec<String>,
-    pub limit: usize,               // default: 20
-}
+### Core Data Contract
 
-/// Query results — flat list
-pub struct QueryResult {
-    pub results: Vec<KnoxAction>,
-    pub total_count: usize,
-    pub has_more: bool,
-}
-```
+These are domain-owned Rust concepts. Tauri and the UI mirror their serialized shape; neither redefines their semantics.
+
+| Type | Required meaning |
+|---|---|
+| `KnoxAction` | One recorded action: ID, actor, free-form action type, summary, files, tags, confidence, timestamp, optional session/parent/supersedes links, and `is_current`. |
+| `Session` | Continuous actor work block with optional project, start/end timestamps, and open/closed state. |
+| `QueryFilter` | Optional file/project/session/actor/since filters, tags, current-only switch, and bounded limit. |
+| `QueryResult` | Flat action list plus `total_count` and `has_more`. |
+| `StatusReport` | Aggregate counts and distributions required by the desktop status/dashboard views. |
+| `IngestReport` | Imported-action count, touched-file count, created-session count, and relevant timing/preview metadata. |
+| `ScanReport` | Human-edit detection summary and associated action/file results. |
+
+`ActionId`, `SessionId`, and `ProjectId` remain UUID-v4 string wrappers. They are not interchangeable raw strings inside the Rust core.
+
+### Existing Domain Interfaces
+
+Keep the module contracts explicit:
 
 ```rust
-// src/core/error.rs — All errors in one enum. Never use anyhow in library code.
-
-#[derive(Debug, thiserror::Error)]
-pub enum KnoxError {
-    #[error("Database error: {0}")]
-    Database(#[from] rusqlite::Error),
-
-    #[error("Session not found: {0}")]
-    SessionNotFound(String),
-
-    #[error("Session already closed: {0}")]
-    SessionClosed(String),
-
-    #[error("Action not found: {0}")]
-    ActionNotFound(String),
-
-    #[error("Invalid input: {0}")]
-    InvalidInput(String),
-
-    #[error("Transcript parse error: {0}")]
-    ParseError(String),
-
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
-
-    #[error("Git error: {0}")]
-    Git(String),
-}
-
-pub type KnoxResult<T> = Result<T, KnoxError>;
-```
-
-### `storage` — Layer 1
-
-```rust
-// src/storage/db.rs — The ONLY struct that holds a DB connection
-
-pub struct KnoxDb {
-    conn: rusqlite::Connection,     // private — nobody else touches this
-}
-
-impl KnoxDb {
-    /// Open or create the database at the given path. Runs migrations.
-    pub fn open(path: &Path) -> KnoxResult<Self>;
-
-    /// Open an in-memory database (for tests)
-    pub fn open_memory() -> KnoxResult<Self>;
-
-    /// Run all pending schema migrations
-    fn migrate(&self) -> KnoxResult<()>;  // private
-}
-```
-
-```rust
-// src/storage/nodes.rs — Node CRUD. Every fn takes &KnoxDb.
-
+// Storage owns the connection and all schema work.
+pub struct KnoxDb { /* private Connection */ }
 pub fn insert_action(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<ActionId>;
 pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>>;
-pub fn mark_superseded(db: &KnoxDb, old_id: &ActionId, new_id: &ActionId) -> KnoxResult<()>;
 pub fn query_actions(db: &KnoxDb, filter: &QueryFilter) -> KnoxResult<QueryResult>;
-```
 
-```rust
-// src/storage/sessions.rs — Session lifecycle
-
-pub fn start_session(db: &KnoxDb, actor: &str, project: Option<&str>) -> KnoxResult<Session>;
-pub fn end_session(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Session>;
-pub fn timeout_stale_sessions(db: &KnoxDb, max_idle: Duration) -> KnoxResult<Vec<SessionId>>;
-pub fn get_session(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Option<Session>>;
-```
-
-### `graph` — Layer 2 (read-only)
-
-```rust
-// src/graph/loader.rs — Load from storage into petgraph
-
-/// Load only the subgraph reachable from the given anchor nodes (bounded BFS)
-pub fn load_subgraph(db: &KnoxDb, anchors: &[ActionId], max_depth: usize) -> KnoxResult<KnoxGraph>;
-
-/// Load the entire graph (expensive, cached)
+// Graph loads and traverses persisted data; it does not mutate it.
+pub fn load_subgraph(db: &KnoxDb, anchors: &[ActionId], max_depth: usize)
+    -> KnoxResult<KnoxGraph>;
 pub fn load_full_graph(db: &KnoxDb) -> KnoxResult<KnoxGraph>;
 
-/// The in-memory graph type
-pub type KnoxGraph = petgraph::Graph<KnoxAction, KnoxEdge, petgraph::Directed>;
-```
-
-### `ingest` — Layer 2
-
-```rust
-// src/ingest/mapper.rs — Trait that every tool's mapper implements
-
+// Ingest detects and maps a transcript into typed domain actions.
 pub trait TranscriptMapper: Send + Sync {
     fn tool_name(&self) -> &str;
     fn can_parse(&self, raw: &[u8]) -> bool;
@@ -334,392 +218,390 @@ pub trait TranscriptMapper: Send + Sync {
 }
 ```
 
-```rust
-// src/ingest/mod.rs — Auto-detection
-
-/// All registered mappers. Add new ones here.
-pub fn all_mappers() -> Vec<Box<dyn TranscriptMapper>> {
-    vec![
-        Box::new(antigravity::AntigravityMapper),
-        // Future: Box::new(cursor::CursorMapper),
-    ]
-}
-
-/// Detect which mapper handles this file, then map it
-pub fn ingest_file(path: &Path) -> KnoxResult<Vec<KnoxAction>>;
-```
-
-### `commands` — Layer 3
-
-```rust
-// src/commands/init.rs
-pub fn cmd_init(project_path: &Path, config: &KnoxConfig) -> KnoxResult<()>;
-
-// src/commands/ingest.rs
-pub fn cmd_ingest(transcript_path: &Path, db: &KnoxDb) -> KnoxResult<IngestReport>;
-
-// src/commands/query.rs
-pub fn cmd_query(pattern: &str, db: &KnoxDb, graph: Option<&KnoxGraph>) -> KnoxResult<QueryResult>;
-
-// src/commands/status.rs
-pub fn cmd_status(db: &KnoxDb) -> KnoxResult<StatusReport>;
-
-// src/commands/scan.rs
-pub fn cmd_scan(project_path: &Path, db: &KnoxDb) -> KnoxResult<ScanReport>;
-```
-
-### `mcp` — Layer 4
-
-```rust
-// src/mcp/server.rs — The MCP stdio event loop
-
-pub async fn run_mcp_server(db: KnoxDb) -> KnoxResult<()>;
-// Reads JSON-RPC from stdin, dispatches to handlers, writes responses to stdout.
-// Runs session timeout checker on a tokio interval.
-```
-
-```rust
-// src/mcp/handlers/record_action.rs — Example handler pattern
-
-pub fn handle_record_action(
-    db: &KnoxDb,
-    params: serde_json::Value,
-) -> KnoxResult<serde_json::Value> {
-    // 1. Deserialize params into RecordActionInput
-    // 2. Validate required fields
-    // 3. Call commands::insert_action(db, ...)
-    // 4. Serialize result into JSON response
-}
-```
+---
 
 ---
 
-## Coding Standards
+## Tauri IPC Standards
 
-### Naming
+`src-tauri` translates desktop requests into public Knox APIs. It may manage shared app state and plugins, but it must remain thin and domain-free.
 
-| Element | Convention | Example |
+### Command Organization
+
+Use one command file per domain:
+
+```text
+src-tauri/src/commands/
+├── status.rs
+├── query.rs
+├── graph.rs
+├── ingest.rs
+├── scan.rs
+├── sessions.rs
+├── workspace.rs
+├── config.rs
+└── mod.rs
+```
+
+Each command follows this shape:
+
+1. Receive a serializable, typed UI input.
+2. Acquire only the state required for the operation.
+3. Call a public `knox` command/storage API.
+4. Return a serializable typed DTO, converting `KnoxError` to a user-safe string at the IPC boundary.
+
+```rust
+#[tauri::command]
+pub async fn get_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<StatusReport, String> {
+    let db = state.db.lock().await;
+    knox::commands::cmd_status(&db).map_err(|error| error.to_string())
+}
+```
+
+Rules:
+
+- Register every command explicitly in `tauri::generate_handler!` in `src-tauri/src/lib.rs`.
+- Put shared desktop state in `AppState`; use `Arc<tokio::sync::Mutex<KnoxDb>>` for the shared DB connection as specified by the application shell.
+- Request the minimum capability/plugin permission required. Update `capabilities/default.json` when an IPC feature needs a new permission.
+- Do not expose generic file, shell, SQL, or arbitrary-command execution endpoints.
+- Keep `tauri.conf.json` and CSS background colors aligned (`#0d1117`) to prevent startup flashing.
+- Desktop-only work belongs in Tauri commands/plugins, not React event handlers.
+
+### IPC Contract Discipline
+
+- Tauri command names are `snake_case`; UI wrapper methods are `camelCase`.
+- Rust response structs and TypeScript interfaces must have matching serialized field names and nullability.
+- Make changes in this order: Rust domain DTO/API → Tauri command → `ui/src/types/knox.ts` → `ui/src/services/api.ts` → view/hook.
+- Never call `invoke()` outside `ui/src/services/api.ts`. This preserves one searchable IPC boundary.
+- Return actionable, safe errors. Frontend code must surface async failures via the standard toast/error state; never swallow them.
+
+### Required Desktop Command Surface
+
+The following is the supported IPC inventory. Keep each mapping one-to-one; do not create a broad “do anything” command.
+
+| Invoke name | Command module | Rust operation / purpose |
 |---|---|---|
-| Crate | `snake_case` | `knox` |
-| Modules | `snake_case` | `action_group`, `session_manager` |
-| Types / Structs / Enums | `PascalCase` | `KnoxAction`, `QueryFilter`, `KnoxError` |
-| Functions | `snake_case` | `insert_action`, `load_subgraph` |
-| Constants | `SCREAMING_SNAKE_CASE` | `DEFAULT_SESSION_TIMEOUT`, `MAX_SUMMARY_LENGTH` |
-| MCP tool names | `snake_case` with `knox_` prefix | `knox_get_context`, `knox_record_action` |
-| Test functions | `test_<module>_<behavior>` | `test_storage_insert_action_returns_id` |
+| `get_status` | `status` | `cmd_status`; dashboard/statistics aggregates |
+| `query_actions` | `query` | Query actions with typed filters and bounded results |
+| `get_action` | `query` | Retrieve one action for the inspector |
+| `get_graph_data` | `graph` | Load graph-safe data for the React Flow canvas |
+| `ingest_transcript` | `ingest` | `cmd_ingest` for a selected transcript path |
+| `init_project` | `workspace` | `cmd_init` for the chosen workspace |
+| `scan_staged` | `scan` | `cmd_scan` for staged human edits |
+| `install_hook` | `workspace` | Install the project hook through the command layer |
+| `uninstall_hook` | `workspace` | Remove the project hook through the command layer |
+| `start_session` | `sessions` | Start a persisted session |
+| `end_session` | `sessions` | End a persisted session |
+| `get_sessions` | `sessions` | List open/recent sessions |
+| `get_config` | `config` | Return safe configuration required by the UI |
+| `open_file_dialog` | `dialog` | Native file selection only; never arbitrary file access |
 
-### Error Handling
+If a requested UI control needs an operation absent from this table, first determine whether it can be derived from existing data. If not, add a narrowly named domain command, DTO, Tauri wrapper, frontend type, and API method together. Do not fake a working UI control or use a placeholder shell command.
 
-| Rule | Detail |
+### Tauri File Responsibilities
+
+| File | Responsibility |
 |---|---|
-| **Use `KnoxError` everywhere** | No `anyhow` in library code. `anyhow` only in `main.rs` for top-level error formatting. |
-| **`?` propagation** | Use `?` to propagate errors up the call stack. Don't `unwrap()` or `expect()` in library code. |
-| **Context via error variants** | Add context by matching on `KnoxError` variants, not by wrapping in strings. |
-| **`unwrap()` in tests only** | Tests can `unwrap()`. Production code never. |
-
-### Comments & Documentation
-
-| Rule | Detail |
-|---|---|
-| **Every public fn gets a doc comment** | `/// Does X. Returns Y. Fails with Z.` |
-| **No commented-out code** | Delete it. Git has history. |
-| **`// TODO:` for known gaps** | Always include your name and date: `// TODO(diva, 2026-10-29): Add Cursor mapper` |
-| **Module-level doc comment** | Every `mod.rs` starts with `//! This module handles...` |
-
-### Function Size
-
-| Rule | Detail |
-|---|---|
-| **Max 50 lines per function** | If a function exceeds 50 lines, extract a helper. |
-| **Max 5 parameters** | If a function takes more than 5 args, group them into a struct. |
-| **Single return type** | Every function returns `KnoxResult<T>` or a simple type. No multi-return tuples of more than 3 elements. |
-
-### Testing
-
-| Rule | Detail |
-|---|---|
-| **Unit tests in the same file** | `#[cfg(test)] mod tests { ... }` at the bottom of each `.rs` file for unit tests. |
-| **Integration tests in `tests/`** | Cross-module tests go in the `tests/` directory. |
-| **Use in-memory DB for tests** | `KnoxDb::open_memory()` — no file I/O in tests. Fast, isolated. |
-| **One assert per test** (preferred) | Each test function tests one behavior. Name it after that behavior. |
-| **Test the contract, not the implementation** | Test public API results, not internal state. |
+| `src-tauri/src/main.rs` | Minimal binary entry; calls `knox_desktop_lib::run()`. |
+| `src-tauri/src/lib.rs` | Constructs `AppState`, initializes plugins/tray/window lifecycle, and registers commands. |
+| `src-tauri/src/commands/mod.rs` | Declares command modules only. |
+| `src-tauri/src/commands/*.rs` | One serializable desktop adapter domain per file. |
+| `src-tauri/build.rs` | Only invokes `tauri_build::build()`. |
+| `src-tauri/capabilities/default.json` | Explicit permission declaration, not runtime logic. |
 
 ---
 
-## SQLite Schema
+## React Frontend Standards
 
-```sql
--- Version 1 schema. Managed by src/storage/migrations.rs
+### Foundation
 
-CREATE TABLE IF NOT EXISTS knox_meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
--- Stores: schema_version, created_at, knox_version
+Use React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui primitives, Zustand, and `@xyflow/react` for the graph. Keep the app desktop-first; it does not require a web router or server API.
 
-CREATE TABLE IF NOT EXISTS projects (
-    id         TEXT PRIMARY KEY,        -- UUID v4
-    name       TEXT NOT NULL,
-    path       TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL            -- ISO 8601
-);
+- Use the `@/` alias for `ui/src` imports.
+- Use `type` imports for values used only in type position.
+- Put all Knox DTO mirrors in `ui/src/types/knox.ts`; do not redefine them separately per component.
+- Put all invoke wrappers in `ui/src/services/api.ts` as `KnoxAPI` methods.
+- Zustand stores global UI state only: active view, loaded status, selected action, palette/modal visibility, and other cross-view state. Keep transient field input local to the relevant component.
+- Prefer composition of shadcn primitives and shared Knox components over copy/pasted markup.
+- Use Lucide icons; do not introduce an uncoordinated icon library.
 
-CREATE TABLE IF NOT EXISTS sessions (
-    id         TEXT PRIMARY KEY,        -- UUID v4
-    actor      TEXT NOT NULL,
-    project_id TEXT,                    -- nullable (global sessions)
-    started_at TEXT NOT NULL,
-    ended_at   TEXT,                    -- null if still open
-    is_open    INTEGER NOT NULL DEFAULT 1,
-    FOREIGN KEY (project_id) REFERENCES projects(id)
-);
+### Component Boundaries
 
-CREATE TABLE IF NOT EXISTS actions (
-    id               TEXT PRIMARY KEY,  -- UUID v4
-    actor            TEXT NOT NULL,     -- free string: "gemini", "human", etc.
-    action_type      TEXT NOT NULL,     -- free string: "write", "plan", etc.
-    summary          TEXT NOT NULL,
-    confidence       REAL,             -- nullable, 0.0–1.0
-    timestamp        TEXT NOT NULL,     -- ISO 8601
-    session_id       TEXT,
-    parent_action_id TEXT,              -- causal link
-    superseded_by    TEXT,              -- ID of the action that replaced this one
-    is_current       INTEGER NOT NULL DEFAULT 1,
-    FOREIGN KEY (session_id) REFERENCES sessions(id),
-    FOREIGN KEY (parent_action_id) REFERENCES actions(id),
-    FOREIGN KEY (superseded_by) REFERENCES actions(id)
-);
+| Directory | Purpose |
+|---|---|
+| `components/layout/` | App shell, title/header, sidebar, hash router |
+| `components/views/` | Route-level dashboard, query, stats, ingest, scan, MCP, workspace views |
+| `components/graph/` | React Flow canvas, nodes, edges, inspector, graph-only controls |
+| `components/ui/` | Vendored shadcn primitives and reusable Knox UI such as badges, rows, KPI cards |
+| `hooks/` | Data lifecycle, keyboard map, graph layout; no generic dumping ground |
+| `services/` | Typed IPC calls only |
 
-CREATE TABLE IF NOT EXISTS action_files (
-    action_id TEXT NOT NULL,
-    file_path TEXT NOT NULL,            -- relative to project root
-    PRIMARY KEY (action_id, file_path),
-    FOREIGN KEY (action_id) REFERENCES actions(id)
-);
+Naming:
 
-CREATE TABLE IF NOT EXISTS action_tags (
-    action_id TEXT NOT NULL,
-    tag       TEXT NOT NULL,
-    PRIMARY KEY (action_id, tag),
-    FOREIGN KEY (action_id) REFERENCES actions(id)
-);
+- React components: `PascalCase.tsx` and `PascalCase` exports.
+- Hooks: `useSomething.ts` and `useSomething` exports.
+- Non-component TypeScript modules: `camelCase.ts`.
+- Tauri commands/Rust files: `snake_case`.
 
--- Performance indexes (Tier 1 query acceleration)
-CREATE INDEX IF NOT EXISTS idx_actions_session     ON actions(session_id);
-CREATE INDEX IF NOT EXISTS idx_actions_actor        ON actions(actor);
-CREATE INDEX IF NOT EXISTS idx_actions_timestamp    ON actions(timestamp);
-CREATE INDEX IF NOT EXISTS idx_actions_is_current   ON actions(is_current);
-CREATE INDEX IF NOT EXISTS idx_actions_parent       ON actions(parent_action_id);
-CREATE INDEX IF NOT EXISTS idx_action_files_path    ON action_files(file_path);
-CREATE INDEX IF NOT EXISTS idx_action_files_action  ON action_files(action_id);
-CREATE INDEX IF NOT EXISTS idx_action_tags_tag      ON action_tags(tag);
+### TypeScript IPC Contract
 
--- Full-text search on summaries
-CREATE VIRTUAL TABLE IF NOT EXISTS actions_fts USING fts5(
-    summary,
-    content='actions',
-    content_rowid='rowid'
-);
+`ui/src/types/knox.ts` mirrors Rust serialized DTOs. The canonical action shape is:
+
+```ts
+export interface KnoxAction {
+  id: string;
+  actor: string;
+  action_type: string;
+  summary: string;
+  files: string[];
+  tags: string[];
+  confidence: number | null;
+  timestamp: string;
+  session_id: string | null;
+  parent_action_id: string | null;
+  supersedes: string | null;
+  is_current: boolean;
+}
 ```
 
-### Schema Rules
+`Session`, `StatusReport`, `QueryResult`, `ScanReport`, and `IngestReport` belong in this same file. Do not use `any`, broad index signatures, or UI-only substitutes for a known IPC shape.
 
-| Rule | Detail |
+`ui/src/services/api.ts` is the only invoke adapter. Its methods return typed promises and retain the Rust snake-case argument keys used by Tauri:
+
+```ts
+export const KnoxAPI = {
+  getStatus: () => invoke<StatusReport>("get_status"),
+  queryActions: (params: QueryActionsInput) =>
+    invoke<QueryResult>("query_actions", params),
+  ingestTranscript: (path: string) =>
+    invoke<IngestReport>("ingest_transcript", { path }),
+  scanStaged: (project: string) =>
+    invoke<ScanReport>("scan_staged", { project }),
+};
+```
+
+Keep TypeScript request-input interfaces adjacent to this API layer when they are only transport inputs. Promote a type to `types/knox.ts` only when it is a stable shared DTO.
+
+### Required App Shell
+
+The primary layout is a three-zone desktop shell:
+
+```text
+Sidebar (w-56) | Main content (flex-1) | Detail inspector (w-80, conditional)
+```
+
+The sidebar contains Dashboard, Graph, Query, Stats, Ingest, Scan, MCP, and Workspace navigation plus DB/MCP status. The inspector presents the selected action and must be driven from shared selection state so graph and query views behave consistently.
+
+Use a hash-based desktop router unless a change explicitly introduces a router dependency. View navigation must be keyboard-accessible and represented in the command palette.
+
+### Visual System
+
+The UI is dark-first and dense: Linear/Raycast/Cursor quality, never generic dashboard styling.
+
+- Base colors use the defined OKLCH tokens in `globals.css`: background, card, popover, sidebar, border, primary, success, warning, danger, plan, muted, foreground.
+- Use elevation through color steps and 1px `border-border` strokes rather than large drop shadows. Command palette is the deliberate exception and may use a frosted backdrop.
+- Use Inter Variable for UI text and JetBrains Mono for paths, IDs, JSON, and timestamps. Bundle fonts in `ui/public/fonts/`.
+- Keep the compact scale: metadata around 10px, body 12–13px, headings around 14px.
+- Use `focus-visible` states and sufficient contrast. Never rely on hue alone to communicate action state.
+- Use the semantic action colors consistently: write/success green, plan violet, decide/warning amber, debug/danger red.
+- Avoid arbitrary raw hex values in components; add/use semantic tokens instead.
+
+#### Design Tokens
+
+Define these values once in `ui/src/globals.css` and reference them through Tailwind’s inline theme mapping:
+
+| Token | OKLCH | Role |
+|---|---|---|
+| `--background` | `oklch(0.128 0.005 285)` | Window floor |
+| `--card` | `oklch(0.162 0.006 285)` | Raised panels and cards |
+| `--popover` | `oklch(0.180 0.006 285)` | Menus, modals, popovers |
+| `--sidebar` | `oklch(0.145 0.005 285)` | Navigation rail |
+| `--border` | `oklch(0.245 0.006 285)` | Structural 1px lines |
+| `--muted-foreground` | `oklch(0.440 0.010 285)` | Secondary text and hints |
+| `--primary` | `oklch(0.623 0.214 260)` | Indigo selection, actions, focus |
+| `--success` | `oklch(0.620 0.160 160)` | Write/success state |
+| `--warning` | `oklch(0.740 0.180 80)` | Decide/warning state |
+| `--danger` | `oklch(0.580 0.200 25)` | Debug/error state |
+| `--plan` | `oklch(0.620 0.185 295)` | Plan actions |
+
+Use 4px, 6px, 8px, and 12px as the standard radius scale. The only intentional visual depth levels are base background, card, popover, and backdrop-blurred overlay. Avoid oversized corner radii, gradients, and marketing-site whitespace.
+
+### Async UX Requirements
+
+Every invoke-driven interaction must handle all three states:
+
+- loading: disabled relevant control plus a skeleton/spinner;
+- success: update the owning state and show a concise toast when useful;
+- failure: preserve recoverable input and show a human-readable error.
+
+Provide intentional empty states for every data view. Do not leave blank panels or silently fail requests.
+
+### Keyboard and Accessibility
+
+- `Ctrl+K` / `Cmd+K` opens the command palette from any view.
+- `G D`, `G G`, `G Q`, `G S`, `G I`, `G C`, `G M`, `G W` navigate to Dashboard, Graph, Query, Stats, Ingest, Scan, MCP, and Workspace.
+- `Escape` closes the current palette/dialog; `F5` refreshes current view data.
+- Use native semantic controls or accessible shadcn primitives. Tooltips alone never supply an accessible name.
+- Support keyboard navigation in tables, list rows, filters, dialogs, and graph selection.
+
+---
+
+## View-Specific Implementation Contracts
+
+| View | Required behavior |
 |---|---|
-| **Append-only** | `INSERT` and `UPDATE is_current/superseded_by` only. No `DELETE`. |
-| **No raw SQL outside `src/storage/`** | Every query is a function in `storage/queries.rs` or the relevant CRUD module. |
-| **Migrations are versioned** | `knox_meta.schema_version` tracks the current version. New columns/tables go in new migration functions. |
-| **UUIDs as text** | SQLite has no native UUID type. Store as TEXT, generate in Rust. |
-| **Timestamps as ISO 8601 text** | `chrono::DateTime<Utc>.to_rfc3339()`. Sortable as strings. |
+| Dashboard | Status KPI cards, recent actions, diagnostics, and quick actions sourced through `KnoxAPI`. |
+| Graph | React Flow canvas with custom action/file nodes, causal edges, filters, search highlight, minimap, controls, layout switcher, and selected-action inspector. |
+| Query | Search plus file/actor/type/date/current filters, bounded results, and the shared action inspector. |
+| Stats | Status-derived KPI cards, actor/type distributions, and inline-SVG seven-day trend. |
+| Ingest | `.jsonl` drag/drop and native picker, format indication, disabled-until-selected ingest, report and preview. |
+| Scan | Workspace path, staged-edit scan, detected-file results, and hook management. |
+| MCP | Status, transport/config copy, tool documentation, and start/stop actions only when supported by an explicit backend command. |
+| Workspace | Path setup, initialization, hook setup, and generated `knox.md` preview through supported commands. |
+
+For the graph, keep custom nodes memoized. Use React Flow nodes/edges as render data, not as a second database. Layout selection is presentation behavior: D3 force, ELK hierarchy, and Dagre are allowed; domain relationship derivation remains Rust-owned.
+
+### Dashboard and Stats Detail
+
+Dashboard uses four top-level metrics: total actions, sessions, tracked projects, and last update. Below, render a recent-actions feed (latest 15 actions) and diagnostics (database path, version, hook status). Quick actions initiate only supported operations such as init, ingest, and MCP setup.
+
+Stats repeats the KPI layer and adds actor/type horizontal distributions plus a seven-day action trend rendered as an inline SVG. Do not add a charting library for these simple charts. Distribution colors must reuse the shared actor/action badge mappings.
+
+### Query and Detail Inspector Detail
+
+The Query Console has a full-width search input and a compact filter row: file-prefix filter, actor and action-type multi-selects, date range, current-only switch, and a 20/50/100 limit. Search is explicit (`Enter` or Search button), results are bounded/virtualized or safely scrollable, and pagination honours `has_more`.
+
+`ActionDetail` is shared by query and graph contexts. It shows full action metadata, files, tags, confidence, session/timestamp, and causal links. It never independently fetches or recomputes graph semantics when the selected action already supplies them.
+
+### Ingest Detail
+
+The ingest view accepts `.jsonl` via drag/drop and the native dialog. It displays filename, size, detected mapper format, an ingest button disabled until a valid input is selected, progress while invoking, and an `IngestReport` afterward. Show at most the first five parsed actions in the preview; never render an unbounded transcript in the UI.
+
+### Knowledge Graph Detail
+
+`KnoxGraphCanvas` fills the content zone and supplies `fitView`, pan/zoom, a minimap, built-in controls, filters, search highlighting, and layout selection.
+
+- `ActionNode`: 180px wide, 8px radius, action-color border, type icon, actor badge, truncated summary, file-count chip, muted timestamp/session, top target handle, and bottom source handle.
+- `FileNode`: compact path pill with a truncated path (about 30 characters) and connection count.
+- `CausalEdge`: smooth-step relation with a small relationship label. Use dashed strokes for supersession and solid strokes for follows/targets.
+- Layout selector: Force (D3), Hierarchical (ELK), and Dagre. Any layout calculation transforms only UI node positions.
+- Inspector: node selection updates the global selected action and opens/refreshes the shared detail rail.
+
+Target graph performance is smooth interaction at 200+ nodes. Memoize custom nodes and avoid recomputing all layouts on unrelated UI-state changes.
+
+### Scan, MCP, and Workspace Detail
+
+Scan accepts a project path, provides a native folder chooser, invokes the staged-edit scan, and reports detected files with diff statistics and recorded action association. Hook install/uninstall controls reflect actual backend status and must not optimistically claim success.
+
+MCP presents the transport/status, an expandable documented tool list, a copyable connection configuration, and the `knox serve --stdio` command. Start/stop controls require explicit backend support; never invent a local process-management path in the UI.
+
+Workspace is a four-step flow: select path, initialize, install hook, verify. It shows the generated `knox.md` preview only from backend data and retains path/error state until the user resolves it.
 
 ---
 
 ## Implementation Order
 
-Build bottom-up, layer by layer. Each phase produces a testable, runnable increment.
+Build vertically in phases. Do not begin a phase that consumes an unstable lower layer, and keep each phase independently buildable.
 
-### Phase 1: Foundation (core + storage)
-
-```
-Goal: Can create a DB, insert actions, query them back.
-Test: cargo test — all storage tests pass.
-
-Build order:
-  1. src/core/ids.rs          — ActionId, SessionId, ProjectId (UUID wrappers)
-  2. src/core/error.rs        — KnoxError enum
-  3. src/core/types.rs        — KnoxAction, Session, QueryFilter, QueryResult
-  4. src/core/config.rs       — KnoxConfig (paths, defaults)
-  5. src/core/mod.rs           — re-exports
-  6. src/storage/migrations.rs — CREATE TABLE statements
-  7. src/storage/db.rs         — KnoxDb::open, KnoxDb::open_memory, migrate()
-  8. src/storage/nodes.rs      — insert_action, get_action, mark_superseded
-  9. src/storage/edges.rs      — link actions (parent, supersede, follows)
- 10. src/storage/sessions.rs   — start_session, end_session, timeout_stale
- 11. src/storage/queries.rs    — query_actions with QueryFilter, full-text search
- 12. src/storage/mod.rs        — re-exports
- 13. tests/test_storage.rs     — full test suite for storage layer
-```
-
-### Phase 2: Graph (petgraph layer)
-
-```
-Goal: Can load a subgraph from SQLite into petgraph, traverse causal chains.
-Test: cargo test — graph tests pass with seeded DB.
-
-Build order:
-  1. src/graph/loader.rs      — load_subgraph (bounded BFS), load_full_graph
-  2. src/graph/traversal.rs   — causal_chain, ancestors, descendants, path_between
-  3. src/graph/cache.rs       — LRU cache (project+file → subgraph)
-  4. src/graph/mod.rs          — re-exports
-  5. tests/test_graph.rs       — traversal + cache tests
-```
-
-### Phase 3: Ingest (transcript mapping)
-
-```
-Goal: Can parse an Antigravity transcript.jsonl → Vec<KnoxAction>, store in DB.
-Test: cargo test — ingest test with fixture transcript.
-
-Build order:
-  1. src/ingest/mapper.rs         — TranscriptMapper trait
-  2. src/ingest/action_group.rs   — ActionGrouper state machine (IDLE→COLLECTING→EMIT)
-  3. src/ingest/summary.rs        — heuristic summary generators
-  4. src/ingest/antigravity.rs     — AntigravityMapper implementation
-  5. src/ingest/mod.rs             — all_mappers(), ingest_file()
-  6. fixtures/transcript_antigravity.jsonl — sample test data
-  7. tests/test_ingest.rs          — mapper + grouping tests
-```
-
-### Phase 4: CLI Commands
-
-```
-Goal: `knox init`, `knox ingest`, `knox query`, `knox status` work end-to-end.
-Test: cargo run -- init . / cargo run -- status
-
-Build order:
-  1. src/cli/args.rs          — clap derive structs
-  2. src/commands/init.rs     — create .knox/, generate knox.md, register project
-  3. src/commands/ingest.rs   — orchestrate: detect mapper → parse → store
-  4. src/commands/query.rs    — parse pattern → query storage/graph → format output
-  5. src/commands/status.rs   — aggregate stats
-  6. src/commands/scan.rs     — git diff --cached → detect human edits
-  7. src/commands/hook.rs     — install/uninstall git pre-commit hook
-  8. src/commands/mod.rs      — re-exports
-  9. src/cli/mod.rs           — re-exports
- 10. src/main.rs              — match on clap command → dispatch to commands
- 11. tests/test_commands.rs   — end-to-end CLI tests
-```
-
-### Phase 5: MCP Server
-
-```
-Goal: `knox serve` starts, IDE agents connect and use all tools.
-Test: echo JSON-RPC to stdin, verify stdout responses.
-
-Build order:
-  1. src/mcp/protocol.rs          — MCP JSON-RPC types (Request, Response, Error)
-  2. src/mcp/tools.rs             — tool registration (name, description, schema)
-  3. src/mcp/session_manager.rs   — in-memory session state + timeout task
-  4. src/mcp/handlers/start_session.rs
-  5. src/mcp/handlers/end_session.rs
-  6. src/mcp/handlers/record_action.rs
-  7. src/mcp/handlers/record_decision.rs
-  8. src/mcp/handlers/get_context.rs
-  9. src/mcp/handlers/get_history.rs
- 10. src/mcp/handlers/search.rs
- 11. src/mcp/handlers/list_stale.rs
- 12. src/mcp/handlers/scan_staged.rs
- 13. src/mcp/handlers/mod.rs
- 14. src/mcp/server.rs             — tokio stdin/stdout loop + dispatch
- 15. src/mcp/mod.rs
- 16. tests/test_mcp.rs             — mock stdio tool tests
-```
-
-### Phase 6: Integration & Polish
-
-```
-Goal: Everything works together. Ready for release.
-
-Tasks:
-  1. End-to-end test: init → ingest real transcript → serve → query via MCP
-  2. knox.md generation: verify the template renders correctly
-  3. Error messages: human-readable, actionable
-  4. Logging: tracing subscriber for debug output
-  5. CI: GitHub Actions workflow for Windows, macOS, Linux
-  6. README.md: installation, quickstart, examples
-  7. Cross-compile test: cargo build on all three platforms
-```
-
----
-
-## Anti-Patterns — DO NOT
-
-| Anti-Pattern | Why It's Bad | Do This Instead |
+| Phase | Deliverable | Required completion signal |
 |---|---|---|
-| **God file** — putting multiple concerns in one file | Hard to find things, merge conflicts, cognitive overload | One file per concern. Split early. |
-| **Layer skipping** — MCP handler directly calling `rusqlite` | Breaks the architecture. Untestable. | MCP → commands → storage. Always. |
-| **Stringly-typed internals** — passing raw JSON between layers | Loses type safety. Runtime crashes instead of compile errors. | Deserialize at the boundary (MCP). Use typed structs internally. |
-| **`pub` everything** | No encapsulation. Any layer can reach into any other. | Default to private. Only `pub` what the layer above needs. |
-| **Monolithic handler** — one 300-line function for an MCP tool | Untestable, unreadable. | Deserialize → validate → call command → serialize. 4 steps, each small. |
-| **Tests that need the filesystem** | Slow, flaky, platform-dependent. | `KnoxDb::open_memory()`. Mock everything else. |
-| **Catching errors silently** — `let _ = something()` | Hides bugs. | Always handle or propagate with `?`. Log if intentionally ignoring. |
-| **`clone()` without reason** | Performance waste in Rust. | Borrow where possible. Clone only when ownership is required. |
+| 0 | Cargo workspace restructuring; remove legacy GUI; root becomes library + CLI | `cargo check` and `cargo test` succeed with no GUI references. |
+| 1 | `src-tauri` crate, config, capabilities, `AppState`, and IPC command adapters | `cargo check -p knox-desktop` succeeds. |
+| 2 | `ui/` Vite/React foundation, aliases, types, and typed API service | `pnpm --dir ui build` succeeds. |
+| 3 | Tokens, fonts, vendored primitives, global Zustand store, titlebar and three-zone shell | `pnpm tauri dev` opens a dark native shell without white flash. |
+| 4 | Dashboard and Stats populated from `get_status` | KPI cards and distributions show live data. |
+| 5 | Query, Ingest, and shared detail inspector | Search/filter and ingest report work end-to-end. |
+| 6 | React Flow graph canvas and layouts | Nodes, edges, selection, and ELK layout work. |
+| 7 | Scan, MCP configuration, and Workspace/hook views | Commands return verified desktop results. |
+| 8 | Command palette, keyboard map, motion/empty/error polish | `Ctrl+K` and navigation shortcuts work globally. |
+| 9 | Icons, CI, release packaging, cross-platform validation | `pnpm tauri build` produces platform artifacts. |
+
+### Expected Creation Sequence
+
+For a clean implementation, create files in this dependency order:
+
+1. Root workspace configuration; remove `src/gui`; remove old GUI exports and CLI dispatch.
+2. Tauri manifest, build script, application configuration, capabilities, and empty command module tree.
+3. Tauri status/query/graph/ingest/workspace/scan/sessions/config adapters, then app builder and binary entry.
+4. UI package manifest, Vite/TypeScript configuration, HTML entrypoint, React entrypoint, types, and API service.
+5. Tokens/fonts/store, then layout shell and vendored shadcn components.
+6. Shared `KpiCard`, action/actor badges, and action rows before dashboard/stats.
+7. Query, ingest, and action detail before graph-specific renderer work.
+8. Graph canvas, nodes, edges, and graph-layout hook.
+9. Scan, MCP, workspace, command palette, keyboard hook, icons, then CI/release work.
+
+Never create the UI views first and backfill their contracts later. The typed contract and shell must exist before a view consumes them.
 
 ---
 
-## Cargo.toml
+## Testing and Verification
 
-```toml
-[package]
-name = "knox"
-version = "0.1.0"
-edition = "2024"
-authors = ["Diva"]
-description = "Knowledge graph for AI-assisted development"
-license = "MIT"
-repository = "https://github.com/Diva143V/Knox"
-rust-version = "1.85"
+Run the smallest relevant checks while developing, then run the broad checks appropriate to the change.
 
-[dependencies]
-# Layer 0: Core
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4", "serde"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "1"
+| Change | Minimum verification |
+|---|---|
+| Core/storage/graph/ingest/commands | `cargo test` |
+| Tauri command or shell | `cargo check -p knox-desktop` and relevant Rust tests |
+| Frontend TypeScript/UI | `pnpm --dir ui build` |
+| Full desktop integration | `pnpm tauri dev` for manual verification; release changes use `pnpm tauri build` |
+| Visual changes | Inspect all changed states: normal, hover, focus, loading, empty, error, and populated. |
 
-# Layer 1: Storage
-rusqlite = { version = "0.31", features = ["bundled-full"] }
+Testing rules:
 
-# Layer 2: Graph
-petgraph = "0.6"
+- Unit tests live at the bottom of the Rust file they test; cross-module tests live in `tests/`.
+- Test public contracts rather than private implementation details.
+- Use in-memory DBs for non-filesystem Rust tests.
+- Add tests when changing a command, serialization contract, migration, or graph/ingest behavior.
+- Frontend changes must at least type-check and build cleanly; avoid introducing unused exports or console errors.
 
-# Layer 3: Commands (no extra deps)
+### Manual Desktop Checkpoints
 
-# Layer 4: MCP Server
-tokio = { version = "1", features = ["full"] }
+| Phase | Checkpoint | Pass criterion |
+|---|---|---|
+| 0 | Core workspace | The old GUI directory/dispatch are absent; Rust checks are clean. |
+| 1 | IPC bridge | All registered commands compile against the root `knox` library. |
+| 2 | Vite | The UI starts at `localhost:5173` and renders. |
+| 3 | Native shell | Window opens with an immediate dark background, custom titlebar, and sidebar. |
+| 4 | Dashboard | Four live KPIs and a populated recent-action feed. |
+| 5 | Query/Ingest | Keyword/file filters work; valid JSONL imports report results. |
+| 6 | Graph | Pan/zoom, node click, inspector, edges, and auto-layout function. |
+| 7 | Operations | Scan and hook actions accurately report backend outcomes. |
+| 8 | Keyboard polish | Palette is keyboard navigable; all listed global shortcuts work. |
+| 9 | Packaging | Release build produces the intended installer/artifact for each target. |
 
-# Layer 5: CLI
-clap = { version = "4", features = ["derive"] }
-
-# Cross-cutting
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-anyhow = "1"                        # main.rs ONLY — not in library code
-notify = "6"                        # file watching (optional, future)
-
-[dev-dependencies]
-tempfile = "3"                      # temp dirs for integration tests
-assert_cmd = "2"                    # CLI integration tests
-predicates = "3"                    # assertion helpers
-
-[profile.release]
-lto = true                          # link-time optimization
-strip = true                        # strip debug symbols
-codegen-units = 1                   # maximize optimization
-```
+Before a visual phase is complete, inspect normal, hover, focus-visible, disabled, loading, empty, error, and populated states. Confirm Inter is loaded instead of a system fallback, the command palette has its intended blur, and tables/lists can be navigated by keyboard.
 
 ---
 
-*This document is the law. If the code disagrees with this document, the code is wrong.*
+## Change Checklist
 
+Before finishing any Knox change, verify:
+
+- [ ] The work respects the Rust core / Tauri shell / React UI boundary.
+- [ ] No legacy `egui`, `eframe`, `rfd`, or `src/gui` code was introduced.
+- [ ] All new UI-to-Rust communication is typed and flows through `KnoxAPI` and a named Tauri command.
+- [ ] Rust and TypeScript serialized types agree.
+- [ ] New permissions are minimal and declared in the Tauri capability manifest.
+- [ ] Loading, empty, error, hover, and keyboard/focus states are intentional.
+- [ ] Relevant Rust checks and/or `pnpm --dir ui build` passed.
+- [ ] New files have one clear concern and live in the appropriate layer.
+
+## Anti-Patterns — Do Not
+
+| Anti-pattern | Required alternative |
+|---|---|
+| React calling `invoke` directly in arbitrary components | Add a typed method to `services/api.ts`. |
+| UI querying SQLite, parsing transcripts, or calculating causal graphs | Add/expose a Rust command and consume its typed result. |
+| Tauri command with 200 lines of business logic | Delegate to a public Knox command; extract narrow adapter code only. |
+| Reintroducing the `src/gui/` tree or eframe dependencies | Implement the experience in `ui/` and bridge it with Tauri. |
+| Raw colors and duplicated action badge styling | Use design tokens and shared UI components. |
+| A generic `helpers.ts`, `utils.rs`, or catch-all component | Put code in its owning domain/module. |
+| Silent async errors or `let _ =` error discards | Propagate/handle and surface a useful error. |
+| `pub` everywhere or JSON passed between Rust layers | Preserve encapsulation and typed Rust interfaces. |
+| Large visual change without checking focus/loading/empty/error states | Verify the complete interaction state set. |
+
+---
+
+*If code disagrees with this guide, update the code or deliberately revise this guide in the same change. The architecture boundary is not optional.*
