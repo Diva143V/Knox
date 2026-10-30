@@ -1,6 +1,10 @@
+[workspace]
+members = [".", "src-tauri"]
+resolver = "2"
+
 [package]
 name = "knox"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 authors = ["Diva"]
 description = "Knowledge graph for AI-assisted development"
@@ -9,8 +13,16 @@ repository = "https://github.com/Diva143V/Knox"
 homepage = "https://github.com/Diva143V/Knox"
 readme = "README.md"
 keywords = ["knowledge-graph", "mcp", "ai-agents", "context", "developer-tools"]
-categories = ["command-line-utilities", "development-tools", "gui"]
+categories = ["command-line-utilities", "development-tools"]
 rust-version = "1.85"
+
+[lib]
+name = "knox"
+path = "src/lib.rs"
+
+[[bin]]
+name = "knox"
+path = "src/main.rs"
 
 [dependencies]
 # Layer 0: Core
@@ -31,10 +43,8 @@ petgraph = "0.6"
 # Layer 4: MCP Server
 tokio = { version = "1", features = ["full"] }
 
-# Layer 5: CLI & GUI
+# Layer 5: CLI
 clap = { version = "4", features = ["derive"] }
-eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "accesskit"] }
-rfd = "0.17"
 
 # Cross-cutting
 tracing = "0.1"
