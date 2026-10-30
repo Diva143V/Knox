@@ -72,7 +72,12 @@ jobs:
         with:
           node-version: 22
           cache: "pnpm"
-          cache-dependency-path: ui/pnpm-lock.yaml
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            ui/pnpm-lock.yaml
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Install UI dependencies
         run: pnpm --dir ui install --frozen-lockfile
@@ -84,7 +89,7 @@ jobs:
         run: cargo build --package knox --release --target ${{ matrix.target }}
 
       - name: Build release Desktop binary
-        run: pnpm --dir ui tauri build --target ${{ matrix.target }} --no-bundle
+        run: pnpm tauri build --target ${{ matrix.target }} --no-bundle
 
       - name: Package release archives (Unix)
         if: ${{ !matrix.use_zip }}
