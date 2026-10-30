@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --dir ui dev",
-    "build": "pnpm --dir ui build",
+    "build:ui": "pnpm --dir ui build",
+    "build:cli": "cargo build --package knox --release",
+    "build:desktop": "tauri build --no-bundle",
+    "build": "cargo build --package knox --release && tauri build --no-bundle",
     "tauri": "tauri"
   },
   "devDependencies": {
