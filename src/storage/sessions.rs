@@ -205,6 +205,52 @@ pub fn get_session(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Option<Ses
     }
 }
 
+/// Lists recent sessions ordered by start time descending.
+pub fn list_recent_sessions(db: &KnoxDb, limit: usize) -> KnoxResult<Vec<Session>> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.actor, s.started_at, s.ended_at, s.is_open, p.name
+         FROM sessions s
+         LEFT JOIN projects p ON s.project_id = p.id
+         ORDER BY s.started_at DESC
+         LIMIT ?1",
+    )?;
+
+    let rows = stmt.query_map(params![limit as i64], |row| {
+        let id = SessionId::from(row.get::<_, String>(0)?);
+        let actor: String = row.get(1)?;
+        let started_str: String = row.get(2)?;
+        let ended_str: Option<String> = row.get(3)?;
+        let is_open_int: i32 = row.get(4)?;
+        let project_name: Option<String> = row.get(5)?;
+
+        let started_at = DateTime::parse_from_rfc3339(&started_str)
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(|_| Utc::now());
+
+        let ended_at = ended_str.and_then(|s| {
+            DateTime::parse_from_rfc3339(&s)
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc))
+        });
+
+        Ok(Session {
+            id,
+            actor,
+            project: project_name,
+            started_at,
+            ended_at,
+            is_open: is_open_int == 1,
+        })
+    })?;
+
+    let mut sessions = Vec::new();
+    for r in rows {
+        sessions.push(r?);
+    }
+    Ok(sessions)
+}
+
 /// Counts the number of actions recorded under a given session identifier.
 pub fn count_session_actions(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<usize> {
     let conn = db.conn();
@@ -244,5 +290,17 @@ mod tests {
 
         let fetched = get_session(&db, &session.id).unwrap().unwrap();
         assert!(!fetched.is_open);
+    }
+
+    #[test]
+    fn test_list_recent_sessions() {
+        let db = KnoxDb::open_memory().unwrap();
+        let s1 = start_session(&db, "agent_1", Some("proj1")).unwrap();
+        let s2 = start_session(&db, "agent_2", None).unwrap();
+
+        let list = list_recent_sessions(&db, 10).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].id, s2.id); // most recent first
+        assert_eq!(list[1].id, s1.id);
     }
 }
