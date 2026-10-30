@@ -1,0 +1,171 @@
+@import "tailwindcss";
+
+/* ── Typography: Self-hosted Inter Variable & JetBrains Mono ── */
+@font-face {
+  font-family: "Inter Variable";
+  src: url("/fonts/InterVariable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter Variable";
+  src: url("/fonts/InterVariable-Italic.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Tailwind v4 Theme Tokens ── */
+@theme inline {
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-popover: var(--popover);
+  --color-sidebar: var(--sidebar);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-plan: var(--plan);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+
+:root {
+  /* Linear / Raycast Obsidian Dark Base (OKLCH) */
+  --background: oklch(0.128 0.005 285);
+  --card: oklch(0.162 0.006 285);
+  --popover: oklch(0.180 0.006 285);
+  --sidebar: oklch(0.145 0.005 285);
+  --border: oklch(0.245 0.006 285);
+
+  /* Accents */
+  --primary: oklch(0.623 0.214 260);
+  --primary-foreground: oklch(0.985 0 0);
+  --success: oklch(0.620 0.160 160);
+  --warning: oklch(0.740 0.180 80);
+  --danger: oklch(0.580 0.200 25);
+  --plan: oklch(0.620 0.185 295);
+
+  --muted: oklch(0.230 0.006 285);
+  --muted-foreground: oklch(0.440 0.010 285);
+  --foreground: oklch(0.960 0.000 0);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+pre,
+.font-mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+/* ── Custom Thin Scrollbars ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(0.28 0.006 285);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.38 0.008 285);
+}
+
+/* ── React Flow Dark Canvas Theme ── */
+.react-flow__background {
+  background-color: #0b0f15 !important;
+}
+.react-flow__controls {
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  background-color: var(--card) !important;
+}
+.react-flow__controls-button {
+  background: var(--card) !important;
+  border-bottom: 1px solid var(--border) !important;
+  fill: #94a3b8 !important;
+}
+.react-flow__controls-button:hover {
+  background: #21262d !important;
+  fill: #f8fafc !important;
+}
+.react-flow__minimap {
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  background-color: rgba(13, 17, 23, 0.85) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+/* Window drag region for custom frameless titlebar */
+[data-tauri-drag-region] {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+button,
+input,
+select,
+[role="button"],
+.no-drag {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+/* ── cmdk Command Palette Active Selection ── */
+[cmdk-item][data-selected="true"] {
+  background-color: oklch(0.623 0.214 260 / 0.22) !important;
+  color: oklch(0.985 0 0) !important;
+}
+
