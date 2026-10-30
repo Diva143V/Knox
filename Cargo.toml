@@ -1,0 +1,53 @@
+[package]
+name = "knox"
+version = "1.1.0"
+edition = "2024"
+authors = ["Diva"]
+description = "Knowledge graph for AI-assisted development"
+license = "MIT"
+repository = "https://github.com/Diva143V/Knox"
+homepage = "https://github.com/Diva143V/Knox"
+readme = "README.md"
+keywords = ["knowledge-graph", "mcp", "ai-agents", "context", "developer-tools"]
+categories = ["command-line-utilities", "development-tools", "gui"]
+rust-version = "1.85"
+
+[dependencies]
+# Layer 0: Core
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+
+# Layer 1: Storage
+rusqlite = { version = "0.31", features = ["bundled-full"] }
+
+# Layer 2: Graph
+petgraph = "0.6"
+
+# Layer 3: Commands (no extra deps)
+
+# Layer 4: MCP Server
+tokio = { version = "1", features = ["full"] }
+
+# Layer 5: CLI & GUI
+clap = { version = "4", features = ["derive"] }
+eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "accesskit"] }
+rfd = "0.17"
+
+# Cross-cutting
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"                        # main.rs ONLY — not in library code
+notify = "6"                        # file watching (optional, future)
+
+[dev-dependencies]
+tempfile = "3"                      # temp dirs for integration tests
+assert_cmd = "2"                    # CLI integration tests
+predicates = "3"                    # assertion helpers
+
+[profile.release]
+lto = true                          # link-time optimization
+strip = true                        # strip debug symbols
+codegen-units = 1                   # maximize optimization
