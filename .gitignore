@@ -1,9 +1,37 @@
-/target
+# Rust build artifacts
+target/
+**/target/
+
+# SQLite databases & journals
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Knox & Agent local state
 .knox/
 .agents/
 .vscode/
 
+# Node & Frontend dependencies and bundles
+node_modules/
+**/node_modules/
+dist/
+ui/dist/
+.pnpm-store/
+
+# Logs & temp files
+*.log
+*.tmp
+
+# Automated testing profiles & artifacts
+.edge_cdp_*/
+.chrome_cdp_*/
+
+# OS-specific
+Thumbs.db
+.DS_Store
+
+# Archive bundles
+*.zip
+*.tar.gz

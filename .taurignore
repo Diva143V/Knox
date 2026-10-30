@@ -1,0 +1,21 @@
+# Tauri file watcher ignore patterns
+# Prevents frontend, build artifact, and data changes from triggering Rust rebuilds
+
+ui/
+ui/**
+node_modules/
+node_modules/**
+target/
+target/**
+.agents/
+.agents/**
+.git/
+.git/**
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.log
+*.png
+dist/
+dist/**
