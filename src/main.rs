@@ -6,8 +6,7 @@ use anyhow::Context;
 use clap::Parser;
 
 use knox::cli::{
-    Commands, GuiArgs, HookAction, HookArgs, IngestArgs, InitArgs, KnoxCli, QueryArgs, ScanArgs,
-    StatusArgs,
+    Commands, HookAction, HookArgs, IngestArgs, InitArgs, KnoxCli, QueryArgs, ScanArgs, StatusArgs,
 };
 use knox::commands::{
     cmd_hook_install, cmd_hook_uninstall, cmd_ingest, cmd_init, cmd_query, cmd_scan, cmd_status,
@@ -60,7 +59,6 @@ fn print_welcome_guide(config: &KnoxConfig) -> anyhow::Result<()> {
     }
 
     println!("Common Commands (run from terminal):");
-    println!("  knox.exe gui                 Launch the interactive desktop GUI & installer");
     println!("  knox.exe init .              Initialize Knox in current project workspace");
     println!("  knox.exe status              Display knowledge graph metrics and stats");
     println!("  knox.exe query <PATTERN>     Query actions/decisions by file, tag, or keyword");
@@ -92,12 +90,7 @@ fn dispatch(cli: KnoxCli, config: &KnoxConfig) -> anyhow::Result<()> {
         Commands::Scan(args) => handle_scan(args, &open_db(config)?),
         Commands::Hook(args) => handle_hook(args),
         Commands::Serve(_args) => handle_serve(config),
-        Commands::Gui(args) => handle_gui(args, config),
     }
-}
-
-fn handle_gui(args: GuiArgs, config: &KnoxConfig) -> anyhow::Result<()> {
-    knox::gui::run_gui(config, args).context("Failed running Knox desktop GUI")
 }
 
 fn handle_init(args: InitArgs, config: &KnoxConfig) -> anyhow::Result<()> {

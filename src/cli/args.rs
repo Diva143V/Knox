@@ -34,16 +34,6 @@ pub enum Commands {
     Scan(ScanArgs),
     /// Manage git pre-commit hook integration.
     Hook(HookArgs),
-    /// Launch the interactive Knox Desktop GUI and setup wizard.
-    Gui(GuiArgs),
-}
-
-/// Arguments for `knox gui`.
-#[derive(Args, Clone, Debug, Default, PartialEq, Eq)]
-pub struct GuiArgs {
-    /// Optional workspace path to inspect or initialize.
-    #[arg(short, long)]
-    pub path: Option<PathBuf>,
 }
 
 /// Arguments for `knox init`.
@@ -243,21 +233,6 @@ mod tests {
                 assert_eq!(args.project, PathBuf::from("repo_dir"));
             }
             _ => panic!("Expected Hook command"),
-        }
-    }
-
-    #[test]
-    fn test_parse_gui_argument() {
-        let cli_default = KnoxCli::try_parse_from(["knox", "gui"]).unwrap();
-        match cli_default.command {
-            Commands::Gui(args) => assert_eq!(args.path, None),
-            _ => panic!("Expected Gui command"),
-        }
-
-        let cli_custom = KnoxCli::try_parse_from(["knox", "gui", "--path", "custom/dir"]).unwrap();
-        match cli_custom.command {
-            Commands::Gui(args) => assert_eq!(args.path, Some(PathBuf::from("custom/dir"))),
-            _ => panic!("Expected Gui command"),
         }
     }
 }
