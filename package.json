@@ -1,0 +1,14 @@
+{
+  "name": "knox-workspace",
+  "version": "1.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --dir ui dev",
+    "build": "pnpm --dir ui build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4"
+  }
+}
+
