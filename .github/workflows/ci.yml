@@ -33,13 +33,18 @@ jobs:
         with:
           node-version: 22
           cache: "pnpm"
-          cache-dependency-path: ui/pnpm-lock.yaml
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            ui/pnpm-lock.yaml
 
       - name: Check Rust code formatting
         run: cargo fmt --all -- --check
 
       - name: Run Clippy lints on workspace
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Install UI dependencies
         run: pnpm --dir ui install --frozen-lockfile
@@ -93,7 +98,12 @@ jobs:
         with:
           node-version: 22
           cache: "pnpm"
-          cache-dependency-path: ui/pnpm-lock.yaml
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            ui/pnpm-lock.yaml
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Install UI dependencies
         run: pnpm --dir ui install --frozen-lockfile
@@ -104,8 +114,11 @@ jobs:
       - name: Run full workspace test suite
         run: cargo test --workspace --verbose
 
-      - name: Build release binaries
-        run: cargo build --workspace --release
+      - name: Build release CLI binary
+        run: cargo build --package knox --release
+
+      - name: Build release Desktop binary
+        run: pnpm tauri build --no-bundle
 
       - name: Upload compiled CLI binary
         uses: actions/upload-artifact@v4
