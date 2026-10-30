@@ -23,11 +23,29 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Check code formatting
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: Check Rust code formatting
         run: cargo fmt --all -- --check
 
-      - name: Run Clippy lints
-        run: cargo clippy --all-targets -- -D warnings
+      - name: Run Clippy lints on workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Install UI dependencies
+        run: pnpm --dir ui install --frozen-lockfile
+
+      - name: Typecheck and build UI
+        run: pnpm --dir ui build
 
   test-and-build:
     name: Test & Build (${{ matrix.os }})
@@ -38,31 +56,67 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_name: knox-linux-amd64
-            binary_path: target/release/knox
+            artifact_cli: knox-linux-amd64
+            artifact_desktop: knox-desktop-linux-amd64
+            binary_cli: target/release/knox
+            binary_desktop: target/release/knox-desktop
           - os: macos-latest
-            artifact_name: knox-macos-amd64
-            binary_path: target/release/knox
+            artifact_cli: knox-macos-amd64
+            artifact_desktop: knox-desktop-macos-amd64
+            binary_cli: target/release/knox
+            binary_desktop: target/release/knox-desktop
           - os: windows-latest
-            artifact_name: knox-windows-amd64
-            binary_path: target/release/knox.exe
+            artifact_cli: knox-windows-amd64
+            artifact_desktop: knox-desktop-windows-amd64
+            binary_cli: target/release/knox.exe
+            binary_desktop: target/release/knox-desktop.exe
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install Linux dependencies (WebKit2GTK & build tools)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run test suite
-        run: cargo test --verbose
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
-      - name: Build release binary
-        run: cargo build --release
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+          cache-dependency-path: ui/pnpm-lock.yaml
 
-      - name: Upload compiled binary artifact
+      - name: Install UI dependencies
+        run: pnpm --dir ui install --frozen-lockfile
+
+      - name: Build UI assets
+        run: pnpm --dir ui build
+
+      - name: Run full workspace test suite
+        run: cargo test --workspace --verbose
+
+      - name: Build release binaries
+        run: cargo build --workspace --release
+
+      - name: Upload compiled CLI binary
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.binary_path }}
+          name: ${{ matrix.artifact_cli }}
+          path: ${{ matrix.binary_cli }}
           retention-days: 14
 
+      - name: Upload compiled Desktop binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_desktop }}
+          path: ${{ matrix.binary_desktop }}
+          retention-days: 14
