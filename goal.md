@@ -113,24 +113,45 @@ Every time an AI coding agent starts a task, it wastes tokens rediscovering proj
 | `targets` | Action → File | Which file was affected |
 | `superseded_by` | Action → Action | Marks an older decision as replaced |
 | `follows` | Action → Action | Temporal ordering within a session |
+| `depends_on` | Action → Action | Directed causal prerequisite dependency |
+| `implements` | Action → Action | Action implements an architectural decision |
+| `verifies` | Action → Action | Test or benchmark verifies an implementation |
+| `relates_to` | Action → Action | Conceptual or thematic association |
+| `reverts` | Action → Action | Explicit rollback or undo of a target action |
 
 All edges carry: `timestamp`, `session_id`, `tool_source`.
 
 ---
 
-## MCP Tools (Exposed by `knox serve`)
+## MCP Interface (14 Tools, Resources & Prompts)
 
-### Read Tools
-- **`knox_get_context`** — Given a file path or project, return the current (non-superseded) decisions, plans, and recent actions
-- **`knox_get_history`** — Full append-only history for a file or project, with timestamps
+When running `knox serve --stdio`, Knox exposes 14 tools, 3 native resources, and 2 guided prompts:
 
-### Write Tools
-- **`knox_record_action`** — Record an action (plan, write, change, debug) with actor, file, and summary
-- **`knox_record_decision`** — Record a decision/approach with actor and summary, optionally superseding a previous decision
+### 1. Session Management
+- **`knox_start_session`** — Start an explicit work session (or rely on smart implicit auto-sessions).
+- **`knox_end_session`** — Close an active work session.
 
-### Query Tools
-- **`knox_search`** — Search nodes/edges by keyword, file pattern, time range, or actor
-- **`knox_list_stale`** — List entries that have been superseded (for cleanup/review)
+### 2. Action & Decision Recording
+- **`knox_record_action`** — Record an action with semantic relations, symbols, rationale, and context summary.
+- **`knox_record_decision`** — Record an ADR decision with mandatory rationale and prohibited alternatives.
+- **`knox_record_batch`** — Atomically record multiple related actions/decisions in a single round trip.
+
+### 3. Context & Lineage Retrieval
+- **`knox_get_context`** — Token-compact Markdown digest of active, non-superseded project decisions and files.
+- **`knox_get_history`** — Full append-only historical audit trail.
+- **`knox_get_lineage`** — Reverse DAG traversal tracing causal ancestry back to root plans.
+- **`knox_get_impact`** — Forward DAG traversal computing downstream blast radius and affected files.
+- **`knox_get_path`** — Shortest directed causal path between two actions or files.
+
+### 4. Safety Guardrails & Maintenance
+- **`knox_check_guardrails`** — Pre-flight safety check against active ADRs and rejected alternatives.
+- **`knox_search`** — SQLite FTS5 full-text keyword and code symbol search.
+- **`knox_list_stale`** — Query superseded actions and outdated architectural patterns.
+- **`knox_scan_staged`** — Git staged diff inspection for untracked human modifications.
+
+### 5. Native MCP Resources & Prompts
+- **Resources**: `knox://project/overview`, `knox://decisions/active`, `knox://context/{file}`
+- **Prompts**: `architectural-audit`, `session-handover`
 
 ---
 
@@ -150,6 +171,14 @@ All edges carry: `timestamp`, `session_id`, `tool_source`.
 | 10 | **CLI-first UX** | `knox init/ingest/serve/query/status`. Single binary, scriptable, composable. |
 | 11 | **MIT license** | Maximum adoption. No commercial friction. |
 | 12 | **Cross-platform** | Windows, macOS, Linux from day one. Rust makes this trivial. |
+| 13 | **Unified Hybrid Binary (`knox.exe`)** | Win32 `#![windows_subsystem = "windows"]` for zero console flash GUI launch + dynamic `AttachConsole` for interactive terminal commands + inherited stdio pipe preservation for MCP agents. |
+| 14 | **Token-Compact Markdown Digests** | High-density Markdown digest engine for MCP context queries, saving 70%+ context window tokens compared to verbose JSON envelopes. |
+| 15 | **V2 Semantic Relations Graph** | First-class directional relationship graph (`depends_on`, `implements`, `verifies`, `relates_to`, `reverts`) and symbol indexing. |
+| 16 | **ADRs as First-Class Citizens** | Decisions record mandatory rationale, affected symbols, and prohibited rejected alternatives directly in SQLite V2 schema. |
+| 17 | **Pre-Flight Guardrails Engine** | `knox_check_guardrails` validates proposed modifications against active ADRs and catches conflicts with rejected alternatives before files are touched. |
+| 18 | **Cosmos Circular Node Visualization** | Radiant circular nodes (`CircleNode.tsx`) with role-based glowing radial auras and cardinal handle routing for high-density cluster comprehension. |
+| 19 | **Continuous Live D3 Force Simulation** | Dynamic physics simulation (`useLivePhysics.ts`) providing real-time node grabbing, spring constraints, and reheat motion. |
+| 20 | **Guided Tour with Peek Window Mode** | 9-step interactive product walkthrough (`OnboardingTourModal.tsx`) with live background tab synchronization, keyboard navigation, and instant Peek Window toggle (<kbd>P</kbd>) docking into a bottom bar to view live windows unobstructed. |
 
 ---
 

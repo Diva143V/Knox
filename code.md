@@ -52,7 +52,7 @@ Knox/
 │   ├── graph/                    # Layer 2: read-only petgraph loading/traversal
 │   ├── ingest/                   # Layer 2: transcript mapping (Antigravity etc.)
 │   ├── commands/                 # Layer 3: domain operation orchestration
-│   ├── mcp/                      # Layer 4: MCP stdio transport and JSON-RPC handlers
+│   ├── mcp/                      # Layer 4: MCP stdio transport, 14 JSON-RPC tools, resources, prompts, format.rs
 │   └── cli/                      # Layer 5: clap argument definitions and dispatch
 ├── src-tauri/                    # Tauri v2 shell and unified executable crate
 │   ├── Cargo.toml                # Defines [[bin]] name = "knox" path = "src/main.rs"
@@ -69,17 +69,18 @@ Knox/
 │   ├── public/fonts/             # Bundled Inter and JetBrains Mono
 │   └── src/
 │       ├── main.tsx              # React DOM root
-│       ├── App.tsx               # AppShell, CustomTitlebar, Router, OnboardingWizard
+│       ├── App.tsx               # AppShell, CustomTitlebar, Router, OnboardingWizard, OnboardingTourModal
 │       ├── globals.css           # Tailwind v4 OKLCH design tokens
 │       ├── services/api.ts       # Typed KnoxAPI invoke adapter
-│       ├── types/knox.ts         # Rust DTO mirror interfaces
+│       ├── types/                # knox.ts, tour.ts
 │       ├── store/useKnoxStore.ts # Zustand global state
-│       ├── hooks/                # Layout, keyboard, and shortcut hooks
+│       ├── hooks/                # Layout, keyboard, useLivePhysics, and useTour hooks
 │       └── components/
-│           ├── layout/           # AppShell, CustomTitlebar, Header (Setup Guide), Sidebar
-│           ├── graph/            # Canvas, ActionNode, FileNode, CausalEdge, Inspector
+│           ├── layout/           # AppShell, CustomTitlebar, Header, Sidebar, DetailInspector
+│           ├── graph/            # Canvas, ActionNode, CircleNode, FileNode, CausalEdge
 │           ├── views/            # Dashboard, Query, Stats, Ingest, Scan, Mcp, Workspace
 │           ├── OnboardingWizard.tsx # Multi-step first-run wizard with 1-click MCP configs
+│           ├── OnboardingTourModal.tsx # 9-step product tour with Peek Window mode
 │           └── ui/               # Vendored shadcn primitives and shared cards/badges
 ├── tests/                        # Rust cross-module integration tests
 └── fixtures/                     # Test fixtures and transcripts
@@ -207,9 +208,10 @@ These are domain-owned Rust concepts. Tauri and the UI mirror their serialized s
 
 | Type | Required meaning |
 |---|---|
-| `KnoxAction` | One recorded action: ID, actor, free-form action type, summary, files, tags, confidence, timestamp, optional session/parent/supersedes links, and `is_current`. |
+| `KnoxAction` | One recorded action: ID, actor, free-form action type, summary, files, tags, confidence, timestamp, optional session/parent/supersedes links, `is_current`, and V2 fields: `relations` (semantic graph links), `symbols` (code symbols), `rationale` (ADR decision justification), `rejected_alternatives` (prohibited patterns), and `context_summary`. |
+| `ActionRelation` | Directional relationship between actions (`target_id`, `relation_type`: `depends_on`, `implements`, `verifies`, `relates_to`, `reverts`). |
 | `Session` | Continuous actor work block with optional project, start/end timestamps, and open/closed state. |
-| `QueryFilter` | Optional file/project/session/actor/since filters, tags, current-only switch, and bounded limit. |
+| `QueryFilter` | Optional file/project/session/actor/since filters, code symbols, tags, current-only switch, and bounded limit. |
 | `QueryResult` | Flat action list plus `total_count` and `has_more`. |
 | `StatusReport` | Aggregate counts and distributions required by the desktop status/dashboard views. |
 | `IngestReport` | Imported-action count, touched-file count, created-session count, and relevant timing/preview metadata. |

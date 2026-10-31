@@ -15,15 +15,19 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 ## Key Features
 
 - **Unified Hybrid Binary (`knox.exe`):** Single binary running under the Windows GUI subsystem (`windows_subsystem = "windows"`). Opens the desktop application with zero console flash when double-clicked, launched from shortcuts, or run without arguments; dynamically attaches to the parent console (`AttachConsole`) for CLI subcommands (`knox query`, `knox status`, `knox scan`); and preserves clean stdio pipes (`FILE_TYPE_PIPE`) when spawned by AI agents (`knox serve --stdio`).
-- **Native Desktop GUI (Tauri v2 + React 19):** Modern, dark-first desktop experience featuring an interactive 2D Knowledge Graph visualizer with force-directed and hierarchical layouts, metrics dashboard, FTS5 query console, live transcript ingestion studio, and Git human-edit scanner.
+- **Native Desktop GUI (Tauri v2 + React 19):** Modern, dark-first desktop experience featuring an interactive Knowledge Graph canvas, telemetry dashboard, FTS5 query console, live transcript ingestion studio, and Git human-edit scanner.
+- **Cosmos Orb Mode & Dynamic D3 Physics Simulation:** Dual-mode graph canvas allowing developers to switch between structured rectangular cards and luminous Cosmos circular nodes (`CircleNode.tsx`) with role-based glowing radial auras. Integrated continuous live D3 force physics simulation (`useLivePhysics.ts`) provides interactive node grabbing, spring-link constraints, and fluid reheat motion.
+- **Interactive Getting Started Tour with Peek Window Mode:** 9-step guided walkthrough modal (`OnboardingTourModal.tsx`) with live background tab synchronization, keyboard shortcuts, and instant "Peek Window" toggle (<kbd>P</kbd> or Eye icon) that docks into a floating bottom pill so developers can view 100% of the live application screen in motion without obstruction.
+- **Expanded Model Context Protocol (MCP) Server (14 Tools):** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing 14 tools covering batch recording, causal lineage tracing, downstream impact analysis, shortest-path calculation, and pre-flight guardrails conflict detection.
+- **Token-Compact Markdown Digest Engine:** Automatically formats query and context outputs into dense, high-signal Markdown digests, reducing context window token consumption by over 70% compared to raw JSON envelopes.
+- **Native MCP Resources & Prompts:** Exposes live architectural resources (`knox://project/overview`, `knox://decisions/active`, `knox://context/{file}`) and guided handover prompts (`/architectural-audit`, `/session-handover`).
+- **V2 Schema & Semantic Relations:** First-class directional relationship graph (`depends_on`, `implements`, `verifies`, `relates_to`, `reverts`), code symbol indexing, and Architectural Decision Records (ADRs) with rationale and prohibited rejected alternatives.
 - **Windows NSIS Setup Wizard & Dedicated Uninstaller:** Consumer-grade installer package (`Knox_1.2.1_x64-setup.exe`, 5.46 MB with LZMA compression). Offers dual install scope (per-user `%LOCALAPPDATA%\Programs\Knox` default requiring no elevation, or machine-wide `Program Files\Knox`), creates Start Menu and Desktop shortcuts, and registers `uninstall.exe` in Windows Settings > Installed apps.
 - **In-App Onboarding Wizard:** First-run interactive setup (`OnboardingWizard.tsx`) verifying SQLite database health, guiding keyboard shortcuts, and providing 1-click MCP configuration for Antigravity, Cursor, Claude Code, and Gemini CLI. Re-accessible anytime via the "Setup Guide" button in the desktop header.
 - **Synchronous Shell Wrapper (`knox.cmd`):** Ships with a native Windows CMD/PowerShell launcher to ensure prompt synchronization and clean return codes during terminal operations.
-- **Model Context Protocol (MCP) Server:** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing 9 rich tools for any MCP-compatible IDE or assistant.
 - **Transcript Ingestion:** Automatically transforms IDE conversation logs (e.g. Antigravity's `transcript.jsonl`) into high-signal knowledge graph entries without LLM dependencies.
 - **Human Edit Detection:** Detects developer edits made outside of AI sessions via Git staged changes (`git diff --cached`) and registers them in the knowledge graph.
 - **Automated Git Hook:** One-command pre-commit hook integration (`knox hook install`) ensuring the knowledge graph stays in sync on every commit.
-- **Causal Linking & Supersession:** Connects actions into directed acyclic graphs of intent (`parent_action_id`) and tracks when decisions supersede older ones (`supersedes`).
 
 ---
 
@@ -259,10 +263,10 @@ Knox ships with a unified binary `knox.exe`. For Windows Command Prompt and Powe
 
 ## MCP Tools Reference
 
-When running `knox serve`, Knox exposes 9 tools over the Model Context Protocol:
+When running `knox serve`, Knox exposes 14 tools over the Model Context Protocol:
 
 ### 1. `knox_start_session`
-Starts a new work session and returns a `session_id`.
+Explicitly starts a new work session and returns a `session_id` (optional; actions auto-manage implicit sessions if omitted).
 - **Inputs:** `actor` (string, required), `project` (string, optional), `metadata` (object, optional).
 - **Output:** `{ "session_id": "...", "created_at": "..." }`.
 
@@ -272,39 +276,77 @@ Closes an active session.
 - **Output:** `{ "status": "closed", "actions_recorded": N, "duration_seconds": N }`.
 
 ### 3. `knox_record_action`
-Records an action (write, debug, read, review, plan, change) linked to a session.
-- **Inputs:** `session_id`, `actor`, `action_type`, `summary` (required); `files`, `parent_action_id`, `tags`, `confidence`, `supersedes` (optional).
-- **Output:** `{ "id": "...", "status": "recorded", "timestamp": "..." }`.
+Records an action (write, debug, read, review, plan, change) linked to a session, with V2 semantic relations and symbols.
+- **Inputs:** `actor`, `action_type`, `summary` (required); `session_id`, `files`, `parent_action_id`, `relations`, `symbols`, `rationale`, `rejected_alternatives`, `context_summary`, `link_to_latest`, `tags`, `confidence`, `supersedes` (optional).
+- **Output:** `{ "id": "...", "status": "recorded", "action_id": "...", "session_id": "..." }`.
 
 ### 4. `knox_record_decision`
-Records a design decision (forces `action_type = "decide"`).
-- **Inputs:** `session_id`, `actor`, `summary` (required); `files`, `parent_action_id`, `tags`, `confidence`, `supersedes` (optional).
-- **Output:** `{ "id": "...", "status": "recorded", "timestamp": "..." }`.
+Records a design decision or Architectural Decision Record (ADR), forcing `action_type = "decide"`.
+- **Inputs:** `actor`, `summary` (required); `rationale`, `rejected_alternatives`, `symbols`, `files`, `parent_action_id`, `relations`, `tags`, `supersedes` (optional).
+- **Output:** `{ "id": "...", "status": "recorded", "action_id": "..." }`.
 
-### 5. `knox_get_context`
-Retrieves current context for a file or project (excludes superseded actions by default).
-- **Inputs:** `file_path`, `project`, `session_id`, `actor`, `since`, `current_only` (default `true`), `tags`, `limit` (default 20).
-- **Output:** `{ "results": [...], "total_count": N, "has_more": false }`.
+### 5. `knox_record_batch`
+Atomically records multiple related actions and decisions in a single round trip with sequential linking.
+- **Inputs:** `actor`, `actions` (array of action objects, required); `session_id`, `project` (optional).
+- **Output:** `{ "status": "recorded_batch", "recorded_count": N, "action_ids": [...] }`.
 
-### 6. `knox_get_history`
+### 6. `knox_get_context`
+Retrieves current context for a file or project with token-compact Markdown digests (excludes superseded actions by default).
+- **Inputs:** `file_path`, `project`, `session_id`, `actor`, `symbols`, `tags`, `since`, `format` ("markdown" | "json", default "markdown"), `synthesis` (bool), `limit` (default 20).
+- **Output:** Dense Markdown digest or structured JSON.
+
+### 7. `knox_get_history`
 Full append-only history including superseded actions (`current_only` defaults to `false`).
-- **Inputs:** Same as `knox_get_context`.
-- **Output:** Same flat list format as `knox_get_context`.
+- **Inputs:** Same as `knox_get_context`, plus `action_type` filter.
+- **Output:** Chronological history digest or raw JSON array.
 
-### 7. `knox_search`
-Full-text keyword search across action summaries with optional metadata filters.
+### 8. `knox_get_lineage`
+Traces causal ancestry and parent lineage backwards to the root plan or decision ("Why was this code written?").
+- **Inputs:** `action_id` or `file_path` (required); `max_depth` (default 10), `format` ("markdown" | "json").
+- **Output:** Ordered DAG ancestor chain.
+
+### 9. `knox_get_impact`
+Traces downstream descendant effects of an action or decision ("What code depends on or implements this?").
+- **Inputs:** `action_id` or `file_path` (required); `max_depth` (default 5), `format` ("markdown" | "json").
+- **Output:** Downstream affected actions list and unique impacted files.
+
+### 10. `knox_get_path`
+Finds the shortest directed causal path between two actions in the graph ("How did A lead to B?").
+- **Inputs:** `from_action_id` or `from_file`, and `to_action_id` or `to_file` (required); `max_depth` (default 10), `format` ("markdown" | "json").
+- **Output:** Directed causal hop sequence.
+
+### 11. `knox_check_guardrails`
+Pre-flight safety check before editing files. Retrieves active architectural constraints, tests proposed changes against rejected alternatives, and flags superseded anti-patterns.
+- **Inputs:** `files` (array of strings, required); `proposed_action` (string, optional), `strict` (bool, optional), `project` (optional), `format` ("markdown" | "json").
+- **Output:** `{ "pass": true/false, "violations": [...], "active_constraints": [...] }`.
+
+### 12. `knox_search`
+Full-text keyword and code symbol search (SQLite FTS5) across action summaries, rationales, and context summaries.
 - **Inputs:** `query` (string, required); `project`, `actor`, `tags`, `since`, `limit` (optional).
-- **Output:** `{ "results": [...], "total_count": N, "has_more": false }`.
+- **Output:** Matched actions with relevance rank.
 
-### 8. `knox_list_stale`
-Lists superseded actions for cleanup and historical review.
+### 13. `knox_list_stale`
+Lists superseded actions (`is_current = false`) to inspect outdated architectural patterns and anti-patterns.
 - **Inputs:** `project`, `file_path`, `limit` (default 50).
 - **Output:** Flat list of actions where `is_current: false`.
 
-### 9. `knox_scan_staged`
-Scans git staged modifications and records any untracked human edits.
+### 14. `knox_scan_staged`
+Scans git index for untracked human modifications and records `human_write` actions.
 - **Inputs:** `project` (string, optional, defaults to `.`).
 - **Output:** `{ "human_edits_detected": N, "actions_recorded": N }`.
+
+---
+
+## Native MCP Resources & Prompts
+
+### Resources (`resources/*`)
+- `knox://project/overview` — High-level knowledge graph telemetry, action counts, and recent activity.
+- `knox://decisions/active` — Live architectural constraints, design decisions, and ADR rationales.
+- `knox://context/{file_path}` — Non-superseded context digest for any file in the workspace.
+
+### Prompts (`prompts/*`)
+- `architectural-audit` — Guided audit of active decisions, stale patterns, and constraint compliance.
+- `session-handover` — Synthesized context digest for handing over work smoothly to the next agent.
 
 ---
 

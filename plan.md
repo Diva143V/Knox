@@ -27,6 +27,7 @@ In Knox v1.2.1, the project delivers a consolidated distribution and execution m
 | **M2** | v1.1.0 | egui Desktop Prototype | **COMPLETED / RETIRED** | Experimental GUI prototype in `src/gui/` using `egui`/`eframe` (validated 2D canvas; retired in v1.2.0) |
 | **M3** | v1.2.0 | Tauri v2 Consumer Desktop App | **COMPLETED** | Full desktop transformation: Tauri v2 + React 19 + Tailwind v4 + shadcn/ui + React Flow KG canvas (see `v1.2.0.md`) |
 | **M4** | v1.2.1 | Unified Binary & Distribution | **COMPLETED** | Single unified `knox.exe` hybrid binary, NSIS setup wizard with uninstaller, `OnboardingWizard.tsx`, `knox.cmd` |
+| **M4.7** | v1.2.2 | MCP Maximization & Dynamic Cosmos | **COMPLETED** | 14 MCP tools, V2 semantic relations (`depends_on`, `implements`, etc.), token-compact Markdown digest engine, Cosmos circular mode (`CircleNode.tsx`), live D3 force physics (`useLivePhysics.ts`), and 9-step Getting Started Tour with Peek Window mode (<kbd>P</kbd>) |
 | **M5** | v2.0.0 | Cloud Sync & Team Collaboration | **PLANNED** | Central cloud repository, multi-developer KG synchronization, Git author signatures, team review agent |
 
 ---
@@ -57,16 +58,25 @@ flowchart TD
         U2 & U3 & U4 & U5 --> U6["Phase 4.6: Verification & Validation"]
     end
 
+    subgraph M47["Milestone 4.7: MCP Maximization & Dynamic Cosmos (v1.2.2) [COMPLETED]"]
+        U6 --> MX1["14 MCP Tools & Pre-Flight Guardrails"]
+        MX1 --> MX2["Token-Compact Markdown Digest Engine"]
+        MX2 --> MX3["V2 Semantic Relations & ADR Rationales"]
+        MX3 --> MX4["Cosmos Circular Canvas & Live D3 Physics"]
+        MX4 --> MX5["Getting Started Tour & Peek Window Mode"]
+    end
+
     subgraph M5["Milestone 5: Cloud Sync & Team Collaboration (v2.0.0) [PLANNED]"]
-        U6 -.-> F1["Multi-Developer KG"]
-        U6 -.-> F2["Cloud Synchronization"]
-        U6 -.-> F3["Git Author Attribution"]
+        MX5 -.-> F1["Multi-Developer KG"]
+        MX5 -.-> F2["Cloud Synchronization"]
+        MX5 -.-> F3["Git Author Attribution"]
     end
 
     style M1 fill:#f0fdf4,stroke:#16a34a
     style M2 fill:#fef2f2,stroke:#dc2626
     style M3 fill:#f0fdf4,stroke:#16a34a
     style M4 fill:#eff6ff,stroke:#2563eb
+    style M47 fill:#faf5ff,stroke:#9333ea
     style M5 fill:#f8fafc,stroke:#94a3b8
 ```
 
@@ -458,6 +468,17 @@ Modern desktop user experience (see detailed inventory in [`v1.2.0.md`](file:///
 - `ui/src/components/OnboardingWizard.tsx` — 4-step first-boot onboarding wizard with 1-click MCP configs.
 - `ui/src/components/layout/Header.tsx` — Desktop header "Setup Guide" trigger button.
 
+### Milestone 4.7 — MCP Maximization & Dynamic Cosmos (v1.2.2) [Key Files]
+- `src/mcp/format.rs` — High-density Markdown digest generation engine for token optimization.
+- `src/mcp/handlers/check_guardrails.rs` — Pre-flight safety validator against active ADRs and rejected alternatives.
+- `src/mcp/handlers/record_batch.rs` — Atomic multi-action batch recorder with sequential linking.
+- `src/mcp/handlers/get_lineage.rs`, `get_impact.rs`, `get_path.rs` — DAG ancestry, blast radius, and shortest-path engines with flexible action_id and file_path resolution.
+- `src/mcp/handlers/resources.rs` & `prompts.rs` — Native MCP resources (`knox://`) and guided prompts.
+- `src/storage/migrations.rs` — SQLite V2 schema migration (`action_relations`, `action_symbols`, `rationale`, `context_summary`, `rejected_alternatives`).
+- `ui/src/components/graph/CircleNode.tsx` — Cosmos mode circular element nodes with glowing role-based radial auras and cardinal handle routing.
+- `ui/src/hooks/useLivePhysics.ts` — Live dynamic D3 force simulation (many-body, link springs, collision, centring, reheat motion).
+- `ui/src/components/OnboardingTourModal.tsx` & `useTour.ts` — 9-step guided walkthrough modal with live background tab synchronization and instant Peek Window mode (<kbd>P</kbd>).
+
 ---
 
 ## Comprehensive Verification Plan
@@ -465,24 +486,24 @@ Modern desktop user experience (see detailed inventory in [`v1.2.0.md`](file:///
 ### Automated Verification Commands
 
 ```bash
-# 1. Rust workspace test suite (122 tests)
-cargo test --workspace
+# 1. Rust workspace test suite (136 tests: 101 unit + 35 integration)
+cargo test
 
-# 2. Frontend type validation
-pnpm typecheck
+# 2. Desktop IPC test suite (8 tests)
+cargo test --manifest-path src-tauri/Cargo.toml
 
-# 3. Code formatting and linting
-cargo fmt --check
-pnpm lint   # cargo clippy --workspace --all-targets
+# 3. Frontend type validation
+npm --prefix ui run typecheck
 
-# 4. Production NSIS setup installer build
-pnpm build  # tauri build --bundles nsis -> target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe
+# 4. Code formatting and linting
+cargo clippy --all-targets
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
 
-# 5. Standalone portable executable build
-pnpm build:portable  # tauri build --no-bundle -> target/release/knox.exe
+# 5. Production desktop UI bundle
+npm --prefix ui run build
 ```
 
-### Milestone 4 Checkpoint Verification Matrix
+### Milestone Checkpoint Verification Matrix
 
 | Checkpoint | Scope | Verified Behavior | Pass Criterion |
 |---|---|---|---|
@@ -494,3 +515,6 @@ pnpm build:portable  # tauri build --no-bundle -> target/release/knox.exe
 | **C6: NSIS Installer** | Distribution | Executing `target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe` | Multi-page setup wizard with dual install scope (`AppData` vs `Program Files`) and shortcut creation. |
 | **C7: Uninstaller** | Distribution | Windows *Settings > Installed apps* | Knox registers publisher, version 1.2.1, and `uninstall.exe` for clean removal. |
 | **C8: Shell Wrapper** | Terminal Shell | Running `knox.cmd --version` in CMD and PowerShell | Returns `knox 1.2.1` synchronously and returns command prompt cleanly. |
+| **C9: 14 MCP Tools & Digest** | MCP Server | Calling batch, lineage, impact, path, and guardrails via MCP stdio | Executes all 14 tools and formats high-density Markdown digests saving 70%+ tokens. |
+| **C10: Cosmos Mode & Physics** | Graph Canvas | Toggling Cosmos mode & Live Physics in toolbar | Smooth rendering of glowing circular nodes with real-time D3 force simulation and reheat. |
+| **C11: Getting Started Tour** | Desktop UI | First launch or clicking "Tour" in Header/Sidebar/Command Palette | Displays 9-step walkthrough with live background tab synchronization and non-blurred Peek Window mode. |
