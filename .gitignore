@@ -35,3 +35,10 @@ Thumbs.db
 # Archive bundles
 *.zip
 *.tar.gz
+
+# Audits and reviews
+audits/
+reviews/
+audit/
+review/
+

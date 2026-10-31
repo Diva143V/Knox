@@ -4,10 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --dir ui dev",
+    "prebuild": "powershell -Command \"Get-Process knox-desktop,knox -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; exit 0\"",
     "build:ui": "pnpm --dir ui build",
     "build:cli": "cargo build --package knox --release",
     "build:desktop": "tauri build --no-bundle",
     "build": "cargo build --package knox --release && tauri build --no-bundle",
+    "test": "cargo test --workspace",
+    "typecheck": "pnpm --dir ui typecheck",
+    "lint": "cargo clippy --workspace --all-targets",
     "tauri": "tauri"
   },
   "devDependencies": {
