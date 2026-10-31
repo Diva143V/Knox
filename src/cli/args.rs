@@ -14,12 +14,14 @@ use std::path::PathBuf;
 pub struct KnoxCli {
     /// Subcommand to execute.
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 /// Available subcommands for Knox.
 #[derive(Subcommand, Clone, Debug, PartialEq, Eq)]
 pub enum Commands {
+    /// Launch the interactive Knox Desktop GUI application.
+    Gui,
     /// Initialize Knox in a project workspace and generate knox.md instructions.
     Init(InitArgs),
     /// Ingest and parse a conversation transcript file into the knowledge graph.
@@ -124,16 +126,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_empty_defaults_to_none() {
+        let cli = KnoxCli::try_parse_from(["knox"]).unwrap();
+        assert_eq!(cli.command, None);
+    }
+
+    #[test]
+    fn test_parse_gui_subcommand() {
+        let cli = KnoxCli::try_parse_from(["knox", "gui"]).unwrap();
+        assert_eq!(cli.command, Some(Commands::Gui));
+    }
+
+    #[test]
     fn test_parse_init_defaults_and_custom_path() {
         let cli_default = KnoxCli::try_parse_from(["knox", "init"]).unwrap();
         match cli_default.command {
-            Commands::Init(args) => assert_eq!(args.path, PathBuf::from(".")),
+            Some(Commands::Init(args)) => assert_eq!(args.path, PathBuf::from(".")),
             _ => panic!("Expected Init command"),
         }
 
         let cli_custom = KnoxCli::try_parse_from(["knox", "init", "subfolder/project"]).unwrap();
         match cli_custom.command {
-            Commands::Init(args) => assert_eq!(args.path, PathBuf::from("subfolder/project")),
+            Some(Commands::Init(args)) => assert_eq!(args.path, PathBuf::from("subfolder/project")),
             _ => panic!("Expected Init command"),
         }
     }
@@ -142,7 +156,7 @@ mod tests {
     fn test_parse_ingest_argument() {
         let cli = KnoxCli::try_parse_from(["knox", "ingest", "fixtures/transcript.jsonl"]).unwrap();
         match cli.command {
-            Commands::Ingest(args) => {
+            Some(Commands::Ingest(args)) => {
                 assert_eq!(
                     args.transcript_path,
                     PathBuf::from("fixtures/transcript.jsonl")
@@ -169,7 +183,7 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Query(args) => {
+            Some(Commands::Query(args)) => {
                 assert_eq!(args.pattern, "parser");
                 assert_eq!(args.project, Some("knox-core".to_string()));
                 assert_eq!(args.file, Some("src/parser.rs".to_string()));
@@ -184,7 +198,7 @@ mod tests {
     fn test_parse_status_flags() {
         let cli = KnoxCli::try_parse_from(["knox", "status", "--json"]).unwrap();
         match cli.command {
-            Commands::Status(args) => assert!(args.json),
+            Some(Commands::Status(args)) => assert!(args.json),
             _ => panic!("Expected Status command"),
         }
     }
@@ -193,7 +207,7 @@ mod tests {
     fn test_parse_serve_flags() {
         let cli = KnoxCli::try_parse_from(["knox", "serve", "--stdio"]).unwrap();
         match cli.command {
-            Commands::Serve(args) => assert!(args.stdio),
+            Some(Commands::Serve(args)) => assert!(args.stdio),
             _ => panic!("Expected Serve command"),
         }
     }
@@ -202,13 +216,13 @@ mod tests {
     fn test_parse_scan_argument() {
         let cli_default = KnoxCli::try_parse_from(["knox", "scan"]).unwrap();
         match cli_default.command {
-            Commands::Scan(args) => assert_eq!(args.project, PathBuf::from(".")),
+            Some(Commands::Scan(args)) => assert_eq!(args.project, PathBuf::from(".")),
             _ => panic!("Expected Scan command"),
         }
 
         let cli_custom = KnoxCli::try_parse_from(["knox", "scan", "custom/dir"]).unwrap();
         match cli_custom.command {
-            Commands::Scan(args) => assert_eq!(args.project, PathBuf::from("custom/dir")),
+            Some(Commands::Scan(args)) => assert_eq!(args.project, PathBuf::from("custom/dir")),
             _ => panic!("Expected Scan command"),
         }
     }
@@ -217,7 +231,7 @@ mod tests {
     fn test_parse_hook_actions() {
         let cli_install = KnoxCli::try_parse_from(["knox", "hook", "install"]).unwrap();
         match cli_install.command {
-            Commands::Hook(args) => {
+            Some(Commands::Hook(args)) => {
                 assert_eq!(args.action, HookAction::Install);
                 assert_eq!(args.project, PathBuf::from("."));
             }
@@ -228,7 +242,7 @@ mod tests {
             KnoxCli::try_parse_from(["knox", "hook", "uninstall", "--project", "repo_dir"])
                 .unwrap();
         match cli_uninstall.command {
-            Commands::Hook(args) => {
+            Some(Commands::Hook(args)) => {
                 assert_eq!(args.action, HookAction::Uninstall);
                 assert_eq!(args.project, PathBuf::from("repo_dir"));
             }

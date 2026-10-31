@@ -15,14 +15,11 @@ readme = "README.md"
 keywords = ["knowledge-graph", "mcp", "ai-agents", "context", "developer-tools"]
 categories = ["command-line-utilities", "development-tools"]
 rust-version = "1.85"
+autobins = false
 
 [lib]
 name = "knox"
 path = "src/lib.rs"
-
-[[bin]]
-name = "knox"
-path = "src/main.rs"
 
 [dependencies]
 # Layer 0: Core
