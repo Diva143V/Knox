@@ -17,10 +17,20 @@ export const ActionRow: React.FC<ActionRowProps> = ({
   onSelect,
   className = "",
 }) => {
-  const formattedTime = new Date(action.timestamp).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  let formattedTime = "--:--";
+  if (action?.timestamp) {
+    try {
+      const d = new Date(action.timestamp);
+      if (!isNaN(d.getTime())) {
+        formattedTime = d.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+    } catch {
+      formattedTime = "--:--";
+    }
+  }
 
   return (
     <div

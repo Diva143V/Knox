@@ -12,6 +12,7 @@ import {
   Sparkles,
   Command,
 } from "lucide-react";
+import { KnoxLogo } from "@/components/ui/KnoxLogo";
 import { useKnoxStore } from "@/store/useKnoxStore";
 
 const AI_CONFIGS = [
@@ -79,6 +80,17 @@ export const OnboardingWizard: React.FC = () => {
   const [selectedAgent, setSelectedAgent] = useState<string>("antigravity");
   const [copied, setCopied] = useState<boolean>(false);
 
+  useEffect(() => {
+    if (!onboardingOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOnboardingOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onboardingOpen, setOnboardingOpen]);
+
   if (!onboardingOpen) return null;
 
   const steps = [
@@ -97,16 +109,6 @@ export const OnboardingWizard: React.FC = () => {
     setOnboardingOpen(false);
     showToast("Welcome to Knox 🛡️ v1.2.1!");
   };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOnboardingOpen(false);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [setOnboardingOpen]);
 
   const handleCopy = (text: string) => {
     try {
@@ -129,10 +131,8 @@ export const OnboardingWizard: React.FC = () => {
       <div className="w-full max-w-2xl bg-card border border-border/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Wizard Header */}
         <div className="px-6 py-4 border-b border-border/60 flex items-center justify-between bg-card/50">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-lg bg-primary/10 text-primary border border-primary/20">
-              <Shield className="w-5 h-5 text-primary" />
-            </div>
+          <div className="flex items-center gap-3">
+            <KnoxLogo size={36} variant="card" />
             <div>
               <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
                 Knox Setup & Onboarding Wizard

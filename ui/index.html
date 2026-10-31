@@ -1,13 +1,78 @@
 <!doctype html>
-<html lang="en" class="dark" style="background-color: #0d1117; color: #f8fafc;">
+<html lang="en" class="dark" style="background-color: #07070D; color: #f8fafc;">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Knox 🛡️ Knowledge Graph</title>
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <style>html,body{margin:0;background:#07070D}</style>
   </head>
-  <body style="background-color: #0d1117; color: #f8fafc; margin: 0; padding: 0; overflow: hidden; user-select: none;">
-    <div id="root"></div>
+  <body style="background-color: #07070D; color: #f8fafc; margin: 0; padding: 0; overflow: hidden; user-select: none;">
+    <div id="root">
+      <div class="knox-load" role="status" aria-label="Loading Knox...">
+        <svg class="knox-mark" viewBox="30 90 460 320" aria-hidden="true">
+          <defs>
+            <filter id="k-blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"/></filter>
+            <filter id="k-blur-s" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.5"/></filter>
+            <mask id="k-cutA" maskUnits="userSpaceOnUse" x="0" y="0" width="500" height="500">
+              <rect width="500" height="500" fill="#fff"/>
+              <path class="k-draw k-b" pathLength="1" d="M 75 360 L 97.5 360.0 Q 120 360 130.8 340.2 L 230.4 157.6 Q 240 140 260.0 140.0 L 260.0 140.0 Q 280 140 289.6 157.6 L 390.4 342.4 Q 400 360 420.0 360.0 L 440 360" fill="none" stroke="#000" stroke-width="38"/>
+              <rect width="260" height="500" fill="#fff"/>
+            </mask>
+            <mask id="k-cutB" maskUnits="userSpaceOnUse" x="0" y="0" width="500" height="500">
+              <rect width="500" height="500" fill="#fff"/>
+              <path class="k-draw k-a" pathLength="1" d="M 75 140 L 97.5 140.0 Q 120 140 130.8 159.8 L 230.4 342.4 Q 240 360 260.0 360.0 L 260.0 360.0 Q 280 360 289.6 342.4 L 390.4 157.6 Q 400 140 420.0 140.0 L 440 140" fill="none" stroke="#000" stroke-width="38"/>
+              <rect x="260" width="240" height="500" fill="#fff"/>
+            </mask>
+          </defs>
+          <g fill="none" stroke-linejoin="round">
+            <g mask="url(#k-cutB)">
+              <path class="k-draw k-b k-glow" pathLength="1" d="M 75 360 L 97.5 360.0 Q 120 360 130.8 340.2 L 230.4 157.6 Q 240 140 260.0 140.0 L 260.0 140.0 Q 280 140 289.6 157.6 L 390.4 342.4 Q 400 360 420.0 360.0 L 440 360" stroke-width="18" filter="url(#k-blur)"/>
+              <path class="k-draw k-b k-body" pathLength="1" d="M 75 360 L 97.5 360.0 Q 120 360 130.8 340.2 L 230.4 157.6 Q 240 140 260.0 140.0 L 260.0 140.0 Q 280 140 289.6 157.6 L 390.4 342.4 Q 400 360 420.0 360.0 L 440 360" stroke-width="8"/>
+              <path class="k-draw k-b k-core" pathLength="1" d="M 75 360 L 97.5 360.0 Q 120 360 130.8 340.2 L 230.4 157.6 Q 240 140 260.0 140.0 L 260.0 140.0 Q 280 140 289.6 157.6 L 390.4 342.4 Q 400 360 420.0 360.0 L 440 360" stroke-width="3"/>
+              <path class="k-pulse k-bp" pathLength="1" d="M 75 360 L 97.5 360.0 Q 120 360 130.8 340.2 L 230.4 157.6 Q 240 140 260.0 140.0 L 260.0 140.0 Q 280 140 289.6 157.6 L 390.4 342.4 Q 400 360 420.0 360.0 L 440 360" stroke-width="5" filter="url(#k-blur-s)"/>
+            </g>
+            <g mask="url(#k-cutA)">
+              <path class="k-draw k-a k-glow" pathLength="1" d="M 75 140 L 97.5 140.0 Q 120 140 130.8 159.8 L 230.4 342.4 Q 240 360 260.0 360.0 L 260.0 360.0 Q 280 360 289.6 342.4 L 390.4 157.6 Q 400 140 420.0 140.0 L 440 140" stroke-width="18" filter="url(#k-blur)"/>
+              <path class="k-draw k-a k-body" pathLength="1" d="M 75 140 L 97.5 140.0 Q 120 140 130.8 159.8 L 230.4 342.4 Q 240 360 260.0 360.0 L 260.0 360.0 Q 280 360 289.6 342.4 L 390.4 157.6 Q 400 140 420.0 140.0 L 440 140" stroke-width="8"/>
+              <path class="k-draw k-a k-core" pathLength="1" d="M 75 140 L 97.5 140.0 Q 120 140 130.8 159.8 L 230.4 342.4 Q 240 360 260.0 360.0 L 260.0 360.0 Q 280 360 289.6 342.4 L 390.4 157.6 Q 400 140 420.0 140.0 L 440 140" stroke-width="3"/>
+              <path class="k-pulse k-ap" pathLength="1" d="M 75 140 L 97.5 140.0 Q 120 140 130.8 159.8 L 230.4 342.4 Q 240 360 260.0 360.0 L 260.0 360.0 Q 280 360 289.6 342.4 L 390.4 157.6 Q 400 140 420.0 140.0 L 440 140" stroke-width="5" filter="url(#k-blur-s)"/>
+            </g>
+          </g>
+          <g class="k-node" style="--pop:0s"><circle cx="75" cy="140" r="17" class="k-glow" fill="none" stroke-width="8"/><circle cx="75" cy="140" r="17" fill="#07070D" class="k-body" stroke-width="6"/><circle cx="75" cy="140" r="5" class="k-core-fill"/></g>
+          <g class="k-node" style="--pop:.9s"><circle cx="440" cy="140" r="17" class="k-glow" fill="none" stroke-width="8"/><circle cx="440" cy="140" r="17" fill="#07070D" class="k-body" stroke-width="6"/><circle cx="440" cy="140" r="5" class="k-core-fill"/></g>
+          <g class="k-node" style="--pop:.45s"><circle cx="75" cy="360" r="17" class="k-glow" fill="none" stroke-width="8"/><circle cx="75" cy="360" r="17" fill="#07070D" class="k-body" stroke-width="6"/><circle cx="75" cy="360" r="5" class="k-core-fill"/></g>
+          <g class="k-node" style="--pop:1.35s"><circle cx="440" cy="360" r="17" class="k-glow" fill="none" stroke-width="8"/><circle cx="440" cy="360" r="17" fill="#07070D" class="k-body" stroke-width="6"/><circle cx="440" cy="360" r="5" class="k-core-fill"/></g>
+        </svg>
+        <p class="knox-label">Loading Knox...</p>
+        <style>
+          .knox-load{--neon:#FF073A;--core:#FFC8D4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:30px;height:100vh;
+            background:radial-gradient(circle at 50% 44%,rgba(255,7,58,.18),transparent 55%),#07070D}
+          .knox-mark{width:min(40vmin,210px);height:auto;overflow:visible}
+          .knox-label{margin:0;color:var(--core);font:500 15px/1 "Bahnschrift","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;letter-spacing:.04em;
+            text-shadow:0 0 12px rgba(255,7,58,.8);animation:k-fade .6s ease-out 1.5s both}
+          .k-glow{stroke:var(--neon);opacity:.85}
+          .k-body{stroke:var(--neon)}
+          .k-core{stroke:var(--core)}
+          .k-core-fill{fill:var(--core)}
+          .k-node .k-glow{opacity:.7}
+          .k-draw{stroke-dasharray:1;stroke-dashoffset:1;animation:k-draw .9s cubic-bezier(.65,0,.35,1) forwards}
+          .k-b{animation-delay:.45s}
+          .k-node{transform-box:fill-box;transform-origin:center;animation:k-pop .35s cubic-bezier(.34,1.56,.64,1) var(--pop) both}
+          .k-pulse{stroke:#fff;stroke-dasharray:.07 2;stroke-dashoffset:.07;opacity:0;animation:k-run 3.2s cubic-bezier(.45,0,.55,1) infinite}
+          .k-ap{animation-delay:1.9s}
+          .k-bp{animation-delay:2.5s}
+          @keyframes k-draw{to{stroke-dashoffset:0}}
+          @keyframes k-pop{from{transform:scale(0)}to{transform:scale(1)}}
+          @keyframes k-fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+          @keyframes k-run{0%{opacity:1;stroke-dashoffset:.07}40%{opacity:1;stroke-dashoffset:-1}41%,100%{opacity:0;stroke-dashoffset:-1}}
+          @media (prefers-reduced-motion:reduce){
+            .k-draw,.k-node,.knox-label{animation:none;stroke-dashoffset:0;opacity:1;transform:none}
+            .k-pulse{display:none}
+          }
+        </style>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

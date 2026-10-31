@@ -266,3 +266,35 @@ fn test_storage_status_report() {
     assert_eq!(report.actions_by_type.get("plan"), Some(&1));
     assert!(report.last_action_timestamp.is_some());
 }
+
+#[test]
+fn test_storage_project_crud_and_idempotency() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    let p1 = Project {
+        id: ProjectId::new(),
+        name: "Knox".to_string(),
+        path: r"\\?\D:\Knox".to_string(),
+        created_at: Utc::now(),
+    };
+    insert_project(&db, &p1).unwrap();
+
+    // Re-inserting same path with updated name should not fail (idempotent ON CONFLICT)
+    let p1_updated = Project {
+        id: ProjectId::new(),
+        name: "Knox Refined".to_string(),
+        path: r"D:\Knox".to_string(),
+        created_at: Utc::now(),
+    };
+    insert_project(&db, &p1_updated).unwrap();
+
+    let fetched = get_project_by_path(&db, r"D:\Knox").unwrap().unwrap();
+    assert_eq!(fetched.name, "Knox Refined");
+    assert_eq!(fetched.path, r"D:\Knox");
+
+    let fetched_verbatim = get_project_by_path(&db, r"\\?\D:\Knox").unwrap().unwrap();
+    assert_eq!(fetched_verbatim.path, r"D:\Knox");
+
+    let list = list_projects(&db).unwrap();
+    assert_eq!(list.len(), 1);
+}

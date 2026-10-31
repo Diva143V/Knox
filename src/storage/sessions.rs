@@ -15,20 +15,35 @@ fn resolve_project_id(
     proj_identifier: &str,
     started_at: DateTime<Utc>,
 ) -> KnoxResult<String> {
-    let mut stmt =
-        conn.prepare("SELECT id FROM projects WHERE id = ?1 OR name = ?1 OR path = ?1")?;
-    let mut rows = stmt.query(params![proj_identifier])?;
+    let clean_path = proj_identifier
+        .strip_prefix(r"\\?\")
+        .unwrap_or(proj_identifier)
+        .trim_end_matches(['\\', '/']);
+    let verbatim_path = format!(r"\\?\{clean_path}");
+
+    let mut stmt = conn.prepare(
+        "SELECT id FROM projects WHERE id = ?1 OR name = ?1 OR path = ?1 OR path = ?2",
+    )?;
+    let mut rows = stmt.query(params![clean_path, verbatim_path])?;
     if let Some(row) = rows.next()? {
         Ok(row.get(0)?)
     } else {
+        let name = std::path::Path::new(clean_path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(clean_path)
+            .to_string();
+
         let new_proj = Project {
             id: ProjectId::new(),
-            name: proj_identifier.to_string(),
-            path: proj_identifier.to_string(),
+            name,
+            path: clean_path.to_string(),
             created_at: started_at,
         };
         conn.execute(
-            "INSERT INTO projects (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO projects (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(path) DO UPDATE SET name = excluded.name",
             params![
                 new_proj.id.as_str(),
                 new_proj.name.as_str(),

@@ -15,6 +15,7 @@ import "@xyflow/react/dist/style.css";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { ActionNode } from "./ActionNode";
 import { FileNode } from "./FileNode";
+import { ProjectRootNode } from "./ProjectRootNode";
 import { CausalEdge } from "./CausalEdge";
 import { useGraphLayout } from "@/hooks/useGraphLayout";
 import {
@@ -29,9 +30,10 @@ import {
   RotateCcw,
   UploadCloud,
 } from "lucide-react";
-import type { KnoxAction } from "@/types/knox";
+import type { KnoxAction, Project } from "@/types/knox";
 
 const nodeTypes = {
+  projectRootNode: ProjectRootNode,
   actionNode: ActionNode,
   fileNode: FileNode,
 };
@@ -45,10 +47,17 @@ export const KnoxGraphCanvas: React.FC = () => {
     actions,
     selectedAction,
     setSelectedAction,
+    projects,
+    selectedProject,
+    setSelectedProject,
+    getProjectForAction,
+    recentProjects,
     currentOnly,
     setCurrentOnly,
     setActiveTab,
     refreshData,
+    activeProjectScope,
+    config,
   } = useKnoxStore();
 
   const [actorFilter, setActorFilter] = useState<string>("all");
@@ -85,7 +94,6 @@ export const KnoxGraphCanvas: React.FC = () => {
     const buildAndLayoutGraph = async () => {
       const rawNodes: Node[] = [];
       const rawEdges: Edge[] = [];
-      const fileCounts = new Map<string, number>();
 
       // Filter actions
       const filteredActions = actions.filter((a) => {
@@ -95,103 +103,254 @@ export const KnoxGraphCanvas: React.FC = () => {
         return true;
       });
 
-      const filteredActionIds = new Set(filteredActions.map((a) => a.id));
+      // Global DB root node
+      const globalDbPath = config?.kg_path || "C:\\Users\\Diwa\\.knox\\knox.db";
+      const globalNodeId = "root-global-db";
 
-      // Calculate file associations
-      if (showFileNodes) {
-        for (const action of filteredActions) {
-          for (const f of action.files || []) {
-            fileCounts.set(f, (fileCounts.get(f) || 0) + 1);
-          }
+      // 1. Determine active project branches to display
+      let activeProjects: Project[] = [];
+      if (projects && projects.length > 0) {
+        activeProjects = [...projects];
+      } else if (recentProjects && recentProjects.length > 0) {
+        activeProjects = recentProjects.map((r, idx) => ({
+          id: `recent-${idx}`,
+          name: r.name,
+          path: r.path,
+          created_at: new Date().toISOString(),
+        }));
+      } else {
+        activeProjects = [
+          {
+            id: "default-knox",
+            name: "Knox",
+            path: "D:\\Knox",
+            created_at: new Date().toISOString(),
+          },
+        ];
+      }
+
+      // If activeProjectScope is selected (e.g. D:\Knox or D:\hongli), filter to that project branch
+      if (activeProjectScope) {
+        const normScope = activeProjectScope.toLowerCase().replace(/\\/g, "/");
+        const matched = activeProjects.filter(
+          (p) => p.path.toLowerCase().replace(/\\/g, "/") === normScope
+        );
+        if (matched.length > 0) {
+          activeProjects = matched;
+        } else {
+          const folderName = normScope.split("/").filter(Boolean).pop() || activeProjectScope;
+          activeProjects = [
+            {
+              id: "scoped-custom",
+              name: folderName,
+              path: activeProjectScope,
+              created_at: new Date().toISOString(),
+            },
+          ];
         }
       }
 
-      // 1. Build Action Nodes
-      const lowerSearch = searchHighlight.trim().toLowerCase();
+      // 2. Add Global Knowledge Graph Top Anchor Node
+      const allFileSet = new Set<string>();
+      filteredActions.forEach((a) => a.files?.forEach((f) => allFileSet.add(f)));
+
+      rawNodes.push({
+        id: globalNodeId,
+        type: "projectRootNode",
+        position: { x: 0, y: 0 },
+        data: {
+          name: "Global Knowledge Graph",
+          path: globalDbPath,
+          isGlobal: true,
+          actionCount: filteredActions.length,
+          fileCount: allFileSet.size,
+        },
+      });
+
+      // 3. Partition actions into their respective projects
+      const projectActionMap = new Map<string, KnoxAction[]>();
+      activeProjects.forEach((p) => projectActionMap.set(p.path, []));
 
       filteredActions.forEach((action) => {
-        const isHighlighted =
-          lowerSearch.length > 0 &&
-          (action.summary.toLowerCase().includes(lowerSearch) ||
-            action.actor.toLowerCase().includes(lowerSearch) ||
-            (action.files && action.files.some((f) => f.toLowerCase().includes(lowerSearch))));
-
-        rawNodes.push({
-          id: action.id,
-          type: "actionNode",
-          position: { x: 0, y: 0 },
-          data: {
-            action,
-            selected: selectedAction?.id === action.id,
-            isHighlighted,
-          },
-        });
-
-        // Causal edge to parent
-        if (action.parent_action_id && filteredActionIds.has(action.parent_action_id)) {
-          rawEdges.push({
-            id: `edge-${action.parent_action_id}->${action.id}`,
-            source: action.parent_action_id,
-            target: action.id,
-            type: "causalEdge",
-            data: { relation: "follows" },
-            markerEnd: {
-              type: MarkerType.ArrowClosed,
-              color: "#6366f1",
-            },
-          });
-        }
-
-        // Edge for supersede
-        if (action.supersedes && filteredActionIds.has(action.supersedes)) {
-          rawEdges.push({
-            id: `sup-${action.id}->${action.supersedes}`,
-            source: action.id,
-            target: action.supersedes,
-            type: "causalEdge",
-            data: { relation: "supersedes" },
-            markerEnd: {
-              type: MarkerType.ArrowClosed,
-              color: "#f59e0b",
-            },
-          });
+        const ownerProj = getProjectForAction(action);
+        const targetProj =
+          ownerProj && projectActionMap.has(ownerProj.path)
+            ? ownerProj
+            : activeProjects[0];
+        const list = projectActionMap.get(targetProj.path);
+        if (list) {
+          list.push(action);
+        } else {
+          projectActionMap.set(targetProj.path, [action]);
         }
       });
 
-      // 2. Build File Nodes (top connected files)
-      if (showFileNodes) {
-        // Take top 25 most frequent files to keep canvas uncluttered
-        const sortedFiles = Array.from(fileCounts.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 25);
+      const lowerSearch = searchHighlight.trim().toLowerCase();
 
-        sortedFiles.forEach(([filePath, count]) => {
-          const fileNodeId = `file:${filePath}`;
-          rawNodes.push({
-            id: fileNodeId,
-            type: "fileNode",
-            position: { x: 0, y: 0 },
-            data: { filePath, count },
-          });
+      // 4. For each active project, create Project Folder Node & Sub-KG
+      activeProjects.forEach((proj) => {
+        const projNodeId = `project:${proj.path}`;
+        const projActions = projectActionMap.get(proj.path) || [];
+        const projActionIds = new Set(projActions.map((a) => a.id));
 
-          // Connect actions touching this file
-          filteredActions.forEach((action) => {
-            if (action.files && action.files.includes(filePath)) {
-              rawEdges.push({
-                id: `target-${action.id}->${fileNodeId}`,
-                source: action.id,
-                target: fileNodeId,
-                type: "causalEdge",
-                data: { relation: "targets" },
-                markerEnd: {
-                  type: MarkerType.ArrowClosed,
-                  color: "#06b6d4",
-                },
-              });
-            }
+        // Skip empty projects that have no actions unless explicitly focused or sole project
+        if (
+          projActions.length === 0 &&
+          !activeProjectScope &&
+          activeProjects.length > 1 &&
+          proj.name !== "Knox"
+        ) {
+          return;
+        }
+
+        // Calculate files for this project
+        const projFileCounts = new Map<string, number>();
+        projActions.forEach((a) => {
+          a.files?.forEach((f) => {
+            projFileCounts.set(f, (projFileCounts.get(f) || 0) + 1);
           });
         });
-      }
+
+        // Add Project Folder Node
+        rawNodes.push({
+          id: projNodeId,
+          type: "projectRootNode",
+          position: { x: 0, y: 0 },
+          data: {
+            name: proj.name,
+            path: proj.path,
+            isGlobal: false,
+            actionCount: projActions.length,
+            fileCount: projFileCounts.size,
+            project: proj,
+            isSelected: selectedProject?.path === proj.path,
+          },
+        });
+
+        // Directed Edge: Global DB -> Project Folder Branch (#38bdf8 sky blue)
+        rawEdges.push({
+          id: `proj-edge-${globalNodeId}->${projNodeId}`,
+          source: globalNodeId,
+          target: projNodeId,
+          type: "causalEdge",
+          data: { relation: "project" },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: "#38bdf8",
+          },
+        });
+
+        // 4a. Add File Nodes belonging to this project (if showFileNodes is true)
+        if (showFileNodes) {
+          const sortedFiles = Array.from(projFileCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 15);
+
+          sortedFiles.forEach(([filePath, count]) => {
+            const fileNodeId = `file:${proj.name}:${filePath}`;
+            rawNodes.push({
+              id: fileNodeId,
+              type: "fileNode",
+              position: { x: 0, y: 0 },
+              data: { filePath, count },
+            });
+
+            // Project Folder -> File ("contains", emerald #10b981)
+            rawEdges.push({
+              id: `contains-${projNodeId}->${fileNodeId}`,
+              source: projNodeId,
+              target: fileNodeId,
+              type: "causalEdge",
+              data: { relation: "contains" },
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: "#10b981",
+              },
+            });
+
+            // Action -> File ("targets", cyan #06b6d4)
+            projActions.forEach((action) => {
+              if (action.files && action.files.includes(filePath)) {
+                rawEdges.push({
+                  id: `targets-${action.id}->${fileNodeId}`,
+                  source: action.id,
+                  target: fileNodeId,
+                  type: "causalEdge",
+                  data: { relation: "targets" },
+                  markerEnd: {
+                    type: MarkerType.ArrowClosed,
+                    color: "#06b6d4",
+                  },
+                });
+              }
+            });
+          });
+        }
+
+        // 4b. Add Action Nodes for this project
+        projActions.forEach((action) => {
+          const isHighlighted =
+            lowerSearch.length > 0 &&
+            (action.summary.toLowerCase().includes(lowerSearch) ||
+              action.actor.toLowerCase().includes(lowerSearch) ||
+              (action.files &&
+                action.files.some((f) => f.toLowerCase().includes(lowerSearch))));
+
+          rawNodes.push({
+            id: action.id,
+            type: "actionNode",
+            position: { x: 0, y: 0 },
+            data: {
+              action,
+              selected: selectedAction?.id === action.id,
+              isHighlighted,
+            },
+          });
+
+          // Causal edge to parent or Project Root
+          if (action.parent_action_id && projActionIds.has(action.parent_action_id)) {
+            rawEdges.push({
+              id: `edge-${action.parent_action_id}->${action.id}`,
+              source: action.parent_action_id,
+              target: action.id,
+              type: "causalEdge",
+              data: { relation: "follows" },
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: "#6366f1",
+              },
+            });
+          } else {
+            // Action has no parent in this project: anchor to Project Root ("origin", purple #8b5cf6)
+            rawEdges.push({
+              id: `origin-${projNodeId}->${action.id}`,
+              source: projNodeId,
+              target: action.id,
+              type: "causalEdge",
+              data: { relation: "origin" },
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: "#8b5cf6",
+              },
+            });
+          }
+
+          // Edge for supersede
+          if (action.supersedes && projActionIds.has(action.supersedes)) {
+            rawEdges.push({
+              id: `sup-${action.id}->${action.supersedes}`,
+              source: action.id,
+              target: action.supersedes,
+              type: "causalEdge",
+              data: { relation: "supersedes" },
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: "#f59e0b",
+              },
+            });
+          }
+        });
+      });
 
       // Run automatic layout engine
       const positioned = await applyLayout(rawNodes, rawEdges, layoutEngine);
@@ -208,6 +367,12 @@ export const KnoxGraphCanvas: React.FC = () => {
     };
   }, [
     actions,
+    activeProjectScope,
+    projects,
+    selectedProject?.path,
+    getProjectForAction,
+    recentProjects,
+    config?.kg_path,
     selectedAction?.id,
     currentOnly,
     actorFilter,
@@ -225,9 +390,14 @@ export const KnoxGraphCanvas: React.FC = () => {
       if (node.type === "actionNode") {
         const action = (node.data as { action: KnoxAction }).action;
         setSelectedAction(action);
+      } else if (node.type === "projectRootNode") {
+        const pData = node.data as { isGlobal?: boolean; project?: Project };
+        if (!pData.isGlobal && pData.project) {
+          setSelectedProject(pData.project);
+        }
       }
     },
-    [setSelectedAction]
+    [setSelectedAction, setSelectedProject]
   );
 
   const handleResetFilters = useCallback(() => {

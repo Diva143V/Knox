@@ -8,10 +8,11 @@ import { Router } from "@/components/layout/Router";
 import { DetailInspector } from "@/components/layout/DetailInspector";
 import { CommandPalette } from "@/components/CommandPalette";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CheckCircle2, AlertCircle, X } from "lucide-react";
 
 export const AppShell: React.FC = () => {
-  const { refreshData, toast, clearToast } = useKnoxStore();
+  const { refreshData, toast, clearToast, onboardingOpen } = useKnoxStore();
 
   // Register global desktop keyboard shortcuts (F5, Esc, Ctrl+K, G-prefix, 1-8)
   useKeyboard();
@@ -34,7 +35,9 @@ export const AppShell: React.FC = () => {
         <main className="flex-1 min-w-0 bg-background overflow-hidden relative flex flex-col">
           <Header />
           <div className="flex-1 min-h-0 overflow-hidden relative">
-            <Router />
+            <ErrorBoundary fallbackTitle="View Rendering Error">
+              <Router />
+            </ErrorBoundary>
           </div>
         </main>
 
@@ -46,7 +49,7 @@ export const AppShell: React.FC = () => {
       <CommandPalette />
 
       {/* In-App Onboarding & Setup Wizard */}
-      <OnboardingWizard />
+      {onboardingOpen && <OnboardingWizard />}
 
       {/* Desktop Toast Notification Banner (Top-Right under titlebar, avoiding Graph MiniMap) */}
       {toast && (

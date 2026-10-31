@@ -8,6 +8,12 @@ export type LayoutEngine = "hierarchical" | "dagre" | "force" | "grid";
 
 const elk = new ELK();
 
+const getNodeDimensions = (type?: string) => {
+  if (type === "projectRootNode") return { width: 340, height: 140 };
+  if (type === "fileNode") return { width: 220, height: 48 };
+  return { width: 240, height: 130 };
+};
+
 export const useGraphLayout = () => {
   const [layoutEngine, setLayoutEngine] = useState<LayoutEngine>("hierarchical");
   const [isLayouting, setIsLayouting] = useState(false);
@@ -25,11 +31,14 @@ export const useGraphLayout = () => {
       try {
         if (engine === "hierarchical") {
           // ELK Layered Directed Acyclic Graph Layout
-          const elkNodes = nodes.map((n) => ({
-            id: n.id,
-            width: n.type === "fileNode" ? 200 : 240,
-            height: n.type === "fileNode" ? 44 : 130,
-          }));
+          const elkNodes = nodes.map((n) => {
+            const dims = getNodeDimensions(n.type);
+            return {
+              id: n.id,
+              width: dims.width,
+              height: dims.height,
+            };
+          });
 
           const elkEdges = edges.map((e) => ({
             id: e.id,
@@ -70,9 +79,10 @@ export const useGraphLayout = () => {
           g.setDefaultEdgeLabel(() => ({}));
 
           nodes.forEach((n) => {
+            const dims = getNodeDimensions(n.type);
             g.setNode(n.id, {
-              width: n.type === "fileNode" ? 200 : 240,
-              height: n.type === "fileNode" ? 44 : 130,
+              width: dims.width,
+              height: dims.height,
             });
           });
 
@@ -84,13 +94,12 @@ export const useGraphLayout = () => {
 
           return nodes.map((node) => {
             const nodeWithPos = g.node(node.id);
-            const w = node.type === "fileNode" ? 200 : 240;
-            const h = node.type === "fileNode" ? 44 : 130;
+            const dims = getNodeDimensions(node.type);
             return {
               ...node,
               position: {
-                x: (nodeWithPos?.x ?? 0) - w / 2 + 60,
-                y: (nodeWithPos?.y ?? 0) - h / 2 + 60,
+                x: (nodeWithPos?.x ?? 0) - dims.width / 2 + 60,
+                y: (nodeWithPos?.y ?? 0) - dims.height / 2 + 60,
               },
             };
           });

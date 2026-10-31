@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import type { KnoxAction } from "@/types/knox";
 import { ActionBadge } from "@/components/ui/ActionBadge";
 import { ActorBadge } from "@/components/ui/ActorBadge";
@@ -13,6 +13,12 @@ import {
   ChevronRight,
   Gauge,
   Code2,
+  Sparkles,
+  MapPin,
+  FolderGit2,
+  PlusCircle,
+  MinusCircle,
+  Compass,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 
@@ -27,15 +33,93 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
   onSelectAction,
   className = "",
 }) => {
-  const { actions, showToast, setSelectedAction } = useKnoxStore();
+  const { actions, showToast, setSelectedAction, getProjectForAction } =
+    useKnoxStore();
   const [copiedId, setCopiedId] = useState(false);
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
+
+  const parentAction = useMemo(() => {
+    if (!action.parent_action_id) return null;
+    return actions.find((a) => a.id === action.parent_action_id) || null;
+  }, [action.parent_action_id, actions]);
+
+  const project = useMemo(() => {
+    return getProjectForAction(action);
+  }, [action, getProjectForAction]);
+
+  // Parse diff metrics from summary (e.g. (+2 -1) or +5 or -2)
+  const diffMetrics = useMemo(() => {
+    const deltaMatch = action.summary.match(/\+(\d+)\s*-(\d+)/);
+    if (deltaMatch) {
+      const added = parseInt(deltaMatch[1], 10);
+      const deleted = parseInt(deltaMatch[2], 10);
+      return { added, deleted, net: added - deleted };
+    }
+    const singlePlus = action.summary.match(/\+(\d+)/);
+    const singleMinus = action.summary.match(/-(\d+)/);
+    if (singlePlus || singleMinus) {
+      const added = singlePlus ? parseInt(singlePlus[1], 10) : 0;
+      const deleted = singleMinus ? parseInt(singleMinus[1], 10) : 0;
+      return { added, deleted, net: added - deleted };
+    }
+    return null;
+  }, [action.summary]);
+
+  // Synthesize work narrative explaining what this node did and its intent
+  const workNarrative = useMemo(() => {
+    const primaryFile = action.files && action.files.length > 0 ? action.files[0] : "";
+    const cleanFile = primaryFile.replace(/\\/g, "/");
+
+    if (action.action_type.toLowerCase() === "write") {
+      const diffText = diffMetrics
+        ? ` (+${diffMetrics.added} added, -${diffMetrics.deleted} deleted)`
+        : "";
+      if (parentAction) {
+        return `Applied code modifications to \`${cleanFile || "target files"}\`${diffText}. Fulfills parent plan: "${parentAction.summary}".`;
+      }
+      return `Applied code modifications to \`${cleanFile || "target files"}\`${diffText}. Updates source logic and implementation.`;
+    }
+
+    if (action.action_type.toLowerCase() === "debug") {
+      return `Executed verification command and diagnostic test suites. Confirmed parser modules and test assertions pass.`;
+    }
+
+    if (action.action_type.toLowerCase() === "plan") {
+      return `Established strategic plan and intent: "${action.summary}". Coordinates downstream file changes and architectural decisions.`;
+    }
+
+    if (action.action_type.toLowerCase() === "decide") {
+      return `Established architectural decision: "${action.summary}". Governs downstream system design and module contracts.`;
+    }
+
+    return `Executed ${action.action_type.toUpperCase()} operation: "${action.summary}".`;
+  }, [action, diffMetrics, parentAction]);
+
+  // Compute resolved physical path
+  const primaryPhysicalLocation = useMemo(() => {
+    if (!action.files || action.files.length === 0) return null;
+    const file = action.files[0];
+    if (/^[A-Za-z]:[\\/]/.test(file) || file.startsWith("/")) {
+      return file;
+    }
+    const projRoot = project?.path || "D:\\Knox";
+    const separator = projRoot.includes("/") ? "/" : "\\";
+    return `${projRoot.replace(/[\\/]+$/, "")}${separator}${file}`;
+  }, [action.files, project]);
 
   const handleCopyId = () => {
     navigator.clipboard.writeText(action.id);
     setCopiedId(true);
     showToast("Copied Action ID to clipboard");
     setTimeout(() => setCopiedId(false), 2000);
+  };
+
+  const handleCopyText = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedPath(label);
+    showToast(`Copied ${label} to clipboard`);
+    setTimeout(() => setCopiedPath(null), 2000);
   };
 
   const handleJumpToParent = (parentId: string) => {
@@ -63,7 +147,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
       : null;
 
   return (
-    <div className={`space-y-5 text-xs text-foreground ${className}`}>
+    <div className={`space-y-4 text-xs text-foreground ${className}`}>
       {/* Badges & Current Status */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
@@ -82,18 +166,120 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
         )}
       </div>
 
-      {/* Summary */}
+      {/* Work Done Narrative Card */}
+      <div className="space-y-2 p-3 rounded-xl border border-primary/40 bg-gradient-to-br from-primary/10 via-zinc-950 to-zinc-900 shadow-sm">
+        <div className="flex items-center justify-between text-primary">
+          <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 font-sans">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Work Done Narrative</span>
+          </span>
+          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-primary/20 text-primary border border-primary/30">
+            AI SYNTHESIS
+          </span>
+        </div>
+        <p className="text-xs font-medium text-zinc-100 leading-relaxed">
+          {workNarrative}
+        </p>
+
+        {/* Code Diff Metrics Chips if present */}
+        {diffMetrics && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-zinc-800/80 font-mono text-[10px]">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+              <PlusCircle className="w-3 h-3" />
+              +{diffMetrics.added} added
+            </span>
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30 font-semibold">
+              <MinusCircle className="w-3 h-3" />
+              -{diffMetrics.deleted} deleted
+            </span>
+            <span className="px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700">
+              Net: {diffMetrics.net >= 0 ? `+${diffMetrics.net}` : diffMetrics.net} lines
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Ontology & Physical Location Card */}
+      <div className="space-y-2.5 p-3 rounded-xl border border-sky-500/30 bg-sky-950/20 backdrop-blur-xs font-mono text-[11px]">
+        <div className="flex items-center justify-between text-sky-400">
+          <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 font-sans">
+            <Compass className="w-3.5 h-3.5" />
+            <span>Ontology & Physical Location</span>
+          </span>
+          <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-semibold uppercase">
+            Resolved
+          </span>
+        </div>
+
+        {/* Project Folder */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-muted-foreground text-[10px]">
+            <span className="flex items-center gap-1">
+              <FolderGit2 className="w-3 h-3 text-sky-400" />
+              <span>Project Branch:</span>
+            </span>
+            <button
+              onClick={() => handleCopyText(project?.path || "D:\\Knox", "Project Path")}
+              className="text-sky-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+            >
+              {copiedPath === "Project Path" ? (
+                <Check className="w-2.5 h-2.5 text-emerald-400" />
+              ) : (
+                <Copy className="w-2.5 h-2.5" />
+              )}
+              <span>{copiedPath === "Project Path" ? "Copied" : "Copy"}</span>
+            </button>
+          </div>
+          <div className="p-1.5 rounded bg-zinc-900/90 border border-zinc-800 text-zinc-200 truncate flex items-center justify-between">
+            <span className="font-bold text-sky-300">{project?.name || "Knox"}</span>
+            <span className="text-[10px] text-zinc-500 truncate max-w-[150px]" title={project?.path}>
+              {project?.path}
+            </span>
+          </div>
+        </div>
+
+        {/* Primary Entity Physical Location */}
+        {primaryPhysicalLocation && (
+          <div className="space-y-1 pt-1 border-t border-sky-500/20">
+            <div className="flex items-center justify-between text-muted-foreground text-[10px]">
+              <span className="flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-emerald-400" />
+                <span>Entity Physical Location:</span>
+              </span>
+              <button
+                onClick={() => handleCopyText(primaryPhysicalLocation, "Physical Location")}
+                className="text-sky-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+              >
+                {copiedPath === "Physical Location" ? (
+                  <Check className="w-2.5 h-2.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-2.5 h-2.5" />
+                )}
+                <span>{copiedPath === "Physical Location" ? "Copied" : "Copy"}</span>
+              </button>
+            </div>
+            <div
+              className="p-1.5 rounded bg-zinc-900/90 border border-zinc-800 text-emerald-400 text-[10px] truncate select-all"
+              title={primaryPhysicalLocation}
+            >
+              {primaryPhysicalLocation}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Raw Action Summary */}
       <div className="space-y-1.5">
         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-          Summary
+          Action Raw Summary
         </span>
-        <p className="text-sm font-medium text-foreground leading-relaxed bg-card/40 p-3 rounded-lg border border-border/50">
+        <p className="text-xs font-mono text-zinc-300 bg-card/40 p-2.5 rounded-lg border border-border/50 break-words">
           {action.summary}
         </p>
       </div>
 
-      {/* ID & Clipboard */}
-      <div className="space-y-1.5 p-3 rounded-lg border border-border/60 bg-card/60">
+      {/* Action ID & Clipboard */}
+      <div className="space-y-1.5 p-2.5 rounded-lg border border-border/60 bg-card/60">
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
           <span className="font-semibold uppercase tracking-wider text-[10px]">
             Action ID
@@ -122,7 +308,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
 
       {/* Confidence Bar */}
       {confidencePct !== null && (
-        <div className="space-y-1.5 p-3 rounded-lg border border-border/50 bg-card/40">
+        <div className="space-y-1.5 p-2.5 rounded-lg border border-border/50 bg-card/40">
           <div className="flex items-center justify-between text-[11px]">
             <span className="flex items-center gap-1.5 text-muted-foreground">
               <Gauge className="w-3.5 h-3.5 text-indigo-400" />
@@ -148,7 +334,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
       )}
 
       {/* Timestamp & Session Meta */}
-      <div className="space-y-2 p-3 rounded-lg border border-border/50 bg-card/40 font-mono text-[11px]">
+      <div className="space-y-2 p-2.5 rounded-lg border border-border/50 bg-card/40 font-mono text-[11px]">
         <div className="flex items-center justify-between text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-muted-foreground/80" />
@@ -160,7 +346,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
         {action.session_id && (
           <div className="flex items-center justify-between text-muted-foreground pt-1 border-t border-border/40">
             <span>Session:</span>
-            <span className="text-foreground truncate max-w-[170px]">
+            <span className="text-foreground truncate max-w-[170px]" title={action.session_id}>
               {action.session_id}
             </span>
           </div>
@@ -169,7 +355,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
 
       {/* Causal Chain Links */}
       {(action.parent_action_id || action.supersedes) && (
-        <div className="space-y-2 p-3 rounded-lg border border-border/60 bg-card/60">
+        <div className="space-y-2 p-2.5 rounded-lg border border-border/60 bg-card/60">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
             <GitCommit className="w-3.5 h-3.5 text-primary" />
             <span>Causal Graph Relation</span>

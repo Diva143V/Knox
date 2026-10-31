@@ -1,6 +1,7 @@
 //! Type-safe IPC service layer communicating with Knox Rust backend.
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type {
   KnoxAction,
   StatusReport,
@@ -9,6 +10,9 @@ import type {
   IngestReport,
   KnoxConfig,
   Session,
+  Project,
+  DetectedMcpApp,
+  McpScanLog,
 } from "@/types/knox";
 
 const isTauri =
@@ -96,6 +100,20 @@ export const KnoxAPI = {
       return `Initialized Knox in ${path}`;
     }
     return invoke<string>("init_project", { path });
+  },
+
+  async getProjects(): Promise<Project[]> {
+    if (!isTauri) {
+      return [
+        {
+          id: "p-001",
+          name: "Knox",
+          path: "D:\\Knox",
+          created_at: new Date().toISOString(),
+        },
+      ];
+    }
+    return invoke<Project[]>("get_projects");
   },
 
   async scanStaged(project?: string): Promise<ScanReport> {
@@ -195,15 +213,9 @@ export const KnoxAPI = {
         name: options?.name || null,
         extensions: options?.extensions || null,
       });
-    } catch {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({
-        multiple: false,
-        filters: options?.extensions
-          ? [{ name: options.name || "Files", extensions: options.extensions }]
-          : undefined,
-      });
-      return typeof selected === "string" ? selected : null;
+    } catch (err) {
+      console.warn("Native file dialog failed:", err);
+      return null;
     }
   },
 
@@ -211,14 +223,101 @@ export const KnoxAPI = {
     if (!isTauri) return null;
     try {
       return await invoke<string | null>("open_folder_dialog");
-    } catch {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({
-        directory: true,
-        multiple: false,
-      });
-      return typeof selected === "string" ? selected : null;
+    } catch (err) {
+      console.warn("Native folder dialog failed:", err);
+      return null;
     }
+  },
+
+  async detectMcpConfigs(): Promise<DetectedMcpApp[]> {
+    if (!isTauri) {
+      return [
+        {
+          id: "cursor",
+          name: "Cursor",
+          category: "ide",
+          file_path: "~/.cursor/mcp.json",
+          exists: true,
+          is_configured: false,
+          format: "standard",
+          last_modified: "2026-10-30 14:20:00 UTC",
+          is_custom: false,
+        },
+        {
+          id: "claude-desktop",
+          name: "Claude Desktop",
+          category: "ide",
+          file_path: "%APPDATA%\\Claude\\claude_desktop_config.json",
+          exists: true,
+          is_configured: false,
+          format: "standard",
+          last_modified: "2026-10-29 11:15:00 UTC",
+          is_custom: false,
+        },
+        {
+          id: "antigravity",
+          name: "Antigravity / Gemini CLI",
+          category: "ide",
+          file_path: "~/.gemini/config/mcp_config.json",
+          exists: true,
+          is_configured: true,
+          format: "standard",
+          last_modified: "2026-10-31 09:12:00 UTC",
+          is_custom: false,
+        },
+      ];
+    }
+    return invoke<DetectedMcpApp[]>("detect_mcp_configs");
+  },
+
+  async deepScanMcpConfigs(): Promise<DetectedMcpApp[]> {
+    if (!isTauri) {
+      return this.detectMcpConfigs();
+    }
+    return invoke<DetectedMcpApp[]>("deep_scan_mcp_configs");
+  },
+
+  async inspectCustomMcpConfig(filePath: string): Promise<DetectedMcpApp> {
+    if (!isTauri) {
+      return {
+        id: "custom-mock",
+        name: "Custom App",
+        category: "custom",
+        file_path: filePath,
+        exists: true,
+        is_configured: false,
+        format: "standard",
+        last_modified: new Date().toISOString(),
+        is_custom: true,
+      };
+    }
+    return invoke<DetectedMcpApp>("inspect_custom_mcp_config", { filePath });
+  },
+
+  async injectMcpConfig(filePath: string, useSystemCommand?: boolean): Promise<boolean> {
+    if (!isTauri) {
+      return true;
+    }
+    return invoke<boolean>("inject_mcp_config", {
+      filePath,
+      useSystemCommand: useSystemCommand ?? false,
+    });
+  },
+
+  async removeMcpConfig(filePath: string): Promise<boolean> {
+    if (!isTauri) {
+      return true;
+    }
+    return invoke<boolean>("remove_mcp_config", { filePath });
+  },
+
+  async listenMcpScanLogs(callback: (log: McpScanLog) => void): Promise<() => void> {
+    if (!isTauri) {
+      return () => {};
+    }
+    return listen<McpScanLog>("mcp-scan-log", (event) => {
+      callback(event.payload);
+    });
   },
 };
 

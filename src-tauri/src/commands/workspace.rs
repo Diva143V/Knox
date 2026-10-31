@@ -57,6 +57,15 @@ pub async fn get_hook_status(path: String) -> Result<bool, String> {
     Ok(false)
 }
 
+/// Fetches all tracked projects from the database.
+#[tauri::command]
+pub async fn get_projects(
+    state: State<'_, AppState>,
+) -> Result<Vec<knox::core::types::Project>, String> {
+    let db = state.db.lock().await;
+    knox::storage::list_projects(&db).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

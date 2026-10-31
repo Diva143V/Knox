@@ -24,6 +24,13 @@ export interface Session {
   is_open: boolean;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  path: string;
+  created_at: string;
+}
+
 export interface StatusReport {
   total_actions: number;
   total_sessions: number;
@@ -82,5 +89,30 @@ export const VALID_TABS: readonly ViewTab[] = [
 export const isValidTab = (tab: string): tab is ViewTab => {
   return (VALID_TABS as readonly string[]).includes(tab);
 };
+
+export type McpSchemaFormat = "standard" | "nested_mcp" | "zed" | "custom";
+
+export interface DetectedMcpApp {
+  id: string;
+  name: string;
+  category: "ide" | "cli" | "extension" | "custom";
+  file_path: string;
+  exists: boolean;
+  is_configured: boolean;
+  format: McpSchemaFormat;
+  last_modified: string | null;
+  is_custom: boolean;
+}
+
+export type McpCommandMode = "absolute" | "system";
+
+export type McpScanLogLevel = "info" | "scan" | "found" | "config" | "skip" | "error";
+
+export interface McpScanLog {
+  level: McpScanLogLevel;
+  message: string;
+  timestamp: string;
+}
+
 
 

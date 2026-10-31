@@ -28,6 +28,7 @@ export const CausalEdge: React.FC<EdgeProps> = ({
 
   const relation = (data?.relation as string) || "caused";
   let stroke = "#6366f1";
+  let strokeWidth = 1.5;
   let isDashed = false;
 
   if (relation === "supersedes" || relation === "superseded_by") {
@@ -35,6 +36,13 @@ export const CausalEdge: React.FC<EdgeProps> = ({
     isDashed = true;
   } else if (relation === "targets") {
     stroke = "#06b6d4";
+  } else if (relation === "contains") {
+    stroke = "#10b981";
+  } else if (relation === "origin") {
+    stroke = "#8b5cf6";
+  } else if (relation === "project") {
+    stroke = "#38bdf8";
+    strokeWidth = 2;
   }
 
   return (
@@ -45,9 +53,9 @@ export const CausalEdge: React.FC<EdgeProps> = ({
         markerEnd={markerEnd}
         style={{
           stroke,
-          strokeWidth: 1.5,
+          strokeWidth,
           strokeDasharray: isDashed ? "4,4" : undefined,
-          opacity: 0.75,
+          opacity: 0.85,
         }}
       />
       {relation && (

@@ -24,7 +24,8 @@ export default defineConfig({
     exclude: ["web-worker"],
   },
   build: {
-    target: ["es2021", "chrome100", "safari13"],
+    target: "esnext",
+    modulePreload: { polyfill: false },
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_DEBUG,
     chunkSizeWarningLimit: 2500,

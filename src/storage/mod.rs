@@ -11,7 +11,8 @@ pub use db::KnoxDb;
 pub use edges::{get_child_action_ids, get_parent_action_id, link_follows, link_parent};
 pub use migrations::run_migrations;
 pub use nodes::{
-    get_action, get_project, get_project_by_path, insert_action, insert_project, mark_superseded,
+    get_action, get_project, get_project_by_path, insert_action, insert_project, list_projects,
+    mark_superseded,
 };
 pub use queries::{get_status_report, query_actions, search_actions};
 pub use sessions::{

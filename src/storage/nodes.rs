@@ -152,12 +152,19 @@ pub fn mark_superseded(db: &KnoxDb, old_id: &ActionId, new_id: &ActionId) -> Kno
 
 /// Inserts a project record into the database.
 pub fn insert_project(db: &KnoxDb, project: &Project) -> KnoxResult<ProjectId> {
+    let clean_path = project
+        .path
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&project.path)
+        .trim_end_matches(['\\', '/']);
+
     db.conn().execute(
-        "INSERT INTO projects (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO projects (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(path) DO UPDATE SET name = excluded.name",
         params![
             project.id.as_str(),
             project.name.as_str(),
-            project.path.as_str(),
+            clean_path,
             project.created_at.to_rfc3339()
         ],
     )?;
@@ -192,15 +199,25 @@ pub fn get_project(db: &KnoxDb, id: &ProjectId) -> KnoxResult<Option<Project>> {
 
 /// Retrieves a project record by its canonical root path.
 pub fn get_project_by_path(db: &KnoxDb, path: &str) -> KnoxResult<Option<Project>> {
+    let clean = path
+        .strip_prefix(r"\\?\")
+        .unwrap_or(path)
+        .trim_end_matches(['\\', '/']);
+    let verbatim = format!(r"\\?\{clean}");
+
     let conn = db.conn();
-    let mut stmt =
-        conn.prepare("SELECT id, name, path, created_at FROM projects WHERE path = ?1")?;
-    let mut rows = stmt.query(params![path])?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, path, created_at FROM projects WHERE path = ?1 OR path = ?2",
+    )?;
+    let mut rows = stmt.query(params![clean, verbatim])?;
 
     if let Some(row) = rows.next()? {
         let proj_id = ProjectId::from(row.get::<_, String>(0)?);
         let name: String = row.get(1)?;
-        let p: String = row.get(2)?;
+        let mut p: String = row.get(2)?;
+        if let Some(stripped) = p.strip_prefix(r"\\?\") {
+            p = stripped.to_string();
+        }
         let created_at_str: String = row.get(3)?;
         let created_at = DateTime::parse_from_rfc3339(&created_at_str)
             .map(|dt| dt.with_timezone(&Utc))
@@ -215,6 +232,37 @@ pub fn get_project_by_path(db: &KnoxDb, path: &str) -> KnoxResult<Option<Project
     } else {
         Ok(None)
     }
+}
+
+/// Retrieves all projects ordered by creation time.
+/// Normalizes paths by stripping Windows verbatim prefix `\\?\` if present.
+pub fn list_projects(db: &KnoxDb) -> KnoxResult<Vec<Project>> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare("SELECT id, name, path, created_at FROM projects ORDER BY created_at ASC")?;
+    let mut rows = stmt.query([])?;
+    let mut projects = Vec::new();
+
+    while let Some(row) = rows.next()? {
+        let proj_id = ProjectId::from(row.get::<_, String>(0)?);
+        let name: String = row.get(1)?;
+        let mut path: String = row.get(2)?;
+        if let Some(stripped) = path.strip_prefix(r"\\?\") {
+            path = stripped.to_string();
+        }
+        let created_at_str: String = row.get(3)?;
+        let created_at = DateTime::parse_from_rfc3339(&created_at_str)
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(|_| Utc::now());
+
+        projects.push(Project {
+            id: proj_id,
+            name,
+            path,
+            created_at,
+        });
+    }
+
+    Ok(projects)
 }
 
 #[cfg(test)]
@@ -293,5 +341,32 @@ mod tests {
 
         assert!(!fetched1.is_current);
         assert!(fetched2.is_current);
+    }
+
+    #[test]
+    fn test_list_projects() {
+        let db = KnoxDb::open_memory().unwrap();
+        let proj1 = Project {
+            id: ProjectId::new(),
+            name: "Knox".to_string(),
+            path: r"\\?\D:\Knox".to_string(),
+            created_at: Utc::now(),
+        };
+        let proj2 = Project {
+            id: ProjectId::new(),
+            name: "hongli".to_string(),
+            path: r"D:\hongli".to_string(),
+            created_at: Utc::now(),
+        };
+
+        insert_project(&db, &proj1).unwrap();
+        insert_project(&db, &proj2).unwrap();
+
+        let list = list_projects(&db).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].name, "Knox");
+        assert_eq!(list[0].path, r"D:\Knox"); // verbatim prefix stripped
+        assert_eq!(list[1].name, "hongli");
+        assert_eq!(list[1].path, r"D:\hongli");
     }
 }

@@ -15,7 +15,7 @@ use crate::storage::sessions::{end_session, start_session};
 /// Imports a conversation transcript into the Knox knowledge graph.
 ///
 /// 1. Reads and maps the transcript into `KnoxAction` records via `ingest_file`.
-/// 2. Records an ingestion session in the database.
+/// 2. Records an ingestion session in the database (associating with inferred project).
 /// 3. Inserts each action into the database and tracks affected files.
 /// 4. Links consecutive actions within the session.
 /// 5. Closes the session and returns an `IngestReport`.
@@ -25,7 +25,9 @@ pub fn cmd_ingest(transcript_path: &Path, db: &KnoxDb) -> KnoxResult<IngestRepor
         return Ok(IngestReport::default());
     }
 
-    let session = start_session(db, "ingest", None)?;
+    let existing_projects = crate::storage::list_projects(db).unwrap_or_default();
+    let inferred_project = infer_project_path(transcript_path, &actions, &existing_projects);
+    let session = start_session(db, "ingest", inferred_project.as_deref())?;
     let mut files_touched = HashSet::new();
     let mut previous_action_id = None;
 
@@ -52,6 +54,86 @@ pub fn cmd_ingest(transcript_path: &Path, db: &KnoxDb) -> KnoxResult<IngestRepor
         actions_imported: actions.len(),
         files_touched: files_touched.len(),
         sessions_created: 1,
+    })
+}
+
+/// Attempts to infer the project root directory from transcript path or action file paths,
+/// matching against existing tracked projects if possible.
+fn infer_project_path(
+    transcript_path: &Path,
+    actions: &[crate::core::types::KnoxAction],
+    existing_projects: &[crate::core::types::Project],
+) -> Option<String> {
+    let trans_str = transcript_path.to_string_lossy().to_string();
+
+    // 1. Check if transcript path or any action files explicitly match an existing project
+    for proj in existing_projects {
+        let norm_proj_path = proj.path.replace('\\', "/").to_lowercase();
+        let norm_trans = trans_str.replace('\\', "/").to_lowercase();
+        if !norm_proj_path.is_empty() && norm_trans.contains(&norm_proj_path) {
+            return Some(proj.path.clone());
+        }
+        for action in actions {
+            for file in &action.files {
+                let norm_f = file.replace('\\', "/").to_lowercase();
+                if !norm_proj_path.is_empty() && norm_f.contains(&norm_proj_path) {
+                    return Some(proj.path.clone());
+                }
+            }
+        }
+    }
+
+    // 2. If exactly one project already exists, attach to it by default
+    if existing_projects.len() == 1 {
+        return Some(existing_projects[0].path.clone());
+    }
+
+    // 3. Try to find common absolute path from action files
+    for action in actions {
+        for file in &action.files {
+            let p = Path::new(file);
+            if p.is_absolute() {
+                if let Some(parent) = p.parent() {
+                    let parent_str = parent.to_string_lossy().to_string();
+                    let clean = parent_str
+                        .strip_prefix(r"\\?\")
+                        .unwrap_or(&parent_str)
+                        .to_string();
+                    if !clean.is_empty() {
+                        return Some(clean);
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Derive from transcript_path parent, skipping internal subdirectories
+    let mut curr = transcript_path.parent();
+    while let Some(dir) = curr {
+        let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if !name.is_empty()
+            && !name.starts_with('.')
+            && name != "logs"
+            && name != "fixtures"
+            && name != "brain"
+            && name != "target"
+        {
+            let path_str = dir.to_string_lossy().to_string();
+            let clean = path_str
+                .strip_prefix(r"\\?\")
+                .unwrap_or(&path_str)
+                .to_string();
+            if !clean.is_empty() {
+                return Some(clean);
+            }
+        }
+        curr = dir.parent();
+    }
+
+    // Fallback: direct parent of transcript_path
+    transcript_path.parent().map(|p| {
+        let s = p.to_string_lossy().to_string();
+        s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
     })
 }
 

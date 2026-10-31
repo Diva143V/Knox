@@ -41,8 +41,19 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .menu(&menu)
         .tooltip("Knox 🛡️ Knowledge Graph");
 
-    if let Some(icon) = app.default_window_icon().cloned() {
+    // Explicitly embed official 32x32 Knox logo for system tray
+    if let Ok(tray_icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")) {
+        builder = builder.icon(tray_icon);
+    } else if let Some(icon) = app.default_window_icon().cloned() {
         builder = builder.icon(icon);
+    }
+
+    // Set high-res 128x128 Knox logo for main window & Windows taskbar
+    if let (Some(window), Ok(win_icon)) = (
+        app.get_webview_window("main"),
+        tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png")),
+    ) {
+        let _ = window.set_icon(win_icon);
     }
 
     let _ = builder
@@ -96,6 +107,13 @@ pub fn run() {
     let db = init_db(&config.kg_path);
 
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -110,6 +128,7 @@ pub fn run() {
             commands::graph::get_graph_data,
             commands::ingest::ingest_transcript,
             commands::workspace::init_project,
+            commands::workspace::get_projects,
             commands::workspace::install_hook,
             commands::workspace::uninstall_hook,
             commands::workspace::get_knox_md,
@@ -121,6 +140,11 @@ pub fn run() {
             commands::config::get_config,
             commands::dialog::open_file_dialog,
             commands::dialog::open_folder_dialog,
+            commands::mcp::detect_mcp_configs,
+            commands::mcp::deep_scan_mcp_configs,
+            commands::mcp::inspect_custom_mcp_config,
+            commands::mcp::inject_mcp_config,
+            commands::mcp::remove_mcp_config,
         ])
         .setup(setup_tray)
         .on_window_event(handle_window_event);
@@ -146,5 +170,18 @@ mod tests {
             config,
         };
         assert!(state.config.session_timeout.as_secs() > 0);
+    }
+
+    #[test]
+    fn test_embedded_icons() {
+        let tray_bytes = include_bytes!("../icons/32x32.png");
+        let tray_img = tauri::image::Image::from_bytes(tray_bytes).unwrap();
+        assert_eq!(tray_img.width(), 32);
+        assert_eq!(tray_img.height(), 32);
+
+        let win_bytes = include_bytes!("../icons/128x128.png");
+        let win_img = tauri::image::Image::from_bytes(win_bytes).unwrap();
+        assert_eq!(win_img.width(), 128);
+        assert_eq!(win_img.height(), 128);
     }
 }

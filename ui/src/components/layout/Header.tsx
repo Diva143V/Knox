@@ -12,6 +12,8 @@ import {
   PlugZap,
   FolderGit2,
   Sparkles,
+  Globe,
+  HardDrive,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import type { ViewTab } from "@/types/knox";
@@ -63,15 +65,36 @@ const VIEW_METADATA: Record<
 };
 
 export const Header: React.FC = () => {
-  const { activeTab, status, isLoading, refreshData, setOnboardingOpen } = useKnoxStore();
+  const {
+    activeTab,
+    status,
+    isLoading,
+    refreshData,
+    setOnboardingOpen,
+    activeProjectScope,
+  } = useKnoxStore();
   const currentView = VIEW_METADATA[activeTab] || VIEW_METADATA.dashboard;
+
+  const currentProjectName = activeProjectScope
+    ? activeProjectScope.replace(/\\/g, "/").split("/").filter(Boolean).pop() || activeProjectScope
+    : null;
 
   return (
     <header className="h-11 border-b border-border/60 bg-card/40 backdrop-blur px-4 flex items-center justify-between shrink-0 select-none">
       {/* Left: Breadcrumbs & View Name */}
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-xs font-semibold text-muted-foreground hover:text-foreground transition">
-          Knox
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition">
+          {activeProjectScope ? (
+            <>
+              <HardDrive className="w-3.5 h-3.5 text-primary shrink-0" />
+              <span className="truncate max-w-[140px]">{currentProjectName}</span>
+            </>
+          ) : (
+            <>
+              <Globe className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span>Global KG</span>
+            </>
+          )}
         </span>
         <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
         <div className="flex items-center gap-1.5 min-w-0">

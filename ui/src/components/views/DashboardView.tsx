@@ -17,6 +17,7 @@ import {
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { ActionRow } from "@/components/ui/ActionRow";
+import { KnoxLogo } from "@/components/ui/KnoxLogo";
 
 export const DashboardView: React.FC = () => {
   const {
@@ -29,14 +30,22 @@ export const DashboardView: React.FC = () => {
     setSelectedAction,
   } = useKnoxStore();
 
-  const lastUpdateStr = status?.last_action_timestamp
-    ? new Date(status.last_action_timestamp).toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "No records yet";
+  let lastUpdateStr = "No records yet";
+  if (status?.last_action_timestamp) {
+    try {
+      const d = new Date(status.last_action_timestamp);
+      if (!isNaN(d.getTime())) {
+        lastUpdateStr = d.toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+    } catch {
+      lastUpdateStr = "No records yet";
+    }
+  }
 
   // Recent 15 actions feed as specified in v1.2.0.md
   const recentActions = actions.slice(0, 15);
@@ -45,16 +54,19 @@ export const DashboardView: React.FC = () => {
     <div className="p-6 space-y-6 max-w-7xl mx-auto overflow-y-auto h-full">
       {/* Welcome Banner & Quick Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <span>Welcome to Knox</span>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono">
-              v1.2.0 Desktop
-            </span>
-          </h1>
-          <p className="text-xs text-muted-foreground mt-1">
-            Persistent context, causal graph memory, and cross-session audit trail for AI coding agents.
-          </p>
+        <div className="flex items-center gap-3.5">
+          <KnoxLogo size={42} variant="card" />
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
+              <span>Welcome to Knox</span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono">
+                v1.2.1 Desktop
+              </span>
+            </h1>
+            <p className="text-xs text-muted-foreground mt-1">
+              Persistent context, causal graph memory, and cross-session audit trail for AI coding agents.
+            </p>
+          </div>
         </div>
 
         {/* Quick Action Navigation Bar */}

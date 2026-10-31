@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { KnoxAPI } from "@/services/api";
-import type { KnoxAction, KnoxConfig, StatusReport, ViewTab } from "@/types/knox";
+import type { KnoxAction, KnoxConfig, Project, StatusReport, ViewTab } from "@/types/knox";
 import { isValidTab } from "@/types/knox";
 
 const getInitialTab = (): ViewTab => {
@@ -23,11 +23,41 @@ const isFirstRun = (): boolean => {
   }
 };
 
+const STORAGE_KEY_RECENT_PROJECTS = "knox_recent_projects";
+const STORAGE_KEY_ACTIVE_PROJECT = "knox_active_project";
+
+export interface RecentProject {
+  name: string;
+  path: string;
+}
+
+const getSavedRecentProjects = (): RecentProject[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_RECENT_PROJECTS);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return [
+    { name: "Knox", path: "D:\\Knox" },
+  ];
+};
+
+const getSavedActiveProject = (): string | null => {
+  try {
+    return localStorage.getItem(STORAGE_KEY_ACTIVE_PROJECT);
+  } catch {
+    return null;
+  }
+};
+
 interface KnoxStore {
   activeTab: ViewTab;
   status: StatusReport | null;
   actions: KnoxAction[];
   selectedAction: KnoxAction | null;
+  projects: Project[];
+  selectedProject: Project | null;
   searchQuery: string;
   currentOnly: boolean;
   isLoading: boolean;
@@ -35,6 +65,15 @@ interface KnoxStore {
   commandPaletteOpen: boolean;
   onboardingOpen: boolean;
   config: KnoxConfig | null;
+
+  // Global KG vs Project Folder Scope
+  activeProjectScope: string | null;
+  recentProjects: RecentProject[];
+  setProjectScope: (scope: string | null) => void;
+  addRecentProject: (path: string) => void;
+  removeRecentProject: (path: string) => void;
+  setSelectedProject: (project: Project | null) => void;
+  getProjectForAction: (action: KnoxAction) => Project | null;
 
   setActiveTab: (tab: ViewTab) => void;
   setSelectedAction: (action: KnoxAction | null) => void;
@@ -53,6 +92,8 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   status: null,
   actions: [],
   selectedAction: null,
+  projects: [],
+  selectedProject: null,
   searchQuery: "",
   currentOnly: true,
   isLoading: false,
@@ -61,12 +102,107 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   onboardingOpen: isFirstRun(),
   config: null,
 
+  activeProjectScope: getSavedActiveProject(),
+  recentProjects: getSavedRecentProjects(),
+
+  setProjectScope: (scope: string | null) => {
+    try {
+      if (scope) {
+        localStorage.setItem(STORAGE_KEY_ACTIVE_PROJECT, scope);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_ACTIVE_PROJECT);
+      }
+    } catch {
+      // ignore
+    }
+    set({ activeProjectScope: scope });
+    get().refreshData();
+  },
+
+  addRecentProject: (path: string) => {
+    const normalized = path.trim();
+    if (!normalized) return;
+    const parts = normalized.replace(/\\/g, "/").split("/");
+    const name = parts.filter(Boolean).pop() || normalized;
+    const existing = get().recentProjects.filter(
+      (p) => p.path.toLowerCase() !== normalized.toLowerCase()
+    );
+    const updated = [{ name, path: normalized }, ...existing].slice(0, 8);
+    try {
+      localStorage.setItem(STORAGE_KEY_RECENT_PROJECTS, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+    set({ recentProjects: updated });
+    get().setProjectScope(normalized);
+  },
+
+  removeRecentProject: (path: string) => {
+    const updated = get().recentProjects.filter(
+      (p) => p.path.toLowerCase() !== path.toLowerCase()
+    );
+    try {
+      localStorage.setItem(STORAGE_KEY_RECENT_PROJECTS, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+    set({ recentProjects: updated });
+    if (get().activeProjectScope?.toLowerCase() === path.toLowerCase()) {
+      get().setProjectScope(null);
+    }
+  },
+
+  setSelectedProject: (selectedProject) =>
+    set({ selectedProject, selectedAction: null }),
+
+  getProjectForAction: (action) => {
+    const projects = get().projects;
+    if (!projects || projects.length === 0) {
+      const scope = get().activeProjectScope;
+      if (scope) {
+        const name = scope.replace(/\\/g, "/").split("/").filter(Boolean).pop() || scope;
+        return { id: "scope", name, path: scope, created_at: "" };
+      }
+      return { id: "default", name: "Knox", path: "D:\\Knox", created_at: "" };
+    }
+
+    // 1. Match touched files against project paths
+    for (const proj of projects) {
+      const normProjPath = proj.path.toLowerCase().replace(/\\/g, "/");
+      const projName = proj.name.toLowerCase();
+      if (
+        action.files &&
+        action.files.some((f) => {
+          const normF = f.toLowerCase().replace(/\\/g, "/");
+          return normF.startsWith(normProjPath) || normF.includes(projName);
+        })
+      ) {
+        return proj;
+      }
+    }
+
+    // 2. Match tags or summary
+    for (const proj of projects) {
+      const projName = proj.name.toLowerCase();
+      if (
+        (action.tags && action.tags.some((t) => t.toLowerCase() === projName)) ||
+        action.summary.toLowerCase().includes(projName)
+      ) {
+        return proj;
+      }
+    }
+
+    // 3. Fallback to first project
+    return projects[0];
+  },
+
   setActiveTab: (activeTab) => {
     if (get().activeTab !== activeTab) {
       set({ activeTab });
     }
   },
-  setSelectedAction: (selectedAction) => set({ selectedAction }),
+  setSelectedAction: (selectedAction) =>
+    set({ selectedAction, selectedProject: null }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setCurrentOnly: (currentOnly) => {
     set({ currentOnly });
@@ -91,12 +227,80 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   refreshData: async () => {
     try {
       set({ isLoading: true });
-      const [status, actions, config] = await Promise.all([
+      const scope = get().activeProjectScope;
+      const [status, allActions, config, rawProjects] = await Promise.all([
         KnoxAPI.getStatus(),
-        KnoxAPI.getGraphData(get().currentOnly, 250),
+        KnoxAPI.getGraphData(get().currentOnly, 350),
         KnoxAPI.getConfig(),
+        KnoxAPI.getProjects().catch(() => []),
       ]);
-      set({ status, actions, config, isLoading: false });
+
+      // Filter out temporary / scratch test directories
+      const isTemporary = (p: Project) => {
+        const norm = p.path.toLowerCase().replace(/\\/g, "/");
+        return (
+          norm.includes("/temp/") ||
+          norm.includes("/appdata/local/temp") ||
+          p.name.toLowerCase().startsWith("tmp") ||
+          p.name.toLowerCase().includes("verification")
+        );
+      };
+
+      const validProjects = (rawProjects || []).filter((p) => !isTemporary(p));
+
+      // Normalize tracked projects and ensure at least Knox is tracked if empty
+      const trackedProjects =
+        validProjects.length > 0
+          ? validProjects
+          : [
+              {
+                id: "default-knox",
+                name: "Knox",
+                path: "D:\\Knox",
+                created_at: new Date().toISOString(),
+              },
+            ];
+
+      // Sync tracked projects into recentProjects
+      const currentRecent = get().recentProjects;
+      const mergedRecent = [...currentRecent];
+      trackedProjects.forEach((tp) => {
+        const normPath = tp.path.toLowerCase().replace(/\\/g, "/");
+        if (
+          !mergedRecent.some(
+            (r) => r.path.toLowerCase().replace(/\\/g, "/") === normPath
+          )
+        ) {
+          mergedRecent.push({ name: tp.name, path: tp.path });
+        }
+      });
+
+      let actions = allActions;
+      if (scope) {
+        const normScope = scope.toLowerCase().replace(/\\/g, "/");
+        const folderName = normScope.split("/").filter(Boolean).pop() || normScope;
+        actions = allActions.filter((a) => {
+          const hasMatchingFile =
+            a.files &&
+            a.files.some((f) => {
+              const normF = f.toLowerCase().replace(/\\/g, "/");
+              return normF.startsWith(normScope) || normF.includes(folderName);
+            });
+          const matchesTag =
+            a.tags && a.tags.some((t) => t.toLowerCase().includes(folderName));
+          const matchesSummary = a.summary.toLowerCase().includes(folderName);
+          return hasMatchingFile || matchesTag || matchesSummary;
+        });
+      }
+
+      set({
+        status,
+        actions,
+        config,
+        projects: trackedProjects,
+        recentProjects: mergedRecent.slice(0, 8),
+        isLoading: false,
+      });
     } catch (err) {
       console.error("Failed to refresh Knox state:", err);
       set({ isLoading: false });
