@@ -14,7 +14,7 @@ tools_registered:
   - knox_list_stale
   - knox_scan_staged
 created_at: "2026-10-29T18:25:18.457451100+00:00"
-knox_version: "1.2.0"
+knox_version: "1.2.1"
 -->
 
 # Knox — Active Knowledge Graph

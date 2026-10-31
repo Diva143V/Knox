@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   PlugZap,
   FolderGit2,
+  Sparkles,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import type { ViewTab } from "@/types/knox";
@@ -62,7 +63,7 @@ const VIEW_METADATA: Record<
 };
 
 export const Header: React.FC = () => {
-  const { activeTab, status, isLoading, refreshData } = useKnoxStore();
+  const { activeTab, status, isLoading, refreshData, setOnboardingOpen } = useKnoxStore();
   const currentView = VIEW_METADATA[activeTab] || VIEW_METADATA.dashboard;
 
   return (
@@ -84,7 +85,7 @@ export const Header: React.FC = () => {
         </span>
       </div>
 
-      {/* Right: Status Pill & Refresh Action */}
+      {/* Right: Status Pill, Setup Guide & Refresh Action */}
       <div className="flex items-center gap-2 shrink-0">
         {status && (
           <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-card/80 border border-border/60 text-[11px] text-muted-foreground font-mono">
@@ -92,6 +93,15 @@ export const Header: React.FC = () => {
             <span>{status.total_actions} actions</span>
           </div>
         )}
+
+        <button
+          onClick={() => setOnboardingOpen(true)}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-primary hover:text-primary-foreground hover:bg-primary/20 border border-primary/30 transition cursor-pointer"
+          title="Open Setup & Onboarding Wizard"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-primary" />
+          <span className="hidden sm:inline">Setup Guide</span>
+        </button>
 
         <button
           onClick={() => refreshData()}

@@ -1,14 +1,15 @@
 {
   "name": "knox-workspace",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "scripts": {
     "dev": "pnpm --dir ui dev",
     "prebuild": "powershell -Command \"Get-Process knox-desktop,knox -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; exit 0\"",
     "build:ui": "pnpm --dir ui build",
     "build:cli": "cargo build --package knox --release",
-    "build:desktop": "tauri build --no-bundle",
-    "build": "cargo build --package knox --release && tauri build --no-bundle",
+    "build:desktop": "tauri build --bundles nsis",
+    "build:portable": "cargo build --package knox --release && tauri build --no-bundle",
+    "build": "cargo build --package knox --release && tauri build --bundles nsis",
     "test": "cargo test --workspace",
     "typecheck": "pnpm --dir ui typecheck",
     "lint": "cargo clippy --workspace --all-targets",

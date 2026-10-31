@@ -7,6 +7,7 @@ import { Header } from "@/components/layout/Header";
 import { Router } from "@/components/layout/Router";
 import { DetailInspector } from "@/components/layout/DetailInspector";
 import { CommandPalette } from "@/components/CommandPalette";
+import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { CheckCircle2, AlertCircle, X } from "lucide-react";
 
 export const AppShell: React.FC = () => {
@@ -43,6 +44,9 @@ export const AppShell: React.FC = () => {
 
       {/* Global Command Palette (Ctrl+K) */}
       <CommandPalette />
+
+      {/* In-App Onboarding & Setup Wizard */}
+      <OnboardingWizard />
 
       {/* Desktop Toast Notification Banner (Top-Right under titlebar, avoiding Graph MiniMap) */}
       {toast && (

@@ -25,6 +25,7 @@ interface KnoxStore {
   isLoading: boolean;
   toast: { message: string; isError: boolean } | null;
   commandPaletteOpen: boolean;
+  onboardingOpen: boolean;
   config: KnoxConfig | null;
 
   setActiveTab: (tab: ViewTab) => void;
@@ -35,6 +36,7 @@ interface KnoxStore {
   clearToast: () => void;
   toggleCommandPalette: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
+  setOnboardingOpen: (open: boolean) => void;
   refreshData: () => Promise<void>;
 }
 
@@ -48,6 +50,7 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   isLoading: false,
   toast: null,
   commandPaletteOpen: false,
+  onboardingOpen: typeof window !== "undefined" ? !localStorage.getItem("knox_onboarding_completed") : false,
   config: null,
 
   setActiveTab: (activeTab) => {
@@ -75,6 +78,7 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   toggleCommandPalette: () =>
     set((state) => ({ commandPaletteOpen: !state.commandPaletteOpen })),
   setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
+  setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),
 
   refreshData: async () => {
     try {
