@@ -721,6 +721,69 @@ For a detected human edit, Knox auto-generates a KG entry:
 
 ---
 
+## Knox v1.2.1 — Distribution Architecture, Unified Binary & Setup Wizard
+
+Knox v1.2.1 introduces a complete consumer-grade desktop distribution and execution model, eliminating separate application binaries in favor of a single unified hybrid executable, a multi-page Windows NSIS setup wizard with uninstaller, and an in-app onboarding flow.
+
+```mermaid
+flowchart TD
+    subgraph Distribution["Release Packaging (pnpm build)"]
+        A["Compile Unified Rust Core"] --> B["target/release/knox.exe (17.68 MB)"]
+        B --> C["Tauri NSIS Bundler (LZMA Compression)"]
+        C --> D["Knox_1.2.1_x64-setup.exe (5.46 MB)"]
+    end
+
+    subgraph UserExperience["End-User Installation & Execution"]
+        D -->|"1. User Downloads & Runs"| E["Windows Setup Wizard"]
+        E -->|"2. Choose Install Scope & Directory"| F["Extract to %LOCALAPPDATA% / Programs / Knox"]
+        F -->|"3. Register"| G["Desktop Shortcut + Start Menu + uninstall.exe"]
+        G -->|"4. Launch"| H["knox.exe (Unified Binary)"]
+        
+        H -->|"Double-click / No args"| I["Boot Tauri React Desktop UI (Zero Console Flash)"]
+        H -->|"'knox gui'"| I
+        H -->|"CLI Subcommands (init, query, scan, serve)"| J["Attach Console & Run Headless / MCP Server"]
+    end
+```
+
+### 1. Single Unified Hybrid Binary (`knox.exe`)
+
+Instead of maintaining disjointed executables (`knox-desktop.exe` for the GUI and `knox.exe` for the CLI), Knox compiles a single hybrid executable that adapts dynamically to its invocation context:
+- **Desktop Launch (Zero Console Flash)**: Compiled under `#![windows_subsystem = "windows"]`. When launched by double-clicking the desktop icon, Start Menu shortcut, or running without arguments, Knox immediately opens the frameless Tauri desktop UI with zero command prompt flashing.
+- **Terminal CLI Dispatch**: When invoked from an existing terminal session (`knox status`, `knox query`, `knox init`, `knox scan`, `knox hook`), Knox calls Win32 `AttachConsole(ATTACH_PARENT_PROCESS)` and rebinds standard streams (`CONOUT$`, `CONIN$`) to `SetStdHandle()`. This routes output directly into the caller's console.
+- **AI Agent Stdio Protocol**: When an AI coding assistant (Antigravity, Cursor, Claude Code, Gemini CLI) spawns `knox serve --stdio`, standard handles are already inherited pipes (`FILE_TYPE_PIPE`). Knox detects this and preserves the pipes untouched, ensuring 100% reliable JSON-RPC communication.
+- **Explicit `knox gui` Command**: Developers can launch the graphical desktop application directly from their terminal via `knox gui`.
+- **Synchronous Shell Wrapper (`knox.cmd`)**: Windows shells spawn GUI subsystem binaries asynchronously. Knox ships `knox.cmd` to provide synchronous command execution and clean prompt return in Windows Command Prompt and PowerShell.
+
+### 2. Default Windows NSIS Setup Wizard & Dedicated Uninstaller
+
+Running `pnpm build` produces the primary distribution installer:
+- **Installer Package**: `target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe` (~5.46 MB).
+- **LZMA Compression**: Compresses the 17.68 MB unified binary down to 5.46 MB for fast downloads.
+- **Interactive Wizard Pages**:
+  - Welcome & Branding screen.
+  - Installation scope selection (`installMode: "both"`: per-user `%LOCALAPPDATA%\Programs\Knox` default requiring no admin rights, or machine-wide `Program Files\Knox`).
+  - Destination directory picker.
+  - Desktop icon and Start Menu shortcut group.
+- **Integrated Uninstaller**: Automatically packages `uninstall.exe`, creates an "Uninstall Knox" Start Menu shortcut, and registers Knox in Windows *Settings > Installed apps* / *Control Panel* for clean, complete file and registry removal.
+
+### 3. In-App First-Run Onboarding Wizard
+
+Knox features an embedded first-run onboarding dialog (`OnboardingWizard.tsx`) that greets users upon opening the application:
+1. **Welcome & Concept**: Introduces Knox's local-first knowledge graph, causal lineage tracking, and zero-token-waste context architecture.
+2. **Storage Verification**: Confirms active SQLite database status (`~/.knox/knox.db`) and workspace summary (`knox.md`).
+3. **1-Click AI Tool Configuration**: Provides instant copyable JSON configurations for Antigravity, Cursor, Claude Code, and Gemini CLI.
+4. **Keyboard Navigation Guide**: Highlights essential shortcuts (`Ctrl+K` for Command Palette, `1-8` for view switching, `F5` for live refresh).
+5. **Re-accessible**: Users can reopen the wizard at any time via the "Setup Guide" button in the Desktop Title Header.
+
+### 4. Build Artifacts vs. End-User Distribution Model
+
+| Audience | What is Handled | Files Involved |
+|---|---|---|
+| **End User** | Downloads **1 single file** (`Knox_1.2.1_x64-setup.exe`). The setup wizard automatically installs `knox.exe`, configures shortcuts, registers the uninstaller, and launches the onboarding wizard. | `Knox_1.2.1_x64-setup.exe` (Installer) → installs `knox.exe` + `uninstall.exe` |
+| **Developer / CI** | `pnpm build` compiles the unified application binary and packages the compressed NSIS installer wizard. Developers can also run `knox.cmd` or portable binary directly. | `target/release/knox.exe` (17.68 MB), `target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe` (5.46 MB), `knox.cmd` |
+
+---
+
 ## Prior Art
 
 - **Graphify** (YC-backed, Apache 2.0) — AST-based code knowledge graph. Graphs code *structure* (calls, imports, types), not *conversation history*. Complementary, not a substitute. Validated the MCP + skill query pattern.
