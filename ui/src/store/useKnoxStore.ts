@@ -15,6 +15,14 @@ const getInitialTab = (): ViewTab => {
   return "dashboard";
 };
 
+const isFirstRun = (): boolean => {
+  try {
+    return typeof window !== "undefined" && !localStorage.getItem("knox_onboarding_completed");
+  } catch {
+    return false;
+  }
+};
+
 interface KnoxStore {
   activeTab: ViewTab;
   status: StatusReport | null;
@@ -50,7 +58,7 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   isLoading: false,
   toast: null,
   commandPaletteOpen: false,
-  onboardingOpen: typeof window !== "undefined" ? !localStorage.getItem("knox_onboarding_completed") : false,
+  onboardingOpen: isFirstRun(),
   config: null,
 
   setActiveTab: (activeTab) => {

@@ -11,17 +11,42 @@ use knox::cli::{dispatch, print_welcome_guide, Commands, KnoxCli};
 use knox::core::config::KnoxConfig;
 
 #[cfg(windows)]
-fn attach_console() {
-    use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+fn attach_console_if_needed() {
+    use std::fs::OpenOptions;
+    use std::os::windows::io::IntoRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{GetFileType, FILE_TYPE_PIPE};
+    use windows_sys::Win32::System::Console::{
+        AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE,
+        STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+
     unsafe {
-        // Attempt to attach to parent console if invoked from terminal.
-        // If stdin/stdout are already pipes (e.g. MCP agent child process), AttachConsole fails harmlessly.
-        AttachConsole(ATTACH_PARENT_PROCESS);
+        let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        // If stdout is already an inherited pipe (e.g. spawned by an AI tool via stdio),
+        // do NOT attach or rebind console handles! Keep agent transport completely clean.
+        let file_type = GetFileType(stdout_handle);
+        if file_type == FILE_TYPE_PIPE {
+            return;
+        }
+
+        // If running directly in an interactive terminal (CMD, PowerShell, Windows Terminal),
+        // attach to parent console and rebind standard streams to CONOUT$ / CONIN$.
+        if AttachConsole(ATTACH_PARENT_PROCESS) != 0 {
+            if let Ok(file) = OpenOptions::new().write(true).open("CONOUT$") {
+                let handle = file.into_raw_handle();
+                SetStdHandle(STD_OUTPUT_HANDLE, handle);
+                SetStdHandle(STD_ERROR_HANDLE, handle);
+            }
+            if let Ok(file) = OpenOptions::new().read(true).open("CONIN$") {
+                let handle = file.into_raw_handle();
+                SetStdHandle(STD_INPUT_HANDLE, handle);
+            }
+        }
     }
 }
 
 #[cfg(not(windows))]
-fn attach_console() {}
+fn attach_console_if_needed() {}
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -32,8 +57,8 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Otherwise, attach to parent console (if on Windows) for CLI / MCP execution
-    attach_console();
+    // Otherwise, attach to parent console (if on Windows and not already piped) for CLI / MCP execution
+    attach_console_if_needed();
 
     // Initialize logging subscriber (KNOX_LOG or RUST_LOG, defaulting to WARN)
     let env_filter = std::env::var("KNOX_LOG")

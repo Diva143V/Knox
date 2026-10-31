@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Shield,
   Database,
@@ -89,15 +89,37 @@ export const OnboardingWizard: React.FC = () => {
   ];
 
   const handleComplete = () => {
-    localStorage.setItem("knox_onboarding_completed", "true");
+    try {
+      localStorage.setItem("knox_onboarding_completed", "true");
+    } catch {
+      // Storage unavailable or restricted
+    }
     setOnboardingOpen(false);
     showToast("Welcome to Knox 🛡️ v1.2.1!");
   };
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOnboardingOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [setOnboardingOpen]);
+
   const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      navigator.clipboard
+        .writeText(text)
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        })
+        .catch(() => {});
+    } catch {
+      // Clipboard write failed or blocked
+    }
   };
 
   const currentConfig = AI_CONFIGS.find((a) => a.id === selectedAgent) || AI_CONFIGS[0];
