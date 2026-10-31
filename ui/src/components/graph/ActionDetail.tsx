@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import type { KnoxAction } from "@/types/knox";
 import { ActionBadge } from "@/components/ui/ActionBadge";
 import { ActorBadge } from "@/components/ui/ActorBadge";
+import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/cn";
 import {
   Copy,
   Check,
@@ -21,6 +23,25 @@ interface ActionDetailProps {
   onSelectAction?: (action: KnoxAction) => void;
   className?: string;
 }
+
+const Section: React.FC<{
+  title: string;
+  icon?: React.ReactNode;
+  trailing?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}> = ({ title, icon, trailing, children, className }) => (
+  <section className={cn("space-y-2", className)}>
+    <div className="flex items-center justify-between gap-2">
+      <h3 className="text-overline flex items-center gap-1.5">
+        {icon}
+        <span>{title}</span>
+      </h3>
+      {trailing}
+    </div>
+    {children}
+  </section>
+);
 
 export const ActionDetail: React.FC<ActionDetailProps> = ({
   action,
@@ -44,7 +65,19 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
       if (onSelectAction) onSelectAction(parent);
       else setSelectedAction(parent);
     } else {
-      showToast(`Parent action ${parentId} not found in active graph cache`, true);
+      showToast(
+        `Parent action ${parentId} not found in active graph cache`,
+        true
+      );
+    }
+  };
+
+  const handleCopyFile = async (file: string) => {
+    try {
+      await navigator.clipboard.writeText(file);
+      showToast("Copied file path");
+    } catch {
+      showToast("Could not copy file path", true);
     }
   };
 
@@ -63,217 +96,212 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
       : null;
 
   return (
-    <div className={`space-y-5 text-xs text-foreground ${className}`}>
-      {/* Badges & Current Status */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
+    <div className={cn("space-y-5 text-xs text-foreground", className)}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
           <ActorBadge actor={action.actor} />
           <ActionBadge type={action.action_type} />
         </div>
-
         {action.is_current ? (
-          <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+          <span className="text-xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-success/15 text-success border border-success/30 shrink-0">
             CURRENT
           </span>
         ) : (
-          <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+          <span className="text-xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-warning/15 text-warning border border-warning/30 shrink-0">
             SUPERSEDED
           </span>
         )}
       </div>
 
-      {/* Summary */}
-      <div className="space-y-1.5">
-        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-          Summary
-        </span>
-        <p className="text-sm font-medium text-foreground leading-relaxed bg-card/40 p-3 rounded-lg border border-border/50">
+      <Section title="Summary">
+        <p className="text-sm font-medium text-foreground leading-relaxed bg-card p-3 rounded-md border border-border">
           {action.summary}
         </p>
-      </div>
+      </Section>
 
-      {/* ID & Clipboard */}
-      <div className="space-y-1.5 p-3 rounded-lg border border-border/60 bg-card/60">
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span className="font-semibold uppercase tracking-wider text-[10px]">
-            Action ID
-          </span>
-          <button
+      <Section
+        title="Action ID"
+        trailing={
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
             onClick={handleCopyId}
-            className="flex items-center gap-1 text-[11px] text-primary hover:underline cursor-pointer"
+            className="h-6 px-1.5 text-sm"
+            aria-label="Copy action ID"
           >
             {copiedId ? (
               <>
-                <Check className="w-3 h-3 text-emerald-400" />
-                <span className="text-emerald-400">Copied</span>
+                <Check className="size-3 text-success" />
+                <span className="text-success">Copied</span>
               </>
             ) : (
               <>
-                <Copy className="w-3 h-3" />
+                <Copy className="size-3" />
                 <span>Copy</span>
               </>
             )}
-          </button>
-        </div>
-        <p className="font-mono text-[11px] text-foreground truncate select-all">
+          </Button>
+        }
+      >
+        <p className="font-mono text-sm text-foreground truncate select-all px-2.5 py-2 rounded-md border border-border bg-card">
           {action.id}
         </p>
-      </div>
+      </Section>
 
-      {/* Confidence Bar */}
       {confidencePct !== null && (
-        <div className="space-y-1.5 p-3 rounded-lg border border-border/50 bg-card/40">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <Gauge className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Confidence:</span>
-            </span>
-            <span className="font-mono font-semibold text-foreground">
+        <Section
+          title="Confidence"
+          icon={<Gauge className="size-3.5 text-primary" aria-hidden />}
+          trailing={
+            <span className="font-mono font-semibold text-foreground text-sm">
               {confidencePct}%
             </span>
-          </div>
-          <div className="h-1.5 w-full bg-background rounded-full overflow-hidden border border-border/40">
+          }
+        >
+          <div className="h-1.5 w-full bg-background rounded-full overflow-hidden border border-border">
             <div
-              className={`h-full rounded-full ${
+              className={cn(
+                "h-full rounded-full",
                 confidencePct >= 80
-                  ? "bg-emerald-500"
+                  ? "bg-success"
                   : confidencePct >= 50
-                  ? "bg-amber-500"
-                  : "bg-rose-500"
-              }`}
+                    ? "bg-warning"
+                    : "bg-danger"
+              )}
               style={{ width: `${confidencePct}%` }}
             />
           </div>
-        </div>
+        </Section>
       )}
 
-      {/* Timestamp & Session Meta */}
-      <div className="space-y-2 p-3 rounded-lg border border-border/50 bg-card/40 font-mono text-[11px]">
-        <div className="flex items-center justify-between text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-muted-foreground/80" />
-            <span>Timestamp:</span>
-          </span>
-          <span className="text-foreground">{formattedDate}</span>
-        </div>
-
-        {action.session_id && (
-          <div className="flex items-center justify-between text-muted-foreground pt-1 border-t border-border/40">
-            <span>Session:</span>
-            <span className="text-foreground truncate max-w-[170px]">
-              {action.session_id}
-            </span>
+      <Section
+        title="Metadata"
+        icon={<Clock className="size-3.5" aria-hidden />}
+      >
+        <div className="space-y-2 p-3 rounded-md border border-border bg-card font-mono text-sm">
+          <div className="flex items-center justify-between gap-2 text-muted-foreground">
+            <span>Timestamp</span>
+            <span className="text-foreground text-right">{formattedDate}</span>
           </div>
-        )}
-      </div>
-
-      {/* Causal Chain Links */}
-      {(action.parent_action_id || action.supersedes) && (
-        <div className="space-y-2 p-3 rounded-lg border border-border/60 bg-card/60">
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-            <GitCommit className="w-3.5 h-3.5 text-primary" />
-            <span>Causal Graph Relation</span>
-          </span>
-
-          {action.parent_action_id && (
-            <div className="space-y-1 pt-1">
-              <span className="text-[11px] text-muted-foreground">Parent Action:</span>
-              <button
-                onClick={() => handleJumpToParent(action.parent_action_id!)}
-                className="w-full text-left font-mono text-[11px] text-primary hover:underline truncate bg-background px-2 py-1 rounded border border-border/60 cursor-pointer block"
-                title={`Jump to parent: ${action.parent_action_id}`}
-              >
-                ↑ {action.parent_action_id}
-              </button>
-            </div>
-          )}
-
-          {action.supersedes && (
-            <div className="space-y-1 pt-1">
-              <span className="text-[11px] text-muted-foreground">Supersedes:</span>
-              <button
-                onClick={() => handleJumpToParent(action.supersedes!)}
-                className="w-full text-left font-mono text-[11px] text-amber-400 hover:underline truncate bg-background px-2 py-1 rounded border border-border/60 cursor-pointer block"
-                title={`Jump to superseded: ${action.supersedes}`}
-              >
-                ⟲ {action.supersedes}
-              </button>
+          {action.session_id && (
+            <div className="flex items-center justify-between gap-2 text-muted-foreground pt-2 border-t border-border-subtle">
+              <span>Session</span>
+              <span className="text-foreground truncate max-w-[170px]">
+                {action.session_id}
+              </span>
             </div>
           )}
         </div>
+      </Section>
+
+      {(action.parent_action_id || action.supersedes) && (
+        <Section
+          title="Causal Relations"
+          icon={<GitCommit className="size-3.5 text-primary" aria-hidden />}
+        >
+          <div className="space-y-2 p-3 rounded-md border border-border bg-card">
+            {action.parent_action_id && (
+              <div className="space-y-1">
+                <span className="text-sm text-muted-foreground">Parent</span>
+                <button
+                  type="button"
+                  onClick={() => handleJumpToParent(action.parent_action_id!)}
+                  className="w-full text-left font-mono text-sm text-primary hover:underline truncate bg-background px-2 py-1.5 rounded-md border border-border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  title={`Jump to parent: ${action.parent_action_id}`}
+                >
+                  ↑ {action.parent_action_id}
+                </button>
+              </div>
+            )}
+            {action.supersedes && (
+              <div className="space-y-1">
+                <span className="text-sm text-muted-foreground">
+                  Supersedes
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleJumpToParent(action.supersedes!)}
+                  className="w-full text-left font-mono text-sm text-warning hover:underline truncate bg-background px-2 py-1.5 rounded-md border border-border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  title={`Jump to superseded: ${action.supersedes}`}
+                >
+                  ⟲ {action.supersedes}
+                </button>
+              </div>
+            )}
+          </div>
+        </Section>
       )}
 
-      {/* Touched Files List */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-            <FileCode className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Touched Files</span>
-          </span>
-          <span className="text-[10px] font-mono text-muted-foreground bg-card px-1.5 py-0.2 rounded border border-border/50">
+      <Section
+        title="Touched Files"
+        icon={<FileCode className="size-3.5 text-primary" aria-hidden />}
+        trailing={
+          <span className="text-xs font-mono text-muted-foreground bg-card px-1.5 py-0.5 rounded-sm border border-border">
             {action.files?.length || 0}
           </span>
-        </div>
-
+        }
+      >
         {action.files && action.files.length > 0 ? (
-          <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+          <div className="space-y-1 max-h-40 overflow-y-auto pr-0.5">
             {action.files.map((file, idx) => (
-              <div
+              <button
                 key={idx}
-                className="flex items-center gap-2 p-1.5 rounded bg-card/50 hover:bg-card border border-border/50 text-[11px] font-mono text-foreground truncate select-all"
+                type="button"
+                onClick={() => handleCopyFile(file)}
+                title="Copy file path"
+                className="w-full flex items-center gap-2 p-1.5 rounded-md bg-card hover:bg-muted border border-border text-sm font-mono text-foreground truncate cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
-                <FileCode className="w-3 h-3 text-muted-foreground shrink-0" />
+                <FileCode className="size-3 text-muted-foreground shrink-0" />
                 <span className="truncate">{file}</span>
-              </div>
+              </button>
             ))}
           </div>
         ) : (
-          <p className="text-[11px] text-muted-foreground italic">
+          <p className="text-sm text-muted-foreground italic">
             No specific files recorded for this decision.
           </p>
         )}
-      </div>
+      </Section>
 
-      {/* Tags Chips */}
       {action.tags && action.tags.length > 0 && (
-        <div className="space-y-2">
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-            <Tag className="w-3.5 h-3.5 text-primary" />
-            <span>Tags & Categories</span>
-          </span>
-
+        <Section
+          title="Tags"
+          icon={<Tag className="size-3.5 text-primary" aria-hidden />}
+        >
           <div className="flex flex-wrap gap-1.5">
             {action.tags.map((tag, idx) => (
               <span
                 key={idx}
-                className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-card border border-border text-foreground/90"
+                className="text-xs font-mono px-2 py-0.5 rounded-sm bg-card border border-border text-foreground/90"
               >
                 #{tag}
               </span>
             ))}
           </div>
-        </div>
+        </Section>
       )}
 
-      {/* Raw JSON Collapsible */}
-      <div className="pt-2 border-t border-border/50">
+      <div className="pt-1 border-t border-border-subtle">
         <button
+          type="button"
           onClick={() => setShowRawJson(!showRawJson)}
-          className="w-full flex items-center justify-between py-1.5 text-muted-foreground hover:text-foreground text-[11px] font-medium transition cursor-pointer"
+          className="w-full flex items-center justify-between py-1.5 text-muted-foreground hover:text-foreground text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring rounded-sm"
+          aria-expanded={showRawJson}
         >
           <span className="flex items-center gap-1.5">
-            <Code2 className="w-3.5 h-3.5 text-muted-foreground" />
-            <span>Raw Action Payload (JSON)</span>
+            <Code2 className="size-3.5" aria-hidden />
+            <span>Raw JSON</span>
           </span>
           {showRawJson ? (
-            <ChevronDown className="w-3.5 h-3.5" />
+            <ChevronDown className="size-3.5" aria-hidden />
           ) : (
-            <ChevronRight className="w-3.5 h-3.5" />
+            <ChevronRight className="size-3.5" aria-hidden />
           )}
         </button>
 
         {showRawJson && (
-          <pre className="mt-2 p-3 rounded-lg bg-background border border-border text-[10px] font-mono text-muted-foreground overflow-x-auto max-h-60 leading-relaxed select-all">
+          <pre className="mt-2 p-3 rounded-md bg-background border border-border text-xs font-mono text-muted-foreground overflow-x-auto max-h-60 leading-relaxed select-all">
             {JSON.stringify(action, null, 2)}
           </pre>
         )}

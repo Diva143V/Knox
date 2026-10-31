@@ -5,44 +5,63 @@ import { ActorBadge } from "@/components/ui/ActorBadge";
 import type { KnoxAction } from "@/types/knox";
 import { FileCode, Zap, Compass, Scale, Bug } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
+import { cn } from "@/lib/cn";
 
 export interface ActionNodeData {
   action: KnoxAction;
-  selected?: boolean;
   isHighlighted?: boolean;
+  [key: string]: unknown;
+}
+
+function typeAccent(type: string) {
+  const norm = (type || "").toLowerCase();
+  if (norm.includes("write")) {
+    return {
+      border: "border-success/40",
+      hover: "hover:border-success/70",
+      ring: "ring-success",
+      Icon: Zap,
+    };
+  }
+  if (norm.includes("plan")) {
+    return {
+      border: "border-plan/40",
+      hover: "hover:border-plan/70",
+      ring: "ring-plan",
+      Icon: Compass,
+    };
+  }
+  if (norm.includes("decide")) {
+    return {
+      border: "border-warning/40",
+      hover: "hover:border-warning/70",
+      ring: "ring-warning",
+      Icon: Scale,
+    };
+  }
+  if (norm.includes("debug")) {
+    return {
+      border: "border-danger/40",
+      hover: "hover:border-danger/70",
+      ring: "ring-danger",
+      Icon: Bug,
+    };
+  }
+  return {
+    border: "border-border",
+    hover: "hover:border-primary/50",
+    ring: "ring-primary",
+    Icon: Zap,
+  };
 }
 
 export const ActionNode = memo(({ data }: { data: ActionNodeData }) => {
   const setSelectedAction = useKnoxStore((s) => s.setSelectedAction);
-  const { action, selected, isHighlighted } = data;
-  const norm = (action.action_type || "").toLowerCase();
-
-  let borderColor = "border-border";
-  let glowHover = "hover:border-primary/50 hover:shadow-primary/10";
-  let ringColor = "ring-primary";
-  let TypeIcon = Zap;
-
-  if (norm.includes("write")) {
-    borderColor = "border-emerald-500/40";
-    glowHover = "hover:border-emerald-400 hover:shadow-emerald-500/10";
-    ringColor = "ring-emerald-500";
-    TypeIcon = Zap;
-  } else if (norm.includes("plan")) {
-    borderColor = "border-purple-500/40";
-    glowHover = "hover:border-purple-400 hover:shadow-purple-500/10";
-    ringColor = "ring-purple-500";
-    TypeIcon = Compass;
-  } else if (norm.includes("decide")) {
-    borderColor = "border-amber-500/40";
-    glowHover = "hover:border-amber-400 hover:shadow-amber-500/10";
-    ringColor = "ring-amber-500";
-    TypeIcon = Scale;
-  } else if (norm.includes("debug")) {
-    borderColor = "border-rose-500/40";
-    glowHover = "hover:border-rose-400 hover:shadow-rose-500/10";
-    ringColor = "ring-rose-500";
-    TypeIcon = Bug;
-  }
+  const selectedId = useKnoxStore((s) => s.selectedAction?.id);
+  const { action, isHighlighted } = data;
+  const selected = selectedId === action.id;
+  const accent = typeAccent(action.action_type);
+  const TypeIcon = accent.Icon;
 
   const dateStr = new Date(action.timestamp).toLocaleDateString(undefined, {
     month: "numeric",
@@ -53,71 +72,93 @@ export const ActionNode = memo(({ data }: { data: ActionNodeData }) => {
     ? action.session_id.slice(0, 8)
     : null;
 
+  const fileName = action.files?.[0]
+    ? action.files[0].split(/[/\\]/).pop() || action.files[0]
+    : null;
+
   return (
     <div
       onClick={(e) => {
         e.stopPropagation();
         setSelectedAction(action);
       }}
-      className={`w-[220px] rounded-lg border bg-card/95 backdrop-blur p-2.5 space-y-2 transition-all cursor-pointer shadow-md select-none ${borderColor} ${glowHover} ${
-        selected
-          ? `ring-2 ${ringColor} border-transparent shadow-lg`
-          : isHighlighted
-          ? "ring-2 ring-indigo-400 border-indigo-400 shadow-indigo-500/20"
-          : ""
-      }`}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          setSelectedAction(action);
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`${action.action_type} by ${action.actor}: ${action.summary}`}
+      className={cn(
+        "w-[240px] rounded-md border bg-card p-2.5 space-y-2 cursor-pointer select-none",
+        "transition-colors duration-100",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+        accent.border,
+        accent.hover,
+        selected && `ring-2 ${accent.ring} border-transparent`,
+        isHighlighted && !selected && "ring-2 ring-primary border-primary/60",
+        !action.is_current && "opacity-70"
+      )}
     >
       <Handle
         type="target"
         position={Position.Top}
-        className="w-2.5 h-2.5 bg-primary border-2 border-background"
+        className="!size-2.5 !bg-primary !border-2 !border-background"
       />
 
-      {/* Top Header: Type Icon + Action Type & Actor Badge */}
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1 min-w-0">
-          <TypeIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-          <ActionBadge type={action.action_type} className="text-[10px] px-1.5 py-0" />
+          <TypeIcon className="size-3.5 text-muted-foreground shrink-0" aria-hidden />
+          <ActionBadge
+            type={action.action_type}
+            className="text-xs px-1.5 py-0"
+          />
         </div>
-        <ActorBadge actor={action.actor} className="text-[10px] px-1.5 py-0" />
+        <ActorBadge actor={action.actor} className="text-xs px-1.5 py-0" />
       </div>
 
-      {/* Summary with search highlight badge */}
-      <div>
-        <p className="text-xs text-foreground font-medium line-clamp-2 leading-snug">
-          {action.summary}
-        </p>
-      </div>
+      <p className="text-sm text-foreground font-medium line-clamp-2 leading-snug">
+        {action.summary}
+      </p>
 
-      {/* Files Chip */}
-      {action.files && action.files.length > 0 && (
-        <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground pt-1 border-t border-border/40">
-          <span className="flex items-center gap-1 truncate max-w-[150px]">
-            <FileCode className="w-3 h-3 text-muted-foreground shrink-0" />
-            <span className="truncate">{action.files[0]}</span>
+      {fileName && (
+        <div className="flex items-center justify-between text-xs font-mono text-muted-foreground pt-1 border-t border-border-subtle gap-1">
+          <span className="flex items-center gap-1 truncate min-w-0">
+            <FileCode className="size-3 shrink-0" aria-hidden />
+            <span className="truncate" title={action.files[0]}>
+              {fileName}
+            </span>
           </span>
           {action.files.length > 1 && (
-            <span className="bg-background px-1 py-0.2 rounded border border-border text-[9px]">
+            <span className="bg-background px-1 py-0.5 rounded-sm border border-border text-2xs shrink-0">
               +{action.files.length - 1}
             </span>
           )}
         </div>
       )}
 
-      {/* Muted Timestamp & Session ID Footer */}
-      <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground/80 pt-0.5">
+      <div className="flex items-center justify-between text-xs font-mono text-muted-foreground/80">
         <span>{dateStr}</span>
-        {sessionShort && (
-          <span className="truncate max-w-[90px] text-[9px] bg-muted/40 px-1 rounded">
-            s:{sessionShort}
-          </span>
-        )}
+        <div className="flex items-center gap-1">
+          {!action.is_current && (
+            <span className="text-2xs text-warning">stale</span>
+          )}
+          {sessionShort && (
+            <span className="truncate max-w-[72px] text-2xs bg-muted px-1 rounded-sm">
+              s:{sessionShort}
+            </span>
+          )}
+        </div>
       </div>
 
       <Handle
         type="source"
         position={Position.Bottom}
-        className="w-2.5 h-2.5 bg-primary border-2 border-background"
+        className="!size-2.5 !bg-primary !border-2 !border-background"
       />
     </div>
   );

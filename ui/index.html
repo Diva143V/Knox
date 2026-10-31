@@ -1,13 +1,34 @@
 <!doctype html>
-<html lang="en" class="dark" style="background-color: #0d1117; color: #f8fafc;">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Knox 🛡️ Knowledge Graph</title>
+    <!-- FOUC guard: apply stored theme before CSS/JS modules load -->
+    <script>
+      (function () {
+        var theme = "dark";
+        try {
+          var stored = localStorage.getItem("knox_theme");
+          if (stored === "light" || stored === "dark") theme = stored;
+        } catch (e) {}
+        var root = document.documentElement;
+        root.setAttribute("data-theme", theme);
+        root.style.colorScheme = theme;
+        root.classList.add(theme);
+        var bg = theme === "light" ? "#F5F7FA" : "#0d1117";
+        var fg = theme === "light" ? "#18212B" : "#f8fafc";
+        root.style.backgroundColor = bg;
+        root.style.color = fg;
+        document.addEventListener("DOMContentLoaded", function () {
+          document.body.style.backgroundColor = bg;
+          document.body.style.color = fg;
+        });
+      })();
+    </script>
   </head>
-  <body style="background-color: #0d1117; color: #f8fafc; margin: 0; padding: 0; overflow: hidden; user-select: none;">
+  <body style="margin: 0; padding: 0; overflow: hidden; user-select: none;">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

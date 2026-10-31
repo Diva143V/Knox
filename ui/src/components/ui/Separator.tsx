@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "./Button";
+import { cn } from "@/lib/cn";
 
 export interface SeparatorProps extends React.HTMLAttributes<HTMLDivElement> {
   orientation?: "horizontal" | "vertical";
@@ -13,11 +13,10 @@ export const Separator: React.FC<SeparatorProps> = ({
   <div
     role="separator"
     className={cn(
-      "shrink-0 bg-border/60",
+      "shrink-0 bg-border-subtle",
       orientation === "horizontal" ? "h-px w-full" : "h-full w-px",
       className
     )}
     {...props}
   />
 );
-

@@ -2,6 +2,9 @@ import React, { useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X, Search, Shield } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
+import { APP_VERSION } from "@/lib/navigation";
+import { cn } from "@/lib/cn";
+import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
 
 const isTauri =
   typeof window !== "undefined" &&
@@ -44,80 +47,117 @@ export const CustomTitlebar: React.FC = () => {
   const handleClose = async () => {
     if (!isTauri) return;
     try {
-      // In Tauri v2 configured with hide-to-tray, close triggers WindowEvent::CloseRequested
+      // Hide-to-tray: CloseRequested handled by Tauri backend
       await getCurrentWindow().close();
     } catch (e) {
       console.error(e);
     }
   };
 
+  const kgPath = config?.kg_path || "knox.db";
+
   return (
     <div
       data-tauri-drag-region
-      className="h-10 w-full border-b border-border/60 bg-sidebar/90 backdrop-blur flex items-center justify-between px-3 select-none z-50 text-xs shrink-0"
+      className="h-9 w-full border-b border-border bg-sidebar flex items-center justify-between px-2.5 select-none z-50 text-sm shrink-0"
     >
-      {/* Left: Branding & Status */}
-      <div className="flex items-center gap-2.5 no-drag">
-        <div className="flex items-center gap-1.5 font-bold text-foreground tracking-tight">
-          <Shield className="w-4 h-4 text-primary" />
-          <span>KNOX</span>
-          <span className="text-[10px] text-muted-foreground font-mono font-normal">
-            v1.2.0
+      {/* Left: Brand + DB path */}
+      <div className="flex items-center gap-2 min-w-0 no-drag flex-1">
+        <div className="flex items-center gap-1.5 font-semibold text-foreground tracking-tight shrink-0">
+          <Shield className="size-3.5 text-primary" aria-hidden />
+          <span>Knox</span>
+          <span className="text-xs text-muted-foreground font-mono font-normal">
+            v{APP_VERSION}
           </span>
         </div>
 
-        <div className="h-3 w-px bg-border/80 mx-1" />
+        <div className="h-3 w-px bg-border shrink-0 hidden sm:block" aria-hidden />
 
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="font-mono truncate max-w-[220px]">
-            {config?.kg_path || "knox.db"}
+        <div
+          className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground min-w-0"
+          title={kgPath}
+        >
+          <span
+            className="size-1.5 rounded-full bg-success shrink-0"
+            aria-label="Database online"
+          />
+          <span className="font-mono truncate max-w-[180px] xl:max-w-[280px]">
+            {kgPath}
           </span>
           {status && (
-            <span className="text-[10px] bg-card px-1.5 py-0.5 rounded border border-border">
-              {status.total_actions} actions
+            <span className="text-xs bg-card px-1.5 py-0.5 rounded-sm border border-border shrink-0 font-mono">
+              {status.total_actions}
             </span>
           )}
         </div>
       </div>
 
-      {/* Center: Command Palette Trigger Button */}
+      {/* Center: Command palette trigger */}
       <button
+        type="button"
         onClick={toggleCommandPalette}
-        className="no-drag flex items-center gap-2 px-3 py-1 rounded-md bg-card/80 hover:bg-card border border-border/80 text-muted-foreground hover:text-foreground text-[11px] transition-all cursor-pointer"
+        aria-label="Open command palette"
+        className={cn(
+          "no-drag hidden lg:flex items-center gap-2 px-3 py-1 rounded-md max-w-[280px]",
+          "bg-card border border-border text-muted-foreground hover:text-foreground",
+          "text-xs transition-colors duration-100 cursor-pointer",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        )}
       >
-        <Search className="w-3.5 h-3.5" />
-        <span>Search actions, files, views…</span>
-        <kbd className="ml-2 font-mono text-[10px] bg-muted/60 px-1 py-0.5 rounded border border-border/50 text-muted-foreground">
+        <Search className="size-3.5 shrink-0" aria-hidden />
+        <span className="truncate">Search actions, files, views…</span>
+        <kbd className="ml-1 font-mono text-2xs bg-muted px-1 py-0.5 rounded-sm border border-border text-muted-foreground">
           Ctrl+K
         </kbd>
       </button>
 
-      {/* Right: Window Controls */}
-      <div className="flex items-center no-drag">
+      {/* Compact command trigger below lg — keeps appearance control visible */}
+      <button
+        type="button"
+        onClick={toggleCommandPalette}
+        aria-label="Open command palette"
+        className={cn(
+          "no-drag lg:hidden flex items-center justify-center size-7 rounded-md",
+          "text-muted-foreground hover:text-foreground hover:bg-card",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring cursor-pointer"
+        )}
+      >
+        <Search className="size-3.5" />
+      </button>
+
+      {/* Right: Appearance + window controls (shrink-0 so theme control never clips) */}
+      <div className="flex items-center gap-1 no-drag flex-1 justify-end min-w-0">
+        <div className="shrink-0 mr-1">
+          <ThemeSwitcher />
+        </div>
         <button
+          type="button"
           onClick={handleMinimize}
-          className="w-8 h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-card rounded transition cursor-pointer"
+          className="w-10 h-7 shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           title="Minimize"
+          aria-label="Minimize window"
         >
-          <Minus className="w-3.5 h-3.5" />
+          <Minus className="size-3.5" />
         </button>
         <button
+          type="button"
           onClick={handleToggleMaximize}
-          className="w-8 h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-card rounded transition cursor-pointer"
+          className="w-10 h-7 shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           title={isMaximized ? "Restore" : "Maximize"}
+          aria-label={isMaximized ? "Restore window" : "Maximize window"}
         >
-          <Square className="w-3 h-3" />
+          <Square className="size-3" aria-hidden />
         </button>
         <button
+          type="button"
           onClick={handleClose}
-          className="w-8 h-7 flex items-center justify-center text-muted-foreground hover:text-white hover:bg-rose-600 rounded transition cursor-pointer"
+          className="w-10 h-7 shrink-0 flex items-center justify-center text-muted-foreground hover:text-[var(--close-fg-hover)] hover:bg-danger rounded-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           title="Hide to Tray"
+          aria-label="Close window (hide to tray)"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="size-3.5" />
         </button>
       </div>
     </div>
   );
 };
-

@@ -1,7 +1,11 @@
 import React from "react";
-import { X, Layers } from "lucide-react";
+import { X, PanelRightClose } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { ActionDetail } from "@/components/graph/ActionDetail";
+import { ActionBadge } from "@/components/ui/ActionBadge";
+import { ActorBadge } from "@/components/ui/ActorBadge";
+import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/cn";
 
 export const DetailInspector: React.FC = () => {
   const { selectedAction, setSelectedAction } = useKnoxStore();
@@ -9,28 +13,52 @@ export const DetailInspector: React.FC = () => {
   if (!selectedAction) return null;
 
   return (
-    <aside className="w-80 shrink-0 border-l border-border/80 bg-sidebar/40 flex flex-col h-full z-20 select-none overflow-hidden animate-in slide-in-from-right-4 duration-150">
-      {/* Inspector Header */}
-      <div className="h-12 border-b border-border/60 px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <Layers className="w-4 h-4 text-primary" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Action Detail
-          </span>
-        </div>
-        <button
-          onClick={() => setSelectedAction(null)}
-          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-card transition cursor-pointer"
-          title="Close Inspector (Esc)"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+    <>
+      {/* Narrow-viewport scrim — tap to close */}
+      <button
+        type="button"
+        aria-label="Close inspector overlay"
+        className="fixed inset-0 top-9 z-30 bg-background/60 xl:hidden cursor-pointer"
+        onClick={() => setSelectedAction(null)}
+      />
 
-      {/* Inspector Scrollable Body */}
-      <div className="flex-1 overflow-y-auto p-4">
-        <ActionDetail action={selectedAction} />
-      </div>
-    </aside>
+      <aside
+        className={cn(
+          "shrink-0 border-l border-border bg-sidebar flex flex-col z-40 select-none overflow-hidden",
+          "w-[min(100vw-3.5rem,20rem)] xl:w-80",
+          "fixed right-0 top-9 bottom-0 xl:static xl:top-auto xl:bottom-auto xl:h-full",
+          "motion-safe:animate-in motion-safe:slide-in-from-right-4 motion-safe:duration-150"
+        )}
+        aria-label="Action detail inspector"
+      >
+        <div className="h-11 border-b border-border px-3 flex items-center justify-between shrink-0 gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <PanelRightClose className="size-4 text-primary shrink-0" aria-hidden />
+            <div className="min-w-0">
+              <div className="text-overline leading-none mb-1">Inspector</div>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <ActorBadge actor={selectedAction.actor} />
+                <ActionBadge type={selectedAction.action_type} />
+              </div>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setSelectedAction(null)}
+            title="Close Inspector (Esc)"
+            aria-label="Close inspector"
+            className="size-7 shrink-0"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          <ActionDetail action={selectedAction} />
+        </div>
+      </aside>
+    </>
   );
 };

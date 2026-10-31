@@ -1,6 +1,7 @@
 import React from "react";
 import type { KnoxAction } from "@/types/knox";
 import { Activity } from "lucide-react";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 interface RecentTrendChartProps {
   actions: KnoxAction[];
@@ -13,8 +14,9 @@ interface DayData {
   isToday: boolean;
 }
 
-export const RecentTrendChart: React.FC<RecentTrendChartProps> = ({ actions }) => {
-  // Aggregate last 7 days of activity
+export const RecentTrendChart: React.FC<RecentTrendChartProps> = ({
+  actions,
+}) => {
   const now = new Date();
   const days: DayData[] = [];
 
@@ -48,13 +50,12 @@ export const RecentTrendChart: React.FC<RecentTrendChartProps> = ({ actions }) =
   const total7Days = days.reduce((acc, d) => acc + d.count, 0);
   const dailyAvg = (total7Days / 7).toFixed(1);
 
-  // SVG dimensions
   const svgWidth = 600;
-  const svgHeight = 160;
-  const padLeft = 35;
-  const padRight = 35;
-  const padTop = 25;
-  const padBottom = 35;
+  const svgHeight = 168;
+  const padLeft = 36;
+  const padRight = 36;
+  const padTop = 28;
+  const padBottom = 40;
   const plotWidth = svgWidth - padLeft - padRight;
   const plotHeight = svgHeight - padTop - padBottom;
 
@@ -66,159 +67,172 @@ export const RecentTrendChart: React.FC<RecentTrendChartProps> = ({ actions }) =
 
   const polylinePoints = points.map((p) => `${p.x},${p.y}`).join(" ");
 
-  // Closed area path for gradient fill
-  const areaPath = `M ${points[0].x},${svgHeight - padBottom} ` +
+  const areaPath =
+    `M ${points[0].x},${svgHeight - padBottom} ` +
     points.map((p) => `L ${p.x},${p.y}`).join(" ") +
     ` L ${points[points.length - 1].x},${svgHeight - padBottom} Z`;
 
   return (
-    <div className="rounded-xl border border-border/70 bg-card p-5 space-y-4">
-      {/* Chart Title & Stat Summary */}
+    <section
+      className="rounded-lg border border-border bg-card p-5 space-y-4"
+      aria-labelledby="trend-chart-title"
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-primary" />
-          <h2 className="text-sm font-semibold tracking-tight text-foreground">
+          <Activity className="size-4 text-primary" aria-hidden />
+          <h2
+            id="trend-chart-title"
+            className="text-sm font-semibold tracking-tight text-foreground"
+          >
             7-Day Activity Trend
           </h2>
-          <span className="text-[10px] text-muted-foreground font-mono bg-card border border-border/60 px-1.5 py-0.5 rounded">
+          <span className="text-xs text-muted-foreground font-mono bg-background border border-border px-1.5 py-0.5 rounded-sm">
             Last 7 Days
           </span>
         </div>
 
         <div className="flex items-center gap-4 text-xs font-mono">
           <div className="flex items-center gap-1.5 text-muted-foreground">
-            <span>7-day total:</span>
+            <span>Total</span>
             <span className="font-semibold text-foreground">{total7Days}</span>
           </div>
           <div className="flex items-center gap-1.5 text-muted-foreground">
-            <span>Daily avg:</span>
+            <span>Daily avg</span>
             <span className="font-semibold text-foreground">{dailyAvg}</span>
           </div>
         </div>
       </div>
 
-      {/* Inline SVG Sparkline */}
-      <div className="w-full overflow-hidden">
-        <svg
-          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-          className="w-full h-40 overflow-visible"
-        >
-          <defs>
-            <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#6366f1" stopOpacity="0.35" />
-              <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
-            </linearGradient>
-            <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#818cf8" />
-              <stop offset="100%" stopColor="#6366f1" />
-            </linearGradient>
-          </defs>
+      {total7Days === 0 ? (
+        <EmptyState
+          compact
+          icon={<Activity />}
+          title="No activity in the last 7 days"
+          description="New indexed actions will appear here as a velocity sparkline."
+        />
+      ) : (
+        <div className="w-full overflow-hidden">
+          <svg
+            viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+            className="w-full h-40 sm:h-44"
+            role="img"
+            aria-label={`Activity over 7 days. Total ${total7Days}, daily average ${dailyAvg}.`}
+          >
+            <defs>
+              <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="0%"
+                  stopColor="var(--primary)"
+                  stopOpacity="0.22"
+                />
+                <stop
+                  offset="100%"
+                  stopColor="var(--primary)"
+                  stopOpacity="0"
+                />
+              </linearGradient>
+            </defs>
 
-          {/* Horizontal Grid lines */}
-          <line
-            x1={padLeft}
-            y1={padTop}
-            x2={svgWidth - padRight}
-            y2={padTop}
-            stroke="var(--border)"
-            strokeDasharray="3 3"
-            strokeOpacity="0.4"
-          />
-          <line
-            x1={padLeft}
-            y1={padTop + plotHeight / 2}
-            x2={svgWidth - padRight}
-            y2={padTop + plotHeight / 2}
-            stroke="var(--border)"
-            strokeDasharray="3 3"
-            strokeOpacity="0.4"
-          />
-          <line
-            x1={padLeft}
-            y1={svgHeight - padBottom}
-            x2={svgWidth - padRight}
-            y2={svgHeight - padBottom}
-            stroke="var(--border)"
-            strokeOpacity="0.6"
-          />
+            <line
+              x1={padLeft}
+              y1={padTop}
+              x2={svgWidth - padRight}
+              y2={padTop}
+              stroke="var(--border)"
+              strokeDasharray="3 3"
+              strokeOpacity="0.5"
+            />
+            <line
+              x1={padLeft}
+              y1={padTop + plotHeight / 2}
+              x2={svgWidth - padRight}
+              y2={padTop + plotHeight / 2}
+              stroke="var(--border)"
+              strokeDasharray="3 3"
+              strokeOpacity="0.5"
+            />
+            <line
+              x1={padLeft}
+              y1={svgHeight - padBottom}
+              x2={svgWidth - padRight}
+              y2={svgHeight - padBottom}
+              stroke="var(--border)"
+              strokeOpacity="0.7"
+            />
 
-          {/* Gradient Area Fill */}
-          <path d={areaPath} fill="url(#trendGradient)" />
+            <path d={areaPath} fill="url(#trendGradient)" />
 
-          {/* Polylines for line stroke */}
-          <polyline
-            fill="none"
-            stroke="url(#lineGradient)"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            points={polylinePoints}
-          />
+            <polyline
+              fill="none"
+              stroke="var(--primary)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              points={polylinePoints}
+            />
 
-          {/* Interactive / visual Data Points */}
-          {points.map((p, idx) => (
-            <g key={idx} className="group cursor-pointer">
-              {/* Outer pulsing ring for non-zero points */}
-              {p.data.count > 0 && (
+            {points.map((p, idx) => (
+              <g key={idx}>
+                <title>
+                  {p.data.dayName} {p.data.dateStr}: {p.data.count} actions
+                </title>
+                {p.data.count > 0 && (
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r={5}
+                    fill="none"
+                    stroke="var(--primary)"
+                    strokeWidth="1.5"
+                    opacity={0.35}
+                  />
+                )}
                 <circle
                   cx={p.x}
                   cy={p.y}
-                  r={5}
-                  fill="none"
-                  stroke="#6366f1"
-                  strokeWidth="1.5"
-                  className="opacity-40"
+                  r={p.data.isToday ? 4.5 : 3.5}
+                  fill="var(--primary)"
+                  stroke="var(--card)"
+                  strokeWidth="2"
                 />
-              )}
-              {/* Center point circle */}
-              <circle
-                cx={p.x}
-                cy={p.y}
-                r={p.data.isToday ? 4.5 : 3.5}
-                fill={p.data.isToday ? "#a5b4fc" : "#6366f1"}
-                stroke="var(--card)"
-                strokeWidth="2"
-                className="transition-all hover:r-6"
-              />
-
-              {/* Count label above point */}
-              <text
-                x={p.x}
-                y={p.y - 10}
-                textAnchor="middle"
-                fill="var(--foreground)"
-                className="text-[10px] font-mono font-medium"
-              >
-                {p.data.count}
-              </text>
-
-              {/* Day Name label below bottom line */}
-              <text
-                x={p.x}
-                y={svgHeight - padBottom + 16}
-                textAnchor="middle"
-                fill={p.data.isToday ? "var(--primary)" : "var(--muted-foreground)"}
-                className={`text-[11px] ${
-                  p.data.isToday ? "font-semibold" : "font-normal"
-                }`}
-              >
-                {p.data.dayName}
-              </text>
-
-              {/* Date string subtle subtitle */}
-              <text
-                x={p.x}
-                y={svgHeight - padBottom + 27}
-                textAnchor="middle"
-                fill="var(--muted-foreground)"
-                className="text-[9px] font-mono opacity-60"
-              >
-                {p.data.dateStr}
-              </text>
-            </g>
-          ))}
-        </svg>
-      </div>
-    </div>
+                <text
+                  x={p.x}
+                  y={p.y - 10}
+                  textAnchor="middle"
+                  fill="var(--foreground)"
+                  className="text-xs font-mono font-medium"
+                >
+                  {p.data.count}
+                </text>
+                <text
+                  x={p.x}
+                  y={svgHeight - padBottom + 16}
+                  textAnchor="middle"
+                  fill={
+                    p.data.isToday
+                      ? "var(--primary)"
+                      : "var(--muted-foreground)"
+                  }
+                  className={`text-sm ${
+                    p.data.isToday ? "font-semibold" : "font-normal"
+                  }`}
+                >
+                  {p.data.dayName}
+                </text>
+                <text
+                  x={p.x}
+                  y={svgHeight - padBottom + 28}
+                  textAnchor="middle"
+                  fill="var(--muted-foreground)"
+                  className="text-2xs font-mono opacity-70"
+                >
+                  {p.data.dateStr}
+                </text>
+              </g>
+            ))}
+          </svg>
+        </div>
+      )}
+    </section>
   );
 };

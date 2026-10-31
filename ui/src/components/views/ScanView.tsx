@@ -6,24 +6,30 @@ import {
   CheckCircle2,
   FolderOpen,
   AlertCircle,
-  RefreshCw,
   GitPullRequest,
   Check,
   Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { KnoxAPI } from "@/services/api";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import type { ScanReport } from "@/types/knox";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Badge } from "@/components/ui/Badge";
 
 export const ScanView: React.FC = () => {
   const { showToast, refreshData } = useKnoxStore();
   const [projectPath, setProjectPath] = useState(".");
   const [isScanning, setIsScanning] = useState(false);
   const [scanReport, setScanReport] = useState<ScanReport | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [hookInstalled, setHookInstalled] = useState<boolean | null>(null);
   const [isCheckingHook, setIsCheckingHook] = useState(false);
 
-  // Check backend hook status
   const checkHook = useCallback(async (path: string) => {
     setIsCheckingHook(true);
     try {
@@ -45,6 +51,7 @@ export const ScanView: React.FC = () => {
       const folder = await KnoxAPI.openFolderDialog();
       if (folder) {
         setProjectPath(folder);
+        setScanError(null);
       }
     } catch (err) {
       showToast(String(err), true);
@@ -54,6 +61,7 @@ export const ScanView: React.FC = () => {
   const handleScan = async () => {
     try {
       setIsScanning(true);
+      setScanError(null);
       const res = await KnoxAPI.scanStaged(projectPath);
       setScanReport(res);
       showToast(
@@ -62,7 +70,9 @@ export const ScanView: React.FC = () => {
       await refreshData();
       await checkHook(projectPath);
     } catch (err) {
-      showToast(String(err), true);
+      const msg = String(err);
+      setScanError(msg);
+      showToast(msg, true);
     } finally {
       setIsScanning(false);
     }
@@ -79,6 +89,10 @@ export const ScanView: React.FC = () => {
   };
 
   const handleUninstallHook = async () => {
+    const ok = window.confirm(
+      "Uninstall the Knox pre-commit hook from this repository?"
+    );
+    if (!ok) return;
     try {
       const res = await KnoxAPI.uninstallHook(projectPath);
       showToast(res);
@@ -89,210 +103,229 @@ export const ScanView: React.FC = () => {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto overflow-y-auto h-full select-none">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-primary" />
-          <span>Human Edit Scanner</span>
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1">
-          Detects manual developer edits in staged git changes that were not executed by an AI agent,
-          recording them as <span className="font-mono text-foreground font-semibold">human</span> actions in the knowledge graph.
-        </p>
-      </div>
+    <div className="p-5 sm:p-6 space-y-5 max-w-4xl mx-auto overflow-y-auto h-full">
+      <PageHeader
+        title="Human Edit Scan"
+        description="Compare staged git changes against recent agent actions and record untracked manual edits as human actions."
+        icon={<ShieldCheck />}
+      />
 
-      {/* Repository Path & Scan Bar */}
-      <div className="p-5 rounded-xl border border-border bg-card space-y-4">
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Project Git Repository Path
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={projectPath}
-              onChange={(e) => setProjectPath(e.target.value)}
-              placeholder="e.g. D:\Projects\MyRepo or ."
-              className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:border-primary"
-            />
-            <button
-              onClick={handleBrowseFolder}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-card hover:bg-background text-xs font-medium text-foreground transition cursor-pointer"
-              title="Browse repository directory"
+      <Card>
+        <CardContent className="p-4 space-y-4">
+          <div className="space-y-1.5">
+            <label
+              htmlFor="scan-repo-path"
+              className="text-overline block"
             >
-              <FolderOpen className="w-3.5 h-3.5 text-muted-foreground" />
-              <span>Browse…</span>
-            </button>
-            <button
-              onClick={handleScan}
-              disabled={isScanning}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition cursor-pointer shadow-sm shadow-primary/25 disabled:opacity-50"
-            >
-              {isScanning ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Scanning Staged Changes…</span>
-                </>
-              ) : (
-                <>
-                  <GitPullRequest className="w-3.5 h-3.5" />
-                  <span>Scan Staged Changes</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Hook Management Card */}
-        <div className="pt-3 border-t border-border/60 flex items-center justify-between text-xs">
-          <div>
-            <div className="flex items-center gap-2">
-              <GitCommit className="w-4 h-4 text-primary" />
-              <span className="font-semibold text-foreground">Git Pre-Commit Hook</span>
-              {isCheckingHook ? (
-                <span className="text-[10px] text-muted-foreground animate-pulse font-mono">
-                  Checking…
-                </span>
-              ) : hookInstalled ? (
-                <span className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                  <Check className="w-3 h-3" />
-                  <span>Active & Installed</span>
-                </span>
-              ) : (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                  Not Installed
-                </span>
-              )}
-            </div>
-            <p className="text-muted-foreground text-[11px] mt-0.5">
-              Automatically scans staged git changes on commit and writes human actions into Knox.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {!hookInstalled ? (
-              <button
-                onClick={handleInstallHook}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/30 hover:bg-primary/20 text-xs font-medium text-primary transition cursor-pointer"
-              >
-                <Check className="w-3 h-3" />
-                <span>Install Hook</span>
-              </button>
-            ) : (
-              <button
-                onClick={handleUninstallHook}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-xs font-medium text-rose-400 transition cursor-pointer"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span>Uninstall Hook</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Scan Results / Report */}
-      {scanReport ? (
-        <div className="p-5 rounded-xl border border-border bg-card space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-foreground flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>Scan Results</span>
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono px-2 py-0.5 rounded bg-background border border-border text-foreground">
-                <span className="text-primary font-semibold">{scanReport.human_edits_detected}</span> human edits
-              </span>
-              <span className="text-xs font-mono px-2 py-0.5 rounded bg-background border border-border text-foreground">
-                <span className="text-emerald-400 font-semibold">{scanReport.actions_recorded}</span> actions recorded
-              </span>
-            </div>
-          </div>
-
-          {/* Diff statistics */}
-          {scanReport.diff_stat && (
-            <div className="space-y-1">
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Git Numstat Diff
-              </span>
-              <pre className="p-3 rounded-lg border border-border/50 bg-background font-mono text-[11px] text-muted-foreground overflow-x-auto leading-relaxed">
-                {scanReport.diff_stat}
-              </pre>
-            </div>
-          )}
-
-          {/* Files scanned table */}
-          {scanReport.files_scanned.length === 0 ? (
-            <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-1">
-              <p className="text-xs font-medium text-foreground">No staged changes detected.</p>
-              <p className="text-[11px] text-muted-foreground">
-                Stage your modified files with <code className="text-primary font-mono">git add &lt;file&gt;</code> to scan for human edits.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2 pt-1">
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Detected Edits Table ({scanReport.files_scanned.length})
-              </span>
-              <div className="border border-border/60 rounded-lg overflow-hidden">
-                <table className="w-full text-left text-xs divide-y divide-border/60 font-mono">
-                  <thead className="bg-card/80 text-[10px] text-muted-foreground uppercase">
-                    <tr>
-                      <th className="px-3 py-2 font-medium">Staged File Path</th>
-                      <th className="px-3 py-2 font-medium">Diff Stats</th>
-                      <th className="px-3 py-2 font-medium">Recorded Action</th>
-                      <th className="px-3 py-2 font-medium text-right">Attribution</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/40 text-[11px] bg-background/50">
-                    {scanReport.files_scanned.map((file, idx) => {
-                      let stat = "staged";
-                      if (scanReport.diff_stat) {
-                        const line = scanReport.diff_stat
-                          .split("\n")
-                          .find((l) => l.includes(file));
-                        if (line && line.includes("|")) {
-                          stat = line.split("|")[1].trim();
-                        }
-                      }
-                      return (
-                        <tr key={idx} className="hover:bg-card/30">
-                          <td className="px-3 py-2 font-medium text-foreground flex items-center gap-2 truncate max-w-xs">
-                            <FileCode className="w-3.5 h-3.5 text-primary shrink-0" />
-                            <span className="truncate">{file}</span>
-                          </td>
-                          <td className="px-3 py-2 text-indigo-400">{stat}</td>
-                          <td className="px-3 py-2 text-muted-foreground">
-                            {scanReport.actions_recorded > 0 ? "human_write" : "already_tracked"}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                              human
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              Git repository path
+            </label>
+            <div className="flex flex-col gap-2">
+              <Input
+                id="scan-repo-path"
+                type="text"
+                value={projectPath}
+                onChange={(e) => setProjectPath(e.target.value)}
+                placeholder="e.g. D:\Projects\MyRepo or ."
+                className="w-full min-w-0"
+                aria-describedby="scan-path-hint"
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleBrowseFolder}
+                  title="Browse repository directory"
+                >
+                  <FolderOpen className="size-3.5" />
+                  Browse
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={handleScan}
+                  disabled={isScanning}
+                  loading={isScanning}
+                >
+                  {!isScanning && <GitPullRequest className="size-3.5" />}
+                  {isScanning ? "Scanning…" : "Scan staged"}
+                </Button>
               </div>
             </div>
-          )}
-        </div>
-      ) : (
-        /* Intentional Empty State */
-        <div className="p-8 rounded-xl border border-dashed border-border bg-card/40 text-center space-y-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto text-primary">
-            <AlertCircle className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">No Active Scan Results</h3>
-            <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-              Click &ldquo;Scan Staged Changes&rdquo; to compare your git index against recent agent actions and record human manual contributions.
+            <p id="scan-path-hint" className="text-sm text-muted-foreground">
+              Requires a valid git repository. Failures often mean path is not a repo
+              or git is unavailable.
             </p>
           </div>
-        </div>
+
+          {scanError && (
+            <div
+              role="alert"
+              className="px-3 py-2 rounded-md border border-danger/40 bg-danger/10 text-xs text-danger flex gap-2"
+            >
+              <AlertTriangle className="size-3.5 shrink-0 mt-0.5" aria-hidden />
+              <span>{scanError}</span>
+            </div>
+          )}
+
+          <div className="pt-3 border-t border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <GitCommit className="size-4 text-primary" aria-hidden />
+                <span className="font-semibold text-foreground">
+                  Git pre-commit hook
+                </span>
+                {isCheckingHook ? (
+                  <span className="text-xs text-muted-foreground font-mono">
+                    Checking…
+                  </span>
+                ) : hookInstalled ? (
+                  <Badge variant="success" className="gap-1">
+                    <Check className="size-3" aria-hidden />
+                    Installed
+                  </Badge>
+                ) : (
+                  <Badge variant="warning">Not installed</Badge>
+                )}
+              </div>
+              <p className="text-muted-foreground text-sm mt-1">
+                On commit, scans staged changes and records human actions into Knox.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {!hookInstalled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleInstallHook}
+                >
+                  <Check className="size-3" />
+                  Install hook
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  onClick={handleUninstallHook}
+                >
+                  <Trash2 className="size-3" />
+                  Uninstall
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {scanReport ? (
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0 pb-0">
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle2 className="size-4 text-success" aria-hidden />
+              Scan results
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="font-mono">
+                <span className="text-primary font-semibold">
+                  {scanReport.human_edits_detected}
+                </span>
+                &nbsp;human edits
+              </Badge>
+              <Badge variant="secondary" className="font-mono">
+                <span className="text-success font-semibold">
+                  {scanReport.actions_recorded}
+                </span>
+                &nbsp;recorded
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4 space-y-4">
+            {scanReport.diff_stat && (
+              <div className="space-y-1.5">
+                <span className="text-overline">Git numstat</span>
+                <pre className="p-3 rounded-md border border-border bg-background font-mono text-sm text-muted-foreground overflow-x-auto leading-relaxed">
+                  {scanReport.diff_stat}
+                </pre>
+              </div>
+            )}
+
+            {scanReport.files_scanned.length === 0 ? (
+              <EmptyState
+                compact
+                icon={<AlertCircle />}
+                title="No staged changes detected"
+                description={
+                  <>
+                    Stage modified files with{" "}
+                    <code className="text-primary font-mono">git add &lt;file&gt;</code>{" "}
+                    then scan again.
+                  </>
+                }
+              />
+            ) : (
+              <div className="space-y-2">
+                <span className="text-overline">
+                  Staged files ({scanReport.files_scanned.length})
+                </span>
+                <div className="border border-border rounded-md overflow-hidden overflow-x-auto">
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead className="bg-card text-xs text-muted-foreground uppercase border-b border-border">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Path</th>
+                        <th className="px-3 py-2 font-medium">Diff</th>
+                        <th className="px-3 py-2 font-medium">Action</th>
+                        <th className="px-3 py-2 font-medium text-right">
+                          Attribution
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border-subtle bg-background/50">
+                      {scanReport.files_scanned.map((file, idx) => {
+                        let stat = "staged";
+                        if (scanReport.diff_stat) {
+                          const line = scanReport.diff_stat
+                            .split("\n")
+                            .find((l) => l.includes(file));
+                          if (line && line.includes("|")) {
+                            stat = line.split("|")[1].trim();
+                          }
+                        }
+                        return (
+                          <tr key={idx} className="hover:bg-card/40">
+                            <td className="px-3 py-2 text-foreground">
+                              <span className="inline-flex items-center gap-2 max-w-xs">
+                                <FileCode className="size-3.5 text-primary shrink-0" aria-hidden />
+                                <span className="truncate" title={file}>
+                                  {file}
+                                </span>
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-plan">{stat}</td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {scanReport.actions_recorded > 0
+                                ? "human_write"
+                                : "already_tracked"}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Badge variant="success">human</Badge>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <EmptyState
+          icon={<AlertCircle />}
+          title="No scan results yet"
+          description="Run Scan staged above to compare the git index against recent agent actions and attribute human edits."
+        />
       )}
     </div>
   );
