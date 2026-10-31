@@ -10,6 +10,7 @@ import {
   FolderGit2,
   Database,
   RefreshCw,
+  Compass,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { cn } from "@/lib/cn";
@@ -28,7 +29,7 @@ const ICONS: Record<NavItemDef["icon"], React.ReactNode> = {
 };
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, status, isLoading, refreshData } =
+  const { activeTab, setActiveTab, status, isLoading, refreshData, openTour } =
     useKnoxStore();
 
   return (
@@ -143,6 +144,17 @@ export const Sidebar: React.FC = () => {
             </div>
           </div>
         )}
+
+        <button
+          type="button"
+          onClick={() => openTour()}
+          className="w-full flex items-center justify-center lg:justify-start gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+          title="Welcome & Getting Started Tour"
+          aria-label="Welcome and getting started tour"
+        >
+          <Compass className="size-3.5 text-primary shrink-0" />
+          <span className="hidden lg:inline truncate">Getting Started Tour</span>
+        </button>
       </div>
     </aside>
   );

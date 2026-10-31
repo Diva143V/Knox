@@ -512,7 +512,7 @@ export const OnboardingWizard: React.FC = () => {
                   Connect your AI assistant
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                  Knox exposes 9 MCP tools over stdio. Paste this configuration
+                  Knox exposes 14 MCP tools, resources, and prompts over stdio. Paste this configuration
                   into your tool’s MCP config file.
                 </p>
               </div>

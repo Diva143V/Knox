@@ -14,6 +14,7 @@ import {
   Globe,
   HardDrive,
   BookOpen,
+  Compass,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { VIEW_BY_ID, type NavItemDef } from "@/lib/navigation";
@@ -38,6 +39,7 @@ export const Header: React.FC = () => {
     isLoading,
     refreshData,
     setOnboardingOpen,
+    openTour,
     activeProjectScope,
   } = useKnoxStore();
   const current = VIEW_BY_ID[activeTab] ?? VIEW_BY_ID.dashboard;
@@ -100,6 +102,18 @@ export const Header: React.FC = () => {
             </span>
           </div>
         )}
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => openTour()}
+          title="Open Welcome & Getting Started Tour"
+          aria-label="Open getting started tour"
+        >
+          <Compass className="size-3.5 text-primary" />
+          <span className="hidden sm:inline">Tour</span>
+        </Button>
 
         <Button
           type="button"

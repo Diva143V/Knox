@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
   FolderPlus,
   GitPullRequest,
+  Compass,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { ActionBadge } from "@/components/ui/ActionBadge";
@@ -50,6 +51,7 @@ export const CommandPalette: React.FC = () => {
     setCurrentOnly,
     refreshData,
     showToast,
+    openTour,
   } = useKnoxStore();
 
   const [search, setSearch] = useState("");
@@ -245,6 +247,25 @@ export const CommandPalette: React.FC = () => {
                 </div>
                 <kbd className="font-mono text-xs px-1.5 py-0.5 rounded-sm bg-background border border-border text-muted-foreground">
                   G W
+                </kbd>
+              </Command.Item>
+
+              <Command.Item
+                value="Welcome & Getting Started Tour"
+                onSelect={() => {
+                  setCommandPaletteOpen(false);
+                  openTour();
+                }}
+                className={itemClass}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Compass className="size-4 text-primary" aria-hidden />
+                  <span className="font-medium text-foreground">
+                    Welcome & Getting Started Tour
+                  </span>
+                </div>
+                <kbd className="font-mono text-xs px-1.5 py-0.5 rounded-sm bg-background border border-border text-muted-foreground">
+                  Tour
                 </kbd>
               </Command.Item>
             </Command.Group>

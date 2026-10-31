@@ -8,6 +8,7 @@ import { Router } from "@/components/layout/Router";
 import { DetailInspector } from "@/components/layout/DetailInspector";
 import { CommandPalette } from "@/components/CommandPalette";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
+import { OnboardingTourModal } from "@/components/OnboardingTourModal";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Toast } from "@/components/ui/Toast";
 
@@ -41,6 +42,7 @@ export const AppShell: React.FC = () => {
 
       <CommandPalette />
       <OnboardingWizard />
+      <OnboardingTourModal />
 
       {toast && (
         <Toast
