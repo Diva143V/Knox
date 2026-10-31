@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   Trash2,
   Database,
+  Network,
 } from "lucide-react";
 import { KnoxAPI } from "@/services/api";
 import { useKnoxStore } from "@/store/useKnoxStore";
@@ -27,7 +28,7 @@ import { cn } from "@/lib/cn";
 type WizardStep = 1 | 2 | 3 | 4;
 
 export const WorkspaceView: React.FC = () => {
-  const { showToast, refreshData } = useKnoxStore();
+  const { showToast, refreshData, setActiveTab } = useKnoxStore();
   const [workspacePath, setWorkspacePath] = useState(".");
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
   const [knoxMdContent, setKnoxMdContent] = useState<string | null>(null);
@@ -37,7 +38,7 @@ export const WorkspaceView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [config, setConfig] = useState<KnoxConfig | null>(null);
 
-  const checkStatus = useCallback(async (path: string) => {
+  const checkStatus = useCallback(async (path: string, autoAdvance = false) => {
     try {
       const [md, hook] = await Promise.all([
         KnoxAPI.getKnoxMd(path),
@@ -46,12 +47,14 @@ export const WorkspaceView: React.FC = () => {
       setKnoxMdContent(md);
       setHookInstalled(hook);
 
-      if (md && hook) {
-        setCurrentStep(4);
-      } else if (md) {
-        setCurrentStep(3);
-      } else {
-        setCurrentStep(1);
+      if (autoAdvance) {
+        if (md && hook) {
+          setCurrentStep(4);
+        } else if (md) {
+          setCurrentStep(3);
+        } else {
+          setCurrentStep(1);
+        }
       }
     } catch {
       setKnoxMdContent(null);
@@ -59,8 +62,15 @@ export const WorkspaceView: React.FC = () => {
     }
   }, []);
 
+  // Check and auto-advance ONLY on initial mount
   useEffect(() => {
-    checkStatus(workspacePath);
+    checkStatus(workspacePath, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Refresh content on path change without interrupting user step navigation
+  useEffect(() => {
+    checkStatus(workspacePath, false);
   }, [workspacePath, checkStatus]);
 
   useEffect(() => {
@@ -95,7 +105,7 @@ export const WorkspaceView: React.FC = () => {
       setErrorMessage(null);
       const res = await KnoxAPI.initProject(workspacePath);
       showToast(res);
-      await checkStatus(workspacePath);
+      await checkStatus(workspacePath, false);
       await refreshData();
       setCurrentStep(3);
     } catch (err) {
@@ -113,7 +123,7 @@ export const WorkspaceView: React.FC = () => {
       setErrorMessage(null);
       const res = await KnoxAPI.installHook(workspacePath);
       showToast(res);
-      await checkStatus(workspacePath);
+      await checkStatus(workspacePath, false);
       setCurrentStep(4);
     } catch (err) {
       const msg = String(err);
@@ -134,7 +144,7 @@ export const WorkspaceView: React.FC = () => {
       setErrorMessage(null);
       const res = await KnoxAPI.uninstallHook(workspacePath);
       showToast(res);
-      await checkStatus(workspacePath);
+      await checkStatus(workspacePath, false);
     } catch (err) {
       const msg = String(err);
       setErrorMessage(msg);
@@ -276,25 +286,24 @@ export const WorkspaceView: React.FC = () => {
                 <label htmlFor="workspace-path" className="text-overline block">
                   Repository path
                 </label>
-                <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
                   <Input
                     id="workspace-path"
                     type="text"
                     value={workspacePath}
                     onChange={(e) => setWorkspacePath(e.target.value)}
                     placeholder="e.g. D:\Projects\MyRepo or ."
-                    className="w-full min-w-0"
+                    className="flex-1 min-w-0"
                   />
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleBrowseFolder}
-                    >
-                      <FolderOpen className="size-3.5" />
-                      Browse
-                    </Button>
-                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleBrowseFolder}
+                    className="shrink-0"
+                  >
+                    <FolderOpen className="size-3.5" />
+                    Browse
+                  </Button>
                 </div>
               </div>
 
@@ -388,7 +397,7 @@ export const WorkspaceView: React.FC = () => {
                     <h4 className="text-xs font-semibold text-foreground">
                       Pre-commit hook
                     </h4>
-                    <p className="text-sm text-muted-foreground mt-0.5">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {hookInstalled
                         ? "Installed in this repository."
                         : "Not installed yet."}
@@ -494,13 +503,21 @@ export const WorkspaceView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex justify-start pt-1">
+              <div className="flex items-center justify-between pt-1">
                 <Button
                   type="button"
                   variant="ghost"
                   onClick={() => setCurrentStep(3)}
                 >
                   Back
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={() => setActiveTab("graph")}
+                >
+                  <Network className="size-3.5" />
+                  Explore Knowledge Graph
                 </Button>
               </div>
             </div>

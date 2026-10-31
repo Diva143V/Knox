@@ -86,8 +86,8 @@ export const DetailInspector: React.FC = () => {
 
       <aside
         className={cn(
-          "shrink-0 border-l border-border bg-sidebar flex flex-col z-40 select-none overflow-hidden",
-          "w-[min(100vw-3.5rem,20rem)] xl:w-80",
+          "shrink-0 border-l border-border bg-sidebar flex flex-col z-40 overflow-hidden",
+          "w-[min(100vw-3.5rem,24rem)] xl:w-96 2xl:w-[420px]",
           "fixed right-0 top-9 bottom-0 xl:static xl:top-auto xl:bottom-auto xl:h-full",
           "motion-safe:animate-in motion-safe:slide-in-from-right-4 motion-safe:duration-150"
         )}
@@ -178,7 +178,7 @@ export const DetailInspector: React.FC = () => {
                     </button>
                   </div>
                   <p
-                    className="font-mono text-xs text-foreground bg-background p-2 rounded-md border border-border truncate select-all"
+                    className="font-mono text-xs text-foreground bg-background p-2 rounded-md border border-border break-all select-all leading-tight"
                     title={selectedProject.path}
                   >
                     {selectedProject.path}

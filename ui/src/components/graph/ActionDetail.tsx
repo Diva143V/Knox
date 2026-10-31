@@ -21,6 +21,10 @@ import {
   PlusCircle,
   MinusCircle,
   Compass,
+  Scale,
+  Link2,
+  CornerDownRight,
+  Layers,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 
@@ -261,9 +265,9 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
               <span>{copiedPath === "Project Path" ? "Copied" : "Copy"}</span>
             </button>
           </div>
-          <div className="p-1.5 rounded-sm bg-background border border-border text-foreground truncate flex items-center justify-between">
-            <span className="font-semibold text-primary">{project?.name || "Knox"}</span>
-            <span className="text-2xs text-muted-foreground truncate max-w-[150px]" title={project?.path}>
+          <div className="p-1.5 rounded-sm bg-background border border-border text-foreground flex items-center justify-between gap-2">
+            <span className="font-semibold text-primary shrink-0">{project?.name || "Knox"}</span>
+            <span className="text-2xs text-muted-foreground truncate flex-1 text-right font-mono" title={project?.path}>
               {project?.path}
             </span>
           </div>
@@ -291,7 +295,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
               </button>
             </div>
             <div
-              className="p-1.5 rounded-sm bg-background border border-border text-foreground text-2xs truncate select-all"
+              className="p-1.5 rounded-sm bg-background border border-border text-foreground text-2xs font-mono break-all select-all leading-tight"
               title={primaryPhysicalLocation}
             >
               {primaryPhysicalLocation}
@@ -300,9 +304,135 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
         )}
       </div>
 
+      {/* Architectural Decision Card if decide or rationale present */}
+      {(action.action_type === "decide" ||
+        action.rationale ||
+        (action.rejected_alternatives && action.rejected_alternatives.length > 0)) && (
+        <div className="space-y-2.5 p-3 rounded-lg border border-warning/40 bg-warning/5">
+          <div className="flex items-center justify-between text-warning">
+            <span className="text-2xs font-bold uppercase tracking-wider flex items-center gap-1.5 font-sans">
+              <Scale className="size-3.5" />
+              <span>Architectural Decision</span>
+            </span>
+            <span className="text-2xs font-mono px-1.5 py-0.5 rounded-sm bg-warning/20 text-warning border border-warning/30 font-semibold">
+              FIRST-CLASS
+            </span>
+          </div>
+
+          {action.rationale && (
+            <div className="space-y-1">
+              <span className="text-2xs font-mono uppercase text-muted-foreground">Rationale</span>
+              <p className="text-xs text-foreground bg-background/80 p-2 rounded border border-warning/20 leading-relaxed font-sans">
+                {action.rationale}
+              </p>
+            </div>
+          )}
+
+          {action.rejected_alternatives && action.rejected_alternatives.length > 0 && (
+            <div className="space-y-1">
+              <span className="text-2xs font-mono uppercase text-muted-foreground">
+                Rejected Alternatives
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {action.rejected_alternatives.map((alt, idx) => (
+                  <span
+                    key={idx}
+                    className="text-2xs font-mono px-2 py-0.5 rounded-sm bg-danger/10 text-danger border border-danger/20 line-through"
+                  >
+                    {alt}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Semantic Graph Relations if present */}
+      {action.relations && action.relations.length > 0 && (
+        <Section
+          title="Semantic Graph Relations"
+          icon={<Link2 className="size-3.5 text-primary" aria-hidden />}
+          trailing={
+            <span className="text-2xs font-mono text-muted-foreground bg-card px-1.5 py-0.5 rounded-sm border border-border">
+              {action.relations.length}
+            </span>
+          }
+        >
+          <div className="space-y-1.5">
+            {action.relations.map((rel, idx) => {
+              const targetAction = actions.find((a) => a.id === rel.target_id);
+              return (
+                <div
+                  key={idx}
+                  className="p-2 rounded-md bg-card border border-border flex items-center justify-between gap-2 text-xs"
+                >
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    <span className="text-2xs font-mono uppercase px-1.5 py-0.5 rounded-sm bg-primary/10 text-primary border border-primary/20 shrink-0">
+                      {rel.relation_type.replace("_", " ")}
+                    </span>
+                    <span
+                      className="font-mono text-foreground text-2xs truncate"
+                      title={rel.target_id}
+                    >
+                      {targetAction?.summary || rel.target_id}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleJumpToParent(rel.target_id)}
+                    className="text-primary hover:underline text-2xs font-mono shrink-0 flex items-center gap-0.5 cursor-pointer"
+                  >
+                    <span>Jump</span>
+                    <CornerDownRight className="size-2.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* Code Symbols & AST if present */}
+      {action.symbols && action.symbols.length > 0 && (
+        <Section
+          title="Code Symbols & AST"
+          icon={<Code2 className="size-3.5 text-primary" aria-hidden />}
+          trailing={
+            <span className="text-2xs font-mono text-muted-foreground bg-card px-1.5 py-0.5 rounded-sm border border-border">
+              {action.symbols.length}
+            </span>
+          }
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {action.symbols.map((sym, idx) => (
+              <span
+                key={idx}
+                className="text-2xs font-mono px-2 py-0.5 rounded-sm bg-background border border-border text-primary font-semibold flex items-center gap-1"
+              >
+                <Code2 className="size-2.5 opacity-70" />
+                {sym}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Context Summary if present */}
+      {action.context_summary && (
+        <Section
+          title="Context Summary"
+          icon={<Layers className="size-3.5 text-primary" aria-hidden />}
+        >
+          <p className="text-xs text-foreground bg-card p-2.5 rounded-md border border-border leading-relaxed">
+            {action.context_summary}
+          </p>
+        </Section>
+      )}
+
       {/* Summary */}
       <Section title="Summary">
-        <p className="text-sm font-medium text-foreground leading-relaxed bg-card p-3 rounded-md border border-border">
+        <p className="text-xs font-medium text-foreground leading-relaxed bg-card p-3 rounded-md border border-border">
           {action.summary}
         </p>
       </Section>
@@ -316,7 +446,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
             variant="ghost"
             size="sm"
             onClick={handleCopyId}
-            className="h-6 px-1.5 text-sm"
+            className="h-6 px-1.5 text-xs font-mono"
             aria-label="Copy action ID"
           >
             {copiedId ? (
@@ -333,7 +463,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
           </Button>
         }
       >
-        <p className="font-mono text-sm text-foreground truncate select-all px-2.5 py-2 rounded-md border border-border bg-card">
+        <p className="font-mono text-xs text-foreground break-all select-all px-2.5 py-2 rounded-md border border-border bg-card">
           {action.id}
         </p>
       </Section>
@@ -344,7 +474,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
           title="Confidence"
           icon={<Gauge className="size-3.5 text-primary" aria-hidden />}
           trailing={
-            <span className="font-mono font-semibold text-foreground text-sm">
+            <span className="font-mono font-semibold text-foreground text-xs">
               {confidencePct}%
             </span>
           }
@@ -370,7 +500,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
         title="Metadata"
         icon={<Clock className="size-3.5" aria-hidden />}
       >
-        <div className="space-y-2 p-3 rounded-md border border-border bg-card font-mono text-sm">
+        <div className="space-y-2 p-3 rounded-md border border-border bg-card font-mono text-xs">
           <div className="flex items-center justify-between gap-2 text-muted-foreground">
             <span>Timestamp</span>
             <span className="text-foreground text-right">{formattedDate}</span>
@@ -378,7 +508,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
           {action.session_id && (
             <div className="flex items-center justify-between gap-2 text-muted-foreground pt-2 border-t border-border-subtle">
               <span>Session</span>
-              <span className="text-foreground truncate max-w-[170px]">
+              <span className="text-foreground truncate flex-1 text-right ml-2 font-mono">
                 {action.session_id}
               </span>
             </div>
@@ -392,14 +522,14 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
           title="Causal Relations"
           icon={<GitCommit className="size-3.5 text-primary" aria-hidden />}
         >
-          <div className="space-y-2 p-3 rounded-md border border-border bg-card">
+          <div className="space-y-2 p-3 rounded-md border border-border bg-card text-xs">
             {action.parent_action_id && (
               <div className="space-y-1">
-                <span className="text-sm text-muted-foreground">Parent</span>
+                <span className="text-2xs font-mono uppercase text-muted-foreground">Parent</span>
                 <button
                   type="button"
                   onClick={() => handleJumpToParent(action.parent_action_id!)}
-                  className="w-full text-left font-mono text-sm text-primary hover:underline truncate bg-background px-2 py-1.5 rounded-md border border-border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  className="w-full text-left font-mono text-xs text-primary hover:underline truncate bg-background px-2 py-1.5 rounded-md border border-border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                   title={`Jump to parent: ${action.parent_action_id}`}
                 >
                   ↑ {action.parent_action_id}
@@ -408,13 +538,13 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
             )}
             {action.supersedes && (
               <div className="space-y-1">
-                <span className="text-sm text-muted-foreground">
+                <span className="text-2xs font-mono uppercase text-muted-foreground">
                   Supersedes
                 </span>
                 <button
                   type="button"
                   onClick={() => handleJumpToParent(action.supersedes!)}
-                  className="w-full text-left font-mono text-sm text-warning hover:underline truncate bg-background px-2 py-1.5 rounded-md border border-border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  className="w-full text-left font-mono text-xs text-warning hover:underline truncate bg-background px-2 py-1.5 rounded-md border border-border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                   title={`Jump to superseded: ${action.supersedes}`}
                 >
                   ⟲ {action.supersedes}
@@ -443,7 +573,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
                 type="button"
                 onClick={() => handleCopyFile(file)}
                 title="Copy file path"
-                className="w-full flex items-center gap-2 p-1.5 rounded-md bg-card hover:bg-muted border border-border text-sm font-mono text-foreground truncate cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                className="w-full flex items-center gap-2 p-1.5 rounded-md bg-card hover:bg-muted border border-border text-xs font-mono text-foreground truncate cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 <FileCode className="size-3 text-muted-foreground shrink-0" />
                 <span className="truncate">{file}</span>

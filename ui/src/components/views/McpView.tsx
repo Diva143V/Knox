@@ -17,6 +17,11 @@ import {
   Copy,
   Check,
   Info,
+  GitFork,
+  ShieldCheck,
+  Layers,
+  Sparkles,
+  BookOpen,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { KnoxAPI } from "@/services/api";
@@ -30,7 +35,7 @@ import { cn } from "@/lib/cn";
 
 interface McpTool {
   name: string;
-  category: "Read" | "Write" | "Query" | "Scanner" | "Lifecycle";
+  category: "Read" | "Write" | "Query" | "Graph" | "Safety" | "Scanner" | "Lifecycle";
   description: string;
   parameters: {
     name: string;
@@ -41,18 +46,38 @@ interface McpTool {
   schemaExample: Record<string, unknown>;
 }
 
+export interface McpResourceItem {
+  uri: string;
+  name: string;
+  mimeType: string;
+  description: string;
+  example: string;
+}
+
+export interface McpPromptItem {
+  name: string;
+  description: string;
+  arguments: {
+    name: string;
+    type: string;
+    required: boolean;
+    description: string;
+  }[];
+  templatePreview: string;
+}
+
 const MCP_TOOLS: McpTool[] = [
   {
     name: "knox_get_context",
     category: "Read",
     description:
-      "Returns active, non-superseded decisions, plans, and actions for a file or project.",
+      "Returns active, non-superseded decisions, plans, and actions for a file or project in compact Markdown digest format.",
     parameters: [
       {
         name: "file_path",
         type: "string",
         required: false,
-        description: "Specific repository file path",
+        description: "Specific repository file path to inspect",
       },
       {
         name: "project",
@@ -72,142 +97,26 @@ const MCP_TOOLS: McpTool[] = [
         required: false,
         description: "Max results to return (default: 50)",
       },
-    ],
-    schemaExample: { file_path: "src/parser.rs", current_only: true },
-  },
-  {
-    name: "knox_record_action",
-    category: "Write",
-    description:
-      "Records an atomic agent action (write, debug, read, review) linked to the active session.",
-    parameters: [
       {
-        name: "session_id",
+        name: "format",
         type: "string",
-        required: true,
-        description: "ID of the enclosing session",
-      },
-      {
-        name: "actor",
-        type: "string",
-        required: true,
-        description: "Agent name (e.g. gemini, cursor)",
-      },
-      {
-        name: "action_type",
-        type: "string",
-        required: true,
-        description: "Action type: write, debug, etc.",
-      },
-      {
-        name: "summary",
-        type: "string",
-        required: true,
-        description: "Concise summary of action performed",
-      },
-      {
-        name: "files",
-        type: "string[]",
         required: false,
-        description: "Touched file paths",
-      },
-      {
-        name: "tags",
-        type: "string[]",
-        required: false,
-        description: "Topic tags",
-      },
-      {
-        name: "confidence",
-        type: "number",
-        required: false,
-        description: "Confidence score (0.0 to 1.0)",
+        description: "Output format: 'markdown' (compact, default) or 'json'",
       },
     ],
-    schemaExample: {
-      session_id: "s-001",
-      actor: "gemini",
-      action_type: "write",
-      summary: "Refactored token cache eviction policy",
-      files: ["src/cache.rs"],
-    },
-  },
-  {
-    name: "knox_record_decision",
-    category: "Write",
-    description:
-      "Records an architectural choice, ADR decision, or structural trade-off.",
-    parameters: [
-      {
-        name: "session_id",
-        type: "string",
-        required: true,
-        description: "Enclosing session identifier",
-      },
-      {
-        name: "actor",
-        type: "string",
-        required: true,
-        description: "Agent or human decision-maker",
-      },
-      {
-        name: "summary",
-        type: "string",
-        required: true,
-        description: "Decision summary",
-      },
-      {
-        name: "rationale",
-        type: "string",
-        required: false,
-        description: "Reasoning and context behind the decision",
-      },
-      {
-        name: "alternatives",
-        type: "string[]",
-        required: false,
-        description: "Options considered but rejected",
-      },
-    ],
-    schemaExample: {
-      session_id: "s-001",
-      actor: "cursor",
-      summary: "Use redb instead of sled for local persistence",
-      rationale: "Zero-copy reads and active upstream maintenance",
-    },
-  },
-  {
-    name: "knox_search",
-    category: "Query",
-    description:
-      "Full-text search (FTS5) across past actions, decisions, and file paths.",
-    parameters: [
-      {
-        name: "query",
-        type: "string",
-        required: true,
-        description: "Search keyword or FTS expression",
-      },
-      {
-        name: "limit",
-        type: "number",
-        required: false,
-        description: "Maximum number of results (default: 20)",
-      },
-    ],
-    schemaExample: { query: "sqlite migration", limit: 10 },
+    schemaExample: { file_path: "src/parser.rs", current_only: true, format: "markdown" },
   },
   {
     name: "knox_get_history",
     category: "Read",
     description:
-      "Returns a chronologically ordered causal trail of actions for a file or directory.",
+      "Returns a chronologically ordered causal trail of actions and edits for a file or directory.",
     parameters: [
       {
         name: "file_path",
         type: "string",
         required: true,
-        description: "File or directory path to inspect",
+        description: "File or directory path to inspect causal history for",
       },
       {
         name: "limit",
@@ -217,6 +126,321 @@ const MCP_TOOLS: McpTool[] = [
       },
     ],
     schemaExample: { file_path: "src/main.rs", limit: 25 },
+  },
+  {
+    name: "knox_record_action",
+    category: "Write",
+    description:
+      "Records an atomic agent action with touched files, code symbols, and semantic causal relations. Smart auto-session binds automatically if session_id is omitted.",
+    parameters: [
+      {
+        name: "session_id",
+        type: "string",
+        required: false,
+        description: "Enclosing session identifier. If omitted, Knox binds to the active session or creates one automatically.",
+      },
+      {
+        name: "actor",
+        type: "string",
+        required: true,
+        description: "Agent name (e.g. gemini, cursor, claude, antigravity)",
+      },
+      {
+        name: "action_type",
+        type: "string",
+        required: true,
+        description: "Action intent: write | debug | plan | review | refactor | decide",
+      },
+      {
+        name: "summary",
+        type: "string",
+        required: true,
+        description: "Concise summary of action or structural modification performed",
+      },
+      {
+        name: "files",
+        type: "string[]",
+        required: false,
+        description: "List of touched file paths",
+      },
+      {
+        name: "symbols",
+        type: "string[]",
+        required: false,
+        description: "Functions, classes, structs touched (e.g. ['useLivePhysics', 'McpServer'])",
+      },
+      {
+        name: "relations",
+        type: "object[]",
+        required: false,
+        description: "Causal relations: [{ target_id: string, relation_type: 'depends_on' | 'implements' | 'verifies' | 'relates_to' | 'reverts' }]",
+      },
+      {
+        name: "context_summary",
+        type: "string",
+        required: false,
+        description: "High-level goal or reason for the edit",
+      },
+      {
+        name: "tags",
+        type: "string[]",
+        required: false,
+        description: "Topic and domain tags",
+      },
+      {
+        name: "confidence",
+        type: "number",
+        required: false,
+        description: "Confidence score (0.0 to 1.0)",
+      },
+    ],
+    schemaExample: {
+      actor: "antigravity",
+      action_type: "write",
+      summary: "Implemented D3 Cosmos live physics Knowledge Graph",
+      files: ["ui/src/components/graph/KnoxGraphCanvas.tsx"],
+      symbols: ["useLivePhysics", "CircleNode"],
+      relations: [{ target_id: "act-042", relation_type: "implements" }],
+    },
+  },
+  {
+    name: "knox_record_decision",
+    category: "Write",
+    description:
+      "Records an architectural choice, ADR decision, or structural trade-off with rationale and rejected alternatives.",
+    parameters: [
+      {
+        name: "session_id",
+        type: "string",
+        required: false,
+        description: "Enclosing session identifier (auto-created if omitted)",
+      },
+      {
+        name: "actor",
+        type: "string",
+        required: true,
+        description: "Agent or engineer decision-maker",
+      },
+      {
+        name: "summary",
+        type: "string",
+        required: true,
+        description: "Decision summary or ADR title",
+      },
+      {
+        name: "rationale",
+        type: "string",
+        required: false,
+        description: "Reasoning and architectural context behind the decision",
+      },
+      {
+        name: "alternatives",
+        type: "string[]",
+        required: false,
+        description: "Design options considered but rejected and why",
+      },
+      {
+        name: "files",
+        type: "string[]",
+        required: false,
+        description: "Files impacted by this decision",
+      },
+      {
+        name: "confidence",
+        type: "number",
+        required: false,
+        description: "Confidence score (0.0 to 1.0)",
+      },
+    ],
+    schemaExample: {
+      actor: "cursor",
+      summary: "Use D3 force simulation for Cosmos knowledge graph",
+      rationale: "Natural element circle clustering and real-time motion physics",
+      alternatives: ["Static canvas", "Full canvas rerendering"],
+    },
+  },
+  {
+    name: "knox_record_batch",
+    category: "Write",
+    description:
+      "Atomically records multiple actions and their relations in a single transactional batch, minimizing round-trips.",
+    parameters: [
+      {
+        name: "session_id",
+        type: "string",
+        required: false,
+        description: "Enclosing session identifier (auto-created if omitted)",
+      },
+      {
+        name: "actor",
+        type: "string",
+        required: true,
+        description: "Agent performing the batch operations",
+      },
+      {
+        name: "actions",
+        type: "object[]",
+        required: true,
+        description: "Array of action objects (action_type, summary, files, symbols, relations)",
+      },
+    ],
+    schemaExample: {
+      actor: "gemini",
+      actions: [
+        { action_type: "write", summary: "Added CircleNode component", files: ["ui/src/components/graph/CircleNode.tsx"] },
+        { action_type: "write", summary: "Added useLivePhysics hook", files: ["ui/src/hooks/useLivePhysics.ts"] },
+      ],
+    },
+  },
+  {
+    name: "knox_get_lineage",
+    category: "Graph",
+    description:
+      "Recursively traces causal dependencies (depends_on, implements, reverts) upstream or downstream from an action or file.",
+    parameters: [
+      {
+        name: "action_id",
+        type: "string",
+        required: false,
+        description: "Starting action ID",
+      },
+      {
+        name: "file_path",
+        type: "string",
+        required: false,
+        description: "Starting file path to resolve lineage from",
+      },
+      {
+        name: "depth",
+        type: "number",
+        required: false,
+        description: "Maximum recursion depth (default: 5)",
+      },
+      {
+        name: "direction",
+        type: "string",
+        required: false,
+        description: "Traversal direction: 'upstream', 'downstream', or 'both' (default: 'both')",
+      },
+    ],
+    schemaExample: { action_id: "act-042", depth: 4, direction: "both" },
+  },
+  {
+    name: "knox_get_impact",
+    category: "Graph",
+    description:
+      "Computes the blast radius of modifying a file or action, uncovering all dependent files, actions, and active decisions.",
+    parameters: [
+      {
+        name: "file_path",
+        type: "string",
+        required: false,
+        description: "Target file path to evaluate blast radius for",
+      },
+      {
+        name: "action_id",
+        type: "string",
+        required: false,
+        description: "Target action ID to evaluate blast radius for",
+      },
+      {
+        name: "max_depth",
+        type: "number",
+        required: false,
+        description: "Traversal depth limit (default: 3)",
+      },
+    ],
+    schemaExample: { file_path: "src/mcp/format.rs", max_depth: 3 },
+  },
+  {
+    name: "knox_get_path",
+    category: "Graph",
+    description:
+      "Finds the causal or semantic path connecting two actions or files across the Knox knowledge graph.",
+    parameters: [
+      {
+        name: "from_action_id",
+        type: "string",
+        required: false,
+        description: "Starting action identifier",
+      },
+      {
+        name: "to_action_id",
+        type: "string",
+        required: false,
+        description: "Target action identifier",
+      },
+      {
+        name: "from_file",
+        type: "string",
+        required: false,
+        description: "Starting file path",
+      },
+      {
+        name: "to_file",
+        type: "string",
+        required: false,
+        description: "Target file path",
+      },
+      {
+        name: "max_depth",
+        type: "number",
+        required: false,
+        description: "Maximum path depth (default: 6)",
+      },
+    ],
+    schemaExample: { from_file: "ui/src/types/knox.ts", to_file: "ui/src/components/views/McpView.tsx" },
+  },
+  {
+    name: "knox_check_guardrails",
+    category: "Safety",
+    description:
+      "Validates a proposed modification against active ADRs and architectural constraints, returning warnings before code is modified.",
+    parameters: [
+      {
+        name: "files",
+        type: "string[]",
+        required: false,
+        description: "File paths to check against recorded ADR constraints",
+      },
+      {
+        name: "proposed_action",
+        type: "string",
+        required: false,
+        description: "Summary or plan of the proposed modification",
+      },
+      {
+        name: "strict",
+        type: "boolean",
+        required: false,
+        description: "Treat warnings as blocking violations (default: false)",
+      },
+    ],
+    schemaExample: {
+      files: ["src/storage/mod.rs"],
+      proposed_action: "Replace SQLite with in-memory HashMap persistence",
+    },
+  },
+  {
+    name: "knox_search",
+    category: "Query",
+    description:
+      "Full-text search (FTS5) across past actions, decisions, file paths, code symbols, and rationales.",
+    parameters: [
+      {
+        name: "query",
+        type: "string",
+        required: true,
+        description: "Search keyword, file path, symbol, or FTS expression",
+      },
+      {
+        name: "limit",
+        type: "number",
+        required: false,
+        description: "Maximum number of results (default: 20)",
+      },
+    ],
+    schemaExample: { query: "live physics simulation", limit: 10 },
   },
   {
     name: "knox_list_stale",
@@ -234,7 +458,7 @@ const MCP_TOOLS: McpTool[] = [
         name: "threshold_days",
         type: "number",
         required: false,
-        description: "Days without updates to consider stale",
+        description: "Days without updates to consider stale (default: 7)",
       },
     ],
     schemaExample: { threshold_days: 14 },
@@ -243,7 +467,7 @@ const MCP_TOOLS: McpTool[] = [
     name: "knox_scan_staged",
     category: "Scanner",
     description:
-      "Analyzes currently git-staged changes against Knox knowledge to detect conflicts.",
+      "Analyzes currently git-staged changes against Knox knowledge to detect architectural conflicts.",
     parameters: [
       {
         name: "repo_path",
@@ -258,7 +482,7 @@ const MCP_TOOLS: McpTool[] = [
     name: "knox_start_session",
     category: "Lifecycle",
     description:
-      "Initiates an agent interaction session with optional topic tags and metadata.",
+      "Explicitly initiates an agent interaction session with optional topic tags and metadata.",
     parameters: [
       {
         name: "actor",
@@ -278,7 +502,7 @@ const MCP_TOOLS: McpTool[] = [
   {
     name: "knox_end_session",
     category: "Lifecycle",
-    description: "Closes an active agent session.",
+    description: "Closes an active agent session and calculates duration metrics.",
     parameters: [
       {
         name: "session_id",
@@ -291,6 +515,60 @@ const MCP_TOOLS: McpTool[] = [
   },
 ];
 
+const MCP_RESOURCES: McpResourceItem[] = [
+  {
+    uri: "knox://project/overview",
+    name: "Project Overview Digest",
+    mimeType: "text/markdown",
+    description: "Real-time architectural snapshot: active session, total decisions, un-superseded actions, and stale files count.",
+    example: `# Knox Project Overview
+- **Active Session:** sess_01H... (antigravity)
+- **Active Decisions:** 14 ADRs
+- **Total Actions Recorded:** 132
+- **Stale Files:** 0`,
+  },
+  {
+    uri: "knox://decisions/active",
+    name: "Active Architectural Decisions",
+    mimeType: "text/markdown",
+    description: "All active Architectural Decision Records (ADRs) with rationale and rejected alternatives.",
+    example: `## Active Architectural Decisions
+- **[dec-001]** Use D3 force simulation for Cosmos knowledge graph
+  - **Rationale:** Natural element circle clustering and real-time motion physics
+  - **Rejected Alternatives:** Static canvas, Full canvas rerendering`,
+  },
+  {
+    uri: "knox://context/{file}",
+    name: "File Architectural Context",
+    mimeType: "text/markdown",
+    description: "Contextual digest for any specific source file: active decisions, last touched actions, and dependency relations.",
+    example: `## Knox File Context: src/parser.rs
+- **Active Decisions:** 2 impacting parser
+- **Last Action:** Refactored AST token stream (antigravity)
+- **Lineage:** depends_on src/lexer.rs`,
+  },
+];
+
+const MCP_PROMPTS: McpPromptItem[] = [
+  {
+    name: "architectural-audit",
+    description: "Instructs agent to evaluate code or staged changes against active ADR constraints and guardrails.",
+    arguments: [
+      { name: "files", type: "string", description: "Comma-separated list of files to audit", required: false },
+      { name: "focus", type: "string", description: "Specific architectural concern (e.g. security, performance, persistence)", required: false },
+    ],
+    templatePreview: "Perform an architectural consistency audit on the target files using Knox guardrails and active decisions. Check for any regression against recorded ADRs...",
+  },
+  {
+    name: "session-handover",
+    description: "Compiles a clean session handover digest summarizing touched files, recorded actions, and pending tasks for the next agent or teammate.",
+    arguments: [
+      { name: "session_id", type: "string", description: "Session ID to summarize (defaults to current active session)", required: false },
+    ],
+    templatePreview: "Generate a comprehensive session handover summary including all recorded actions, architectural decisions, modified files, and open context items...",
+  },
+];
+
 type ConfigTarget = "cursor" | "claude" | "antigravity" | "cli";
 type CategoryFilter = "All" | McpTool["category"];
 
@@ -299,13 +577,15 @@ const STORAGE_KEY_COMMAND_MODE = "knox_mcp_command_mode";
 
 const CATEGORY_BADGE: Record<
   McpTool["category"],
-  "default" | "secondary" | "outline" | "warning"
+  "default" | "secondary" | "outline" | "warning" | "plan"
 > = {
   Read: "outline",
   Write: "default",
   Query: "secondary",
-  Scanner: "warning",
-  Lifecycle: "outline",
+  Graph: "plan",
+  Safety: "warning",
+  Scanner: "outline",
+  Lifecycle: "secondary",
 };
 
 export const McpView: React.FC = () => {
@@ -716,6 +996,8 @@ export const McpView: React.FC = () => {
     "Read",
     "Write",
     "Query",
+    "Graph",
+    "Safety",
     "Scanner",
     "Lifecycle",
   ];
@@ -727,7 +1009,7 @@ export const McpView: React.FC = () => {
   return (
     <div
       className={cn(
-        "p-5 sm:p-6 space-y-5 mx-auto overflow-y-auto h-full select-none transition-all duration-300",
+        "p-5 sm:p-6 space-y-5 mx-auto overflow-y-auto h-full transition-all duration-300",
         showTerminal ? "max-w-7xl" : "max-w-4xl"
       )}
     >
@@ -1230,6 +1512,168 @@ export const McpView: React.FC = () => {
               })}
             </div>
           </div>
+
+          {/* SECTION 4: NATIVE MCP RESOURCES */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Layers className="size-4 text-primary" aria-hidden />
+                  Native MCP Resources ({MCP_RESOURCES.length})
+                </CardTitle>
+                <Badge variant="outline" className="font-mono text-2xs uppercase">
+                  Read-Only URIs
+                </Badge>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">
+                Directly readable by Claude, Cursor, and Antigravity agents via standard MCP resource templates.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
+              <div className="space-y-2.5">
+                {MCP_RESOURCES.map((res) => (
+                  <div
+                    key={res.uri}
+                    className="rounded-lg border border-border bg-card p-3.5 space-y-2 hover:border-border-focus transition-colors"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono font-semibold text-primary text-xs truncate">
+                          {res.uri}
+                        </span>
+                        <span className="text-2xs text-muted-foreground font-mono">
+                          ({res.mimeType})
+                        </span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs shrink-0 self-start sm:self-auto"
+                        onClick={() => {
+                          navigator.clipboard.writeText(res.uri);
+                          showToast(`Copied ${res.uri} to clipboard`);
+                        }}
+                      >
+                        <Copy className="size-3 text-muted-foreground mr-1" />
+                        <span>Copy URI</span>
+                      </Button>
+                    </div>
+                    <p className="text-xs text-foreground/80 leading-relaxed">
+                      {res.description}
+                    </p>
+                    <div className="pt-1">
+                      <span className="text-overline block mb-1">Payload Sample</span>
+                      <CodeBlock
+                        code={res.example}
+                        language="markdown"
+                        onCopied={() => showToast(`Copied ${res.name} sample to clipboard`)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* SECTION 5: NATIVE MCP PROMPTS */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-warning" aria-hidden />
+                  Native MCP Prompts ({MCP_PROMPTS.length})
+                </CardTitle>
+                <Badge variant="warning" className="font-mono text-2xs uppercase">
+                  Standard Workflows
+                </Badge>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">
+                Reusable prompt templates registered natively in MCP clients for architectural verification and agent handovers.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {MCP_PROMPTS.map((prompt) => (
+                  <div
+                    key={prompt.name}
+                    className="rounded-lg border border-border bg-card p-3.5 space-y-2 flex flex-col justify-between"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-bold text-foreground text-xs">
+                          /{prompt.name}
+                        </span>
+                        <Badge variant="outline" className="text-2xs">
+                          {prompt.arguments.length} args
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {prompt.description}
+                      </p>
+                    </div>
+                    <div className="pt-2 border-t border-border-subtle space-y-1.5">
+                      <span className="text-overline block">Arguments</span>
+                      <div className="space-y-1 font-mono text-2xs">
+                        {prompt.arguments.map((arg) => (
+                          <div key={arg.name} className="flex items-center justify-between text-muted-foreground">
+                            <span className="text-primary font-semibold">{arg.name}</span>
+                            <span>{arg.required ? "required" : "optional"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* SECTION 6: SMART AUTO-SESSIONS & CONTEXT OPTIMIZATION */}
+          <Card className="border-primary/30 bg-primary/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-primary">
+                <ShieldCheck className="size-4 text-primary" aria-hidden />
+                Autonomous Agent Optimization & Guardrails
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Knox eliminates friction and cuts context token usage so autonomous agents work faster and make zero contradictory changes.
+              </p>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 rounded-lg border border-border/80 bg-background/60 space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                    <Sparkles className="size-3.5 text-primary" />
+                    <span>Implicit Auto-Sessions</span>
+                  </div>
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    Agents never need to call <code className="text-primary font-mono">knox_start_session</code> first. Recording an action automatically attaches to or creates an active session.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-border/80 bg-background/60 space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                    <BookOpen className="size-3.5 text-plan" />
+                    <span>Token-Compact Markdown</span>
+                  </div>
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    Context tools return compact, high-density bullet tables instead of raw bloated JSON, cutting agent token consumption by over 60%.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-border/80 bg-background/60 space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                    <GitFork className="size-3.5 text-warning" />
+                    <span>Blast Radius & Lineage</span>
+                  </div>
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    <code className="text-warning font-mono">knox_get_impact</code> and <code className="text-warning font-mono">knox_check_guardrails</code> alert agents to breaking architectural violations before code edits happen.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Right Column: Live Scan Terminal */}

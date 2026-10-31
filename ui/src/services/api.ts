@@ -82,8 +82,10 @@ export const KnoxAPI = {
     if (!isTauri) {
       return mockActions;
     }
+    const current = currentOnly ?? false;
     return invoke<KnoxAction[]>("get_graph_data", {
-      currentOnly: currentOnly ?? false,
+      currentOnly: current,
+      current_only: current,
       limit: limit ?? 200,
     });
   },
@@ -173,7 +175,10 @@ export const KnoxAPI = {
         is_open: false,
       };
     }
-    return invoke<Session>("end_session", { sessionId });
+    return invoke<Session>("end_session", {
+      sessionId,
+      session_id: sessionId,
+    });
   },
 
   async getSessions(limit?: number): Promise<Session[]> {
@@ -291,7 +296,10 @@ export const KnoxAPI = {
         is_custom: true,
       };
     }
-    return invoke<DetectedMcpApp>("inspect_custom_mcp_config", { filePath });
+    return invoke<DetectedMcpApp>("inspect_custom_mcp_config", {
+      filePath,
+      file_path: filePath,
+    });
   },
 
   async injectMcpConfig(filePath: string, useSystemCommand?: boolean): Promise<boolean> {
@@ -300,7 +308,9 @@ export const KnoxAPI = {
     }
     return invoke<boolean>("inject_mcp_config", {
       filePath,
+      file_path: filePath,
       useSystemCommand: useSystemCommand ?? false,
+      use_system_command: useSystemCommand ?? false,
     });
   },
 
@@ -308,7 +318,10 @@ export const KnoxAPI = {
     if (!isTauri) {
       return true;
     }
-    return invoke<boolean>("remove_mcp_config", { filePath });
+    return invoke<boolean>("remove_mcp_config", {
+      filePath,
+      file_path: filePath,
+    });
   },
 
   async listenMcpScanLogs(callback: (log: McpScanLog) => void): Promise<() => void> {

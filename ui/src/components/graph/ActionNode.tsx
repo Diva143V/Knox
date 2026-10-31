@@ -141,6 +141,23 @@ export const ActionNode = memo(({ data }: { data: ActionNodeData }) => {
         </div>
       )}
 
+      {((action.symbols && action.symbols.length > 0) ||
+        (action.relations && action.relations.length > 0)) && (
+        <div className="flex items-center gap-1.5 pt-0.5 text-2xs font-mono text-muted-foreground">
+          {action.symbols && action.symbols.length > 0 && (
+            <span className="bg-primary/10 text-primary border border-primary/20 px-1 py-0.5 rounded-xs truncate max-w-[120px]">
+              {action.symbols[0]}
+              {action.symbols.length > 1 ? ` +${action.symbols.length - 1}` : ""}
+            </span>
+          )}
+          {action.relations && action.relations.length > 0 && (
+            <span className="bg-muted text-muted-foreground border border-border px-1 py-0.5 rounded-xs shrink-0">
+              {action.relations.length} rel
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between text-xs font-mono text-muted-foreground/80">
         <span>{dateStr}</span>
         <div className="flex items-center gap-1">

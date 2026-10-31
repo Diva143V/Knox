@@ -1,5 +1,10 @@
 //! TypeScript type definitions mirroring Knox Rust domain types.
 
+export interface ActionRelation {
+  target_id: string;
+  relation_type: string;
+}
+
 export interface KnoxAction {
   id: string;
   actor: string;
@@ -13,6 +18,12 @@ export interface KnoxAction {
   parent_action_id: string | null;
   supersedes: string | null;
   is_current: boolean;
+  // V2 Knowledge Graph Fields
+  relations?: ActionRelation[];
+  symbols?: string[];
+  rationale?: string | null;
+  rejected_alternatives?: string[];
+  context_summary?: string | null;
 }
 
 export interface Session {
@@ -114,5 +125,21 @@ export interface McpScanLog {
   timestamp: string;
 }
 
+export interface McpResource {
+  uri: string;
+  name: string;
+  description: string;
+  mimeType: string;
+}
 
+export interface McpPromptArgument {
+  name: string;
+  description: string;
+  required: boolean;
+}
 
+export interface McpPrompt {
+  name: string;
+  description: string;
+  arguments?: McpPromptArgument[];
+}
