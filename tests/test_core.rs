@@ -22,6 +22,7 @@ fn test_integration_ids_and_actions() {
         parent_action_id: None,
         supersedes: None,
         is_current: true,
+        ..Default::default()
     };
 
     assert_eq!(action.id, action_id);

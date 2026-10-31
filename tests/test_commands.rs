@@ -165,6 +165,7 @@ fn verify_recent_ai_edit_skipped(path: &std::path::Path, db: &KnoxDb) {
         session_id: None,
         parent_action_id: None,
         supersedes: None,
+        ..Default::default()
     };
     knox::storage::nodes::insert_action(db, &ai_action).unwrap();
 

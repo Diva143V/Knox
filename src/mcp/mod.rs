@@ -1,5 +1,6 @@
 //! Model Context Protocol (MCP) server implementation for Knox.
 
+pub mod format;
 pub mod handlers;
 pub mod protocol;
 pub mod server;

@@ -160,6 +160,7 @@ impl ActionGrouper {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         };
 
         self.current_group = Some(CollectedGroup {
@@ -287,6 +288,7 @@ impl ActionGrouper {
             parent_action_id: plan_id.clone(),
             supersedes: None,
             is_current: true,
+            ..Default::default()
         }
     }
 
@@ -309,6 +311,7 @@ impl ActionGrouper {
             parent_action_id: plan_id.clone(),
             supersedes: None,
             is_current: true,
+            ..Default::default()
         }
     }
 
@@ -338,6 +341,7 @@ impl ActionGrouper {
             parent_action_id: plan_id.clone(),
             supersedes: None,
             is_current: true,
+            ..Default::default()
         })
     }
 }

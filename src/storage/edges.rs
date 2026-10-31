@@ -80,6 +80,7 @@ mod tests {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         };
         let child = KnoxAction {
             id: ActionId::new(),
@@ -94,6 +95,7 @@ mod tests {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         };
 
         insert_action(&db, &parent).unwrap();

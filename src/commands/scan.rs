@@ -51,6 +51,11 @@ pub fn cmd_scan(project_path: &Path, db: &KnoxDb) -> KnoxResult<ScanReport> {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            relations: Vec::new(),
+            symbols: Vec::new(),
+            rationale: diff_stat.clone(),
+            rejected_alternatives: Vec::new(),
+            context_summary: Some("Human git staged edits detected".to_string()),
         };
 
         insert_action(db, &action)?;

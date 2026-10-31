@@ -36,6 +36,11 @@ fn build_subgraph_cte_sql(anchor_count: usize) -> String {
                 OR a.id = (SELECT parent_action_id FROM actions WHERE id = c.action_id)
                 OR a.superseded_by = c.action_id
                 OR a.id = (SELECT superseded_by FROM actions WHERE id = c.action_id)
+                OR EXISTS (
+                    SELECT 1 FROM action_relations ar
+                    WHERE (ar.from_action_id = c.action_id AND ar.to_action_id = a.id)
+                       OR (ar.from_action_id = a.id AND ar.to_action_id = c.action_id)
+                )
             )
             WHERE c.depth < CAST(? AS INTEGER)
               AND instr(c.path, ',' || a.id || ',') = 0
@@ -101,13 +106,14 @@ fn build_graph_from_actions(actions: Vec<KnoxAction>) -> KnoxResult<KnoxGraph> {
         node_map.insert(id, idx);
     }
 
-    // 2. Add edges for parent links and superseded_by links
+    // 2. Add edges for parent links, semantic relations, and superseded links
     for node_idx in graph.node_indices() {
-        let (action_id, parent_opt, timestamp, session_id, actor) = {
+        let (action_id, parent_opt, relations, timestamp, session_id, actor) = {
             let act = &graph[node_idx];
             (
                 act.id.clone(),
                 act.parent_action_id.clone(),
+                act.relations.clone(),
                 act.timestamp,
                 act.session_id.clone(),
                 act.actor.clone(),
@@ -127,8 +133,19 @@ fn build_graph_from_actions(actions: Vec<KnoxAction>) -> KnoxResult<KnoxGraph> {
             }
         }
 
-        // Check if this action superseded another or was superseded
-        // Note: supersedes is an input intent; edges represent causal links
+        // If semantic relations target nodes in the subgraph, add directed edges
+        for rel in relations {
+            if let Some(&target_idx) = node_map.get(&rel.target_id) {
+                let edge = KnoxEdge {
+                    edge_type: rel.relation_type.to_string(),
+                    timestamp,
+                    session_id: session_id.clone(),
+                    tool_source: Some(actor.clone()),
+                };
+                graph.add_edge(target_idx, node_idx, edge);
+            }
+        }
+
         let _ = action_id;
     }
 
@@ -160,6 +177,7 @@ mod tests {
             parent_action_id: parent,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         }
     }
 

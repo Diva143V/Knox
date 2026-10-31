@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use super::db::KnoxDb;
 use crate::core::error::KnoxResult;
 use crate::core::ids::{ActionId, SessionId};
-use crate::core::types::{KnoxAction, QueryFilter, QueryResult, StatusReport};
+use crate::core::types::{
+    ActionRelation, KnoxAction, QueryFilter, QueryResult, RelationType, StatusReport,
+};
 
 /// Executes a flexible filtered query against the actions stored in Knox.
 pub fn query_actions(db: &KnoxDb, filter: &QueryFilter) -> KnoxResult<QueryResult> {
@@ -57,9 +59,12 @@ type ActionDbRow = (
     Option<String>,
     Option<String>,
     i32,
+    Option<String>,
+    Option<String>,
+    Option<String>,
 );
 
-/// Fetches and populates actions along with their associated files and tags.
+/// Fetches and populates actions along with their associated files, tags, relations, and symbols.
 fn fetch_query_actions(
     conn: &rusqlite::Connection,
     where_clause: &str,
@@ -68,7 +73,8 @@ fn fetch_query_actions(
 ) -> KnoxResult<Vec<KnoxAction>> {
     let select_sql = format!(
         "SELECT a.id, a.actor, a.action_type, a.summary, a.confidence,
-                a.timestamp, a.session_id, a.parent_action_id, a.superseded_by, a.is_current
+                a.timestamp, a.session_id, a.parent_action_id, a.superseded_by, a.is_current,
+                a.rationale, a.context_summary, a.rejected_alternatives
          FROM actions a WHERE {where_clause} ORDER BY a.timestamp DESC LIMIT {limit}"
     );
 
@@ -86,6 +92,9 @@ fn fetch_query_actions(
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, i32>(9)?,
+                row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<String>>(12)?,
             ))
         })?
         .collect::<Result<Vec<ActionDbRow>, _>>()?;
@@ -95,8 +104,20 @@ fn fetch_query_actions(
     )?;
     let mut tag_stmt =
         conn.prepare_cached("SELECT tag FROM action_tags WHERE action_id = ?1 ORDER BY tag")?;
+    let mut rel_stmt = conn.prepare_cached(
+        "SELECT to_action_id, relation_type FROM action_relations WHERE from_action_id = ?1 ORDER BY to_action_id",
+    )?;
+    let mut sym_stmt = conn.prepare_cached(
+        "SELECT symbol FROM action_symbols WHERE action_id = ?1 ORDER BY symbol",
+    )?;
 
-    map_action_rows(action_rows, &mut file_stmt, &mut tag_stmt)
+    map_action_rows(
+        action_rows,
+        &mut file_stmt,
+        &mut tag_stmt,
+        &mut rel_stmt,
+        &mut sym_stmt,
+    )
 }
 
 /// Maps raw database rows into complete KnoxAction structures.
@@ -104,9 +125,26 @@ fn map_action_rows(
     rows: Vec<ActionDbRow>,
     file_stmt: &mut rusqlite::CachedStatement,
     tag_stmt: &mut rusqlite::CachedStatement,
+    rel_stmt: &mut rusqlite::CachedStatement,
+    sym_stmt: &mut rusqlite::CachedStatement,
 ) -> KnoxResult<Vec<KnoxAction>> {
     let mut results = Vec::with_capacity(rows.len());
-    for (id, actor, action_type, summary, confidence, ts_str, s_id, p_id, sup_by, is_curr) in rows {
+    for (
+        id,
+        actor,
+        action_type,
+        summary,
+        confidence,
+        ts_str,
+        s_id,
+        p_id,
+        sup_by,
+        is_curr,
+        rationale,
+        context_summary,
+        rejected_str,
+    ) in rows
+    {
         let timestamp = DateTime::parse_from_rfc3339(&ts_str)
             .map(|dt| dt.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now());
@@ -118,6 +156,28 @@ fn map_action_rows(
         let tags = tag_stmt
             .query_map(params_from_iter([&id]), |r| r.get::<_, String>(0))?
             .collect::<Result<Vec<String>, _>>()?;
+
+        let relations = rel_stmt
+            .query_map(params_from_iter([&id]), |r| {
+                let target_str: String = r.get(0)?;
+                let rel_type_str: String = r.get(1)?;
+                let rel_type = rel_type_str
+                    .parse::<RelationType>()
+                    .unwrap_or(RelationType::RelatesTo);
+                Ok(ActionRelation {
+                    target_id: ActionId::from(target_str),
+                    relation_type: rel_type,
+                })
+            })?
+            .collect::<Result<Vec<ActionRelation>, _>>()?;
+
+        let symbols = sym_stmt
+            .query_map(params_from_iter([&id]), |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+
+        let rejected_alternatives = rejected_str
+            .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+            .unwrap_or_default();
 
         results.push(KnoxAction {
             id: ActionId::from(id),
@@ -132,6 +192,11 @@ fn map_action_rows(
             parent_action_id: p_id.map(ActionId::from),
             supersedes: None,
             is_current: is_curr == 1 && sup_by.is_none(),
+            relations,
+            symbols,
+            rationale,
+            rejected_alternatives,
+            context_summary,
         });
     }
     Ok(results)
@@ -288,6 +353,28 @@ fn build_where_clause(filter: &QueryFilter) -> (String, Vec<SqlParam>) {
         );
         params.push(SqlParam::Text(tag.clone()));
     }
+    if let Some(ref at) = filter.action_type {
+        if at == "decide" || at == "decision" {
+            clauses.push("(a.action_type = 'decide' OR a.action_type = 'decision')".to_string());
+        } else {
+            clauses.push("a.action_type = ?".to_string());
+            params.push(SqlParam::Text(at.clone()));
+        }
+    }
+    for sym in &filter.symbols {
+        clauses.push(
+            "EXISTS (SELECT 1 FROM action_symbols asy WHERE asy.action_id = a.id AND asy.symbol = ?)"
+                .to_string(),
+        );
+        params.push(SqlParam::Text(sym.clone()));
+    }
+    if let Some(ref q) = filter.query {
+        clauses.push(
+            "a.rowid IN (SELECT fts.rowid FROM actions_fts fts WHERE actions_fts MATCH ?)"
+                .to_string(),
+        );
+        params.push(SqlParam::Text(sanitize_fts_query(q)));
+    }
 
     let where_clause = if clauses.is_empty() {
         "1=1".to_string()
@@ -343,6 +430,7 @@ mod tests {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         }
     }
 
@@ -389,6 +477,7 @@ mod tests {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         };
         insert_action(&db, &action).unwrap();
 

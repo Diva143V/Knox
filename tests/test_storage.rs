@@ -27,6 +27,7 @@ fn test_storage_insert_action_and_get_by_id() {
         parent_action_id: None,
         supersedes: None,
         is_current: true,
+        ..Default::default()
     };
 
     let inserted_id = insert_action(&db, &action).unwrap();
@@ -73,6 +74,7 @@ fn create_test_action(
         parent_action_id: None,
         supersedes,
         is_current: true,
+        ..Default::default()
     }
 }
 
@@ -208,6 +210,7 @@ fn test_storage_fts_search() {
         parent_action_id: None,
         supersedes: None,
         is_current: true,
+        ..Default::default()
     };
     let action2 = KnoxAction {
         id: ActionId::new(),
@@ -222,6 +225,7 @@ fn test_storage_fts_search() {
         parent_action_id: None,
         supersedes: None,
         is_current: true,
+        ..Default::default()
     };
 
     insert_action(&db, &action1).unwrap();
@@ -255,6 +259,7 @@ fn test_storage_status_report() {
         parent_action_id: None,
         supersedes: None,
         is_current: true,
+        ..Default::default()
     };
     insert_action(&db, &action).unwrap();
 

@@ -151,6 +151,7 @@ mod tests {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         };
         let action2 = KnoxAction {
             id: ActionId::new(),
@@ -165,6 +166,7 @@ mod tests {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         };
 
         let mut qr = QueryResult {

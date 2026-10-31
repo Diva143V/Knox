@@ -6,20 +6,27 @@ use rusqlite::params;
 use super::db::KnoxDb;
 use crate::core::error::KnoxResult;
 use crate::core::ids::{ActionId, ProjectId, SessionId};
-use crate::core::types::{KnoxAction, Project};
+use crate::core::types::{ActionRelation, KnoxAction, Project, RelationType};
 
 pub use super::queries::query_actions;
 
 /// Inserts a new `KnoxAction` into the database, populating files, tags,
-/// and handling supersede relationships.
+/// relations, symbols, and handling supersede relationships.
 pub fn insert_action(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<ActionId> {
     let conn = db.conn();
+
+    let rejected_alt_json = if action.rejected_alternatives.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(&action.rejected_alternatives).unwrap_or_default())
+    };
 
     conn.execute(
         "INSERT INTO actions (
             id, actor, action_type, summary, confidence, timestamp,
-            session_id, parent_action_id, superseded_by, is_current
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            session_id, parent_action_id, superseded_by, is_current,
+            rationale, context_summary, rejected_alternatives
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             action.id.as_str(),
             action.actor.as_str(),
@@ -31,6 +38,9 @@ pub fn insert_action(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<ActionId> {
             action.parent_action_id.as_ref().map(|p| p.as_str()),
             None::<&str>,
             if action.is_current { 1 } else { 0 },
+            action.rationale.as_deref(),
+            action.context_summary.as_deref(),
+            rejected_alt_json.as_deref(),
         ],
     )?;
 
@@ -39,6 +49,7 @@ pub fn insert_action(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<ActionId> {
     }
 
     insert_action_files_and_tags(conn, &action.id, &action.files, &action.tags)?;
+    insert_action_relations_and_symbols(conn, &action.id, &action.relations, &action.symbols)?;
 
     tracing::debug!(
         id = %action.id,
@@ -72,6 +83,34 @@ fn insert_action_files_and_tags(
     Ok(())
 }
 
+/// Inserts associated semantic relations and code symbols for an action.
+fn insert_action_relations_and_symbols(
+    conn: &rusqlite::Connection,
+    id: &ActionId,
+    relations: &[ActionRelation],
+    symbols: &[String],
+) -> KnoxResult<()> {
+    let mut stmt_rel = conn.prepare_cached(
+        "INSERT OR IGNORE INTO action_relations (from_action_id, to_action_id, relation_type) VALUES (?1, ?2, ?3)",
+    )?;
+    for rel in relations {
+        stmt_rel.execute(params![
+            id.as_str(),
+            rel.target_id.as_str(),
+            rel.relation_type.to_string(),
+        ])?;
+    }
+
+    let mut stmt_sym = conn.prepare_cached(
+        "INSERT OR IGNORE INTO action_symbols (action_id, symbol) VALUES (?1, ?2)",
+    )?;
+    for sym in symbols {
+        stmt_sym.execute(params![id.as_str(), sym.as_str()])?;
+    }
+
+    Ok(())
+}
+
 /// Fetches associated files and tags for an action ID.
 fn fetch_action_files_and_tags(
     conn: &rusqlite::Connection,
@@ -93,13 +132,46 @@ fn fetch_action_files_and_tags(
     Ok((files, tags))
 }
 
-/// Retrieves an action by its unique identifier, including associated files and tags.
+/// Fetches associated relations and symbols for an action ID.
+fn fetch_action_relations_and_symbols(
+    conn: &rusqlite::Connection,
+    id: &ActionId,
+) -> KnoxResult<(Vec<ActionRelation>, Vec<String>)> {
+    let mut rel_stmt = conn.prepare_cached(
+        "SELECT to_action_id, relation_type FROM action_relations WHERE from_action_id = ?1 ORDER BY to_action_id",
+    )?;
+    let relations = rel_stmt
+        .query_map(params![id.as_str()], |r| {
+            let target_str: String = r.get(0)?;
+            let rel_type_str: String = r.get(1)?;
+            let rel_type = rel_type_str
+                .parse::<RelationType>()
+                .unwrap_or(RelationType::RelatesTo);
+            Ok(ActionRelation {
+                target_id: ActionId::from(target_str),
+                relation_type: rel_type,
+            })
+        })?
+        .collect::<Result<Vec<ActionRelation>, _>>()?;
+
+    let mut sym_stmt = conn.prepare_cached(
+        "SELECT symbol FROM action_symbols WHERE action_id = ?1 ORDER BY symbol",
+    )?;
+    let symbols = sym_stmt
+        .query_map(params![id.as_str()], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<String>, _>>()?;
+
+    Ok((relations, symbols))
+}
+
+/// Retrieves an action by its unique identifier, including associated files, tags, relations, and symbols.
 pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> {
     let conn = db.conn();
 
     let mut stmt = conn.prepare(
         "SELECT id, actor, action_type, summary, confidence, timestamp,
-                session_id, parent_action_id, superseded_by, is_current
+                session_id, parent_action_id, superseded_by, is_current,
+                rationale, context_summary, rejected_alternatives
          FROM actions WHERE id = ?1",
     )?;
 
@@ -115,12 +187,20 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
         let parent_action_id: Option<String> = row.get(7)?;
         let superseded_by: Option<String> = row.get(8)?;
         let is_current_int: i32 = row.get(9)?;
+        let rationale: Option<String> = row.get(10)?;
+        let context_summary: Option<String> = row.get(11)?;
+        let rejected_str: Option<String> = row.get(12)?;
 
         let timestamp = DateTime::parse_from_rfc3339(&timestamp_str)
             .map(|dt| dt.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now());
 
         let (files, tags) = fetch_action_files_and_tags(conn, id)?;
+        let (relations, symbols) = fetch_action_relations_and_symbols(conn, id)?;
+
+        let rejected_alternatives = rejected_str
+            .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+            .unwrap_or_default();
 
         Ok(Some(KnoxAction {
             id: action_id,
@@ -135,6 +215,11 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
             parent_action_id: parent_action_id.map(ActionId::from),
             supersedes: None,
             is_current: is_current_int == 1 && superseded_by.is_none(),
+            relations,
+            symbols,
+            rationale,
+            rejected_alternatives,
+            context_summary,
         }))
     } else {
         Ok(None)
@@ -285,6 +370,7 @@ mod tests {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         };
 
         insert_action(&db, &action).unwrap();
@@ -317,6 +403,7 @@ mod tests {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         };
         insert_action(&db, &action1).unwrap();
 
@@ -333,6 +420,7 @@ mod tests {
             parent_action_id: None,
             supersedes: Some(action1.id.clone()),
             is_current: true,
+            ..Default::default()
         };
         insert_action(&db, &action2).unwrap();
 

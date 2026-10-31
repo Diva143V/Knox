@@ -125,6 +125,7 @@ mod tests {
             session_id: Some(session.id.clone()),
             parent_action_id: None,
             supersedes: None,
+            ..Default::default()
         };
         crate::storage::nodes::insert_action(&db, &action).unwrap();
 

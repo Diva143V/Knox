@@ -162,6 +162,7 @@ mod tests {
             parent_action_id: parent,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         }
     }
 

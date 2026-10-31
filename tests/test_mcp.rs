@@ -164,7 +164,7 @@ fn test_mcp_search_and_tools_call_standard() {
     let list_res = dispatch("tools/list", json!({}), &db);
     assert_eq!(
         list_res.result.unwrap()["tools"].as_array().unwrap().len(),
-        9
+        14
     );
 
     let session_id = mcp_start(&db, "gemini");
@@ -261,4 +261,270 @@ async fn test_mcp_server_loop_full_session_flow() {
 
     drop(client_write);
     assert!(server_task.await.unwrap().is_ok());
+}
+
+#[test]
+fn test_mcp_implicit_session_and_v2_fields() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    // 1. Record without session_id (implicit auto-spawn)
+    let res = dispatch(
+        "knox_record_action",
+        json!({
+            "actor": "claude-code",
+            "action_type": "decision",
+            "summary": "Adopted SQLite WAL mode for concurrency",
+            "files": ["src/storage/db.rs"],
+            "symbols": ["KnoxDb::open", "Config::wal_mode"],
+            "rationale": "High-throughput concurrent read-heavy workload",
+            "rejected_alternatives": ["RocksDB", "DuckDB"],
+            "context_summary": "SQLite configured with WAL mode and synchronous=NORMAL"
+        }),
+        &db,
+    );
+
+    assert!(res.error.is_none(), "record error: {:?}", res.error);
+    let val = res.result.unwrap();
+    assert_eq!(val["status"], "recorded");
+    let action_id = val["action_id"].as_str().unwrap().to_string();
+    let session_id = val["session_id"].as_str().unwrap().to_string();
+    assert!(!action_id.is_empty());
+    assert!(!session_id.is_empty());
+
+    // 2. Second action should reuse the open session
+    let res2 = dispatch(
+        "knox_record_action",
+        json!({
+            "actor": "claude-code",
+            "action_type": "write",
+            "summary": "Implemented WAL checkpointing logic",
+            "files": ["src/storage/db.rs"],
+            "symbols": ["KnoxDb::checkpoint"],
+            "link_to_latest": true,
+            "relations": [
+                {
+                    "target_id": action_id,
+                    "relation_type": "implements"
+                }
+            ]
+        }),
+        &db,
+    );
+
+    let val2 = res2.result.unwrap();
+    assert_eq!(val2["session_id"], session_id);
+
+    // 3. knox_get_context with symbol filter and markdown format
+    let ctx_res = dispatch(
+        "knox_get_context",
+        json!({
+            "symbols": ["KnoxDb::checkpoint"],
+            "format": "markdown"
+        }),
+        &db,
+    );
+    let ctx_val = ctx_res.result.unwrap();
+    let text = ctx_val["markdown"].as_str().unwrap();
+    assert!(text.contains("Implemented WAL checkpointing logic"));
+    assert!(text.contains("KnoxDb::checkpoint"));
+}
+
+#[test]
+fn test_mcp_record_batch_and_graph_tools() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    // 1. Record batch with link_to_previous chain
+    let batch_res = dispatch(
+        "knox_record_batch",
+        json!({
+            "actor": "codex",
+            "link_to_previous": true,
+            "actions": [
+                {
+                    "action_type": "decision",
+                    "summary": "Step 1: Protocol design",
+                    "files": ["src/proto.rs"],
+                    "symbols": ["Proto::parse"]
+                },
+                {
+                    "action_type": "write",
+                    "summary": "Step 2: Code generation",
+                    "files": ["src/gen.rs"],
+                    "symbols": ["Generator::run"]
+                },
+                {
+                    "action_type": "verify",
+                    "summary": "Step 3: Protocol unit tests",
+                    "files": ["tests/test_proto.rs"],
+                    "symbols": ["test_wire_roundtrip"]
+                }
+            ]
+        }),
+        &db,
+    );
+
+    assert!(batch_res.error.is_none(), "batch error: {:?}", batch_res.error);
+    let batch_val = batch_res.result.unwrap();
+    assert_eq!(batch_val["recorded_count"], 3);
+    let action_ids = batch_val["action_ids"].as_array().unwrap();
+    assert_eq!(action_ids.len(), 3);
+
+    let id1 = action_ids[0].as_str().unwrap();
+    let _id2 = action_ids[1].as_str().unwrap();
+    let id3 = action_ids[2].as_str().unwrap();
+
+    // 2. Test knox_get_lineage from step 3 (should trace backward to step 2 and step 1)
+    let lineage_res = dispatch(
+        "knox_get_lineage",
+        json!({
+            "action_id": id3,
+            "max_depth": 5,
+            "format": "compact"
+        }),
+        &db,
+    );
+    assert!(lineage_res.error.is_none(), "lineage error: {:?}", lineage_res.error);
+    let lineage_val = lineage_res.result.unwrap();
+    let chain = lineage_val["lineage"].as_array().unwrap();
+    assert!(chain.len() >= 2, "chain should contain ancestors, got: {chain:?}");
+
+    // 3. Test knox_get_impact from step 1 (should find descendants step 2 and 3)
+    let impact_res = dispatch(
+        "knox_get_impact",
+        json!({
+            "action_id": id1,
+            "max_depth": 5
+        }),
+        &db,
+    );
+    assert!(impact_res.error.is_none(), "impact error: {:?}", impact_res.error);
+    let impact_val = impact_res.result.unwrap();
+    let impacted = impact_val["impacted"].as_array().unwrap();
+    assert!(!impacted.is_empty(), "impact should not be empty");
+
+    // 4. Test knox_get_path between step 1 and step 3
+    let path_res = dispatch(
+        "knox_get_path",
+        json!({
+            "from_id": id1,
+            "to_id": id3
+        }),
+        &db,
+    );
+    assert!(path_res.error.is_none(), "path error: {:?}", path_res.error);
+    let path_val = path_res.result.unwrap();
+    assert_eq!(path_val["connected"], true);
+    assert_eq!(path_val["length"], 3);
+
+    // 5. Test knox_get_impact by file_path
+    let file_impact = dispatch(
+        "knox_get_impact",
+        json!({
+            "file_path": "src/proto.rs"
+        }),
+        &db,
+    );
+    assert!(file_impact.error.is_none(), "file_impact error: {:?}", file_impact.error);
+    assert_eq!(file_impact.result.unwrap()["impacted_actions_count"], 2);
+
+    // 6. Test knox_get_path by from_file and to_file
+    let file_path_res = dispatch(
+        "knox_get_path",
+        json!({
+            "from_file": "src/proto.rs",
+            "to_file": "tests/test_proto.rs"
+        }),
+        &db,
+    );
+    assert!(file_path_res.error.is_none(), "file_path_res error: {:?}", file_path_res.error);
+    assert_eq!(file_path_res.result.unwrap()["connected"], true);
+}
+
+#[test]
+fn test_mcp_check_guardrails() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    // Record an active architectural decision for src/crypto.rs
+    dispatch(
+        "knox_record_action",
+        json!({
+            "actor": "security-bot",
+            "action_type": "decision",
+            "summary": "Mandate AES-256-GCM for all payloads",
+            "files": ["src/crypto.rs"],
+            "rationale": "Compliance with NIST SP 800-38D",
+            "rejected_alternatives": ["ChaCha20-Poly1305 without hardware acceleration", "RC4"]
+        }),
+        &db,
+    );
+
+    // Call knox_check_guardrails - clean check
+    let guard_res = dispatch(
+        "knox_check_guardrails",
+        json!({
+            "files": ["src/crypto.rs"]
+        }),
+        &db,
+    );
+    assert!(guard_res.error.is_none(), "guardrails error: {:?}", guard_res.error);
+    let guard_val = guard_res.result.unwrap();
+    assert_eq!(guard_val["pass"], true);
+    assert_eq!(guard_val["decision_count"], 1);
+    let md = guard_val["markdown"].as_str().unwrap();
+    assert!(md.contains("Mandate AES-256-GCM"));
+
+    // Call knox_check_guardrails with proposed action matching rejected alternative
+    let viol_res = dispatch(
+        "knox_check_guardrails",
+        json!({
+            "files": ["src/crypto.rs"],
+            "proposed_action": "Use ChaCha20-Poly1305 without hardware acceleration for quick encryption"
+        }),
+        &db,
+    );
+    assert!(viol_res.error.is_none());
+    let viol_val = viol_res.result.unwrap();
+    assert_eq!(viol_val["pass"], false);
+    assert_eq!(viol_val["violations_count"], 1);
+    assert!(viol_val["markdown"].as_str().unwrap().contains("Architectural Violations Detected"));
+}
+
+#[test]
+fn test_mcp_resources_and_prompts() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    // 1. Resources list
+    let res_list = dispatch("resources/list", json!({}), &db);
+    assert!(res_list.error.is_none());
+    let resources = res_list.result.unwrap()["resources"].as_array().unwrap().clone();
+    assert!(resources.iter().any(|r| r["uri"] == "knox://project/overview"));
+    assert!(resources.iter().any(|r| r["uri"] == "knox://decisions/active"));
+
+    // 2. Resources read
+    let res_read = dispatch(
+        "resources/read",
+        json!({"uri": "knox://project/overview"}),
+        &db,
+    );
+    assert!(res_read.error.is_none());
+    let contents = res_read.result.unwrap()["contents"].as_array().unwrap().clone();
+    assert_eq!(contents.len(), 1);
+    assert!(contents[0]["text"].as_str().unwrap().contains("Knox Knowledge Graph Overview"));
+
+    // 3. Prompts list
+    let prompt_list = dispatch("prompts/list", json!({}), &db);
+    assert!(prompt_list.error.is_none());
+    let prompts = prompt_list.result.unwrap()["prompts"].as_array().unwrap().clone();
+    assert!(prompts.iter().any(|p| p["name"] == "architectural-audit"));
+    assert!(prompts.iter().any(|p| p["name"] == "session-handover"));
+
+    // 4. Prompts get
+    let prompt_get = dispatch(
+        "prompts/get",
+        json!({"name": "architectural-audit"}),
+        &db,
+    );
+    assert!(prompt_get.error.is_none());
+    let messages = prompt_get.result.unwrap()["messages"].as_array().unwrap().clone();
+    assert!(!messages.is_empty());
 }

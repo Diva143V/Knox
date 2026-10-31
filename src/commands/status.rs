@@ -81,6 +81,7 @@ mod tests {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         };
         insert_action(&db, &action).unwrap();
 

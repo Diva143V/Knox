@@ -125,6 +125,7 @@ fn test_ingest_actions_persist_to_storage() {
         current_only: true,
         tags: vec![],
         limit: 10,
+        ..Default::default()
     };
 
     let result = query_actions(&db, &filter).expect("query actions");
@@ -142,6 +143,7 @@ fn test_ingest_actions_persist_to_storage() {
         current_only: true,
         tags: vec![],
         limit: 10,
+        ..Default::default()
     };
     let all = query_actions(&db, &search_filter).expect("query all");
     assert_eq!(all.total_count, 6);

@@ -4,28 +4,38 @@ use serde_json::json;
 
 use super::protocol::ToolDescription;
 
-/// All supported Knox MCP tool names.
-pub const TOOL_NAMES: [&str; 9] = [
+/// All supported Knox MCP tool names (14 tools).
+pub const TOOL_NAMES: [&str; 14] = [
     "knox_start_session",
     "knox_end_session",
     "knox_record_action",
     "knox_record_decision",
+    "knox_record_batch",
     "knox_get_context",
     "knox_get_history",
+    "knox_get_lineage",
+    "knox_get_impact",
+    "knox_get_path",
+    "knox_check_guardrails",
     "knox_search",
     "knox_list_stale",
     "knox_scan_staged",
 ];
 
-/// Returns the complete list of all 9 Knox tool definitions.
+/// Returns the complete list of all 14 Knox tool definitions.
 pub fn all_tools() -> Vec<ToolDescription> {
     vec![
         tool_start_session(),
         tool_end_session(),
         tool_record_action(),
         tool_record_decision(),
+        tool_record_batch(),
         tool_get_context(),
         tool_get_history(),
+        tool_get_lineage(),
+        tool_get_impact(),
+        tool_get_path(),
+        tool_check_guardrails(),
         tool_search(),
         tool_list_stale(),
         tool_scan_staged(),
@@ -83,11 +93,11 @@ fn action_schema_properties(action_type_desc: &str) -> serde_json::Value {
     json!({
         "session_id": {
             "type": "string",
-            "description": "Session ID returned from knox_start_session"
+            "description": "Session ID (optional; auto-attaches to latest active session if omitted)"
         },
         "actor": {
             "type": "string",
-            "description": "Software or agent name"
+            "description": "Software or agent name (e.g. gemini, cursor, claude)"
         },
         "action_type": {
             "type": "string",
@@ -120,6 +130,48 @@ fn action_schema_properties(action_type_desc: &str) -> serde_json::Value {
         "supersedes": {
             "type": "string",
             "description": "ID of a prior decision or action this replaces"
+        },
+        "relations": {
+            "type": "array",
+            "description": "Explicit semantic relationships (target_id + relation_type)",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "target_id": { "type": "string", "description": "Target action ID" },
+                    "relation_type": {
+                        "type": "string",
+                        "enum": ["depends_on", "implements", "verifies", "reverts", "relates_to"],
+                        "description": "Semantic type of the relation"
+                    }
+                },
+                "required": ["target_id"]
+            }
+        },
+        "symbols": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Source code symbols touched (structs, functions, traits, modules)"
+        },
+        "rationale": {
+            "type": "string",
+            "description": "Deep architectural justification or technical reasoning"
+        },
+        "rejected_alternatives": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Alternative approaches considered and why they were rejected"
+        },
+        "context_summary": {
+            "type": "string",
+            "description": "High-level summary of active task and state at execution time"
+        },
+        "link_to_latest": {
+            "type": "boolean",
+            "description": "Convenience helper: automatically link to immediate predecessor in session"
+        },
+        "implements_latest_decision": {
+            "type": "boolean",
+            "description": "Convenience helper: automatically link `implements` to latest decision in session"
         }
     })
 }
@@ -127,11 +179,11 @@ fn action_schema_properties(action_type_desc: &str) -> serde_json::Value {
 fn tool_record_action() -> ToolDescription {
     ToolDescription::new(
         "knox_record_action",
-        "Records an action (write, debug, read, review, plan, change) linked to the current session.",
+        "Records an action (write, debug, read, review, plan, change) linked to the session.",
         json!({
             "type": "object",
             "properties": action_schema_properties("Action type (write, debug, read, review, plan, change)"),
-            "required": ["session_id", "actor", "action_type", "summary"]
+            "required": ["actor", "action_type", "summary"]
         }),
     )
 }
@@ -143,7 +195,54 @@ fn tool_record_decision() -> ToolDescription {
         json!({
             "type": "object",
             "properties": action_schema_properties("Action type (forced to 'decide' if omitted or specified)"),
-            "required": ["session_id", "actor", "summary"]
+            "required": ["actor", "summary"]
+        }),
+    )
+}
+
+fn tool_record_batch() -> ToolDescription {
+    ToolDescription::new(
+        "knox_record_batch",
+        "Atomically records multiple related actions and decisions in a single round trip.",
+        json!({
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "type": "string",
+                    "description": "Software or agent name"
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional session ID"
+                },
+                "project": {
+                    "type": "string",
+                    "description": "Optional project scope identifier"
+                },
+                "actions": {
+                    "type": "array",
+                    "description": "List of actions to record atomically",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action_type": { "type": "string" },
+                            "summary": { "type": "string" },
+                            "files": { "type": "array", "items": { "type": "string" } },
+                            "parent_action_id": { "type": "string" },
+                            "tags": { "type": "array", "items": { "type": "string" } },
+                            "confidence": { "type": "number" },
+                            "supersedes": { "type": "string" },
+                            "symbols": { "type": "array", "items": { "type": "string" } },
+                            "rationale": { "type": "string" },
+                            "rejected_alternatives": { "type": "array", "items": { "type": "string" } },
+                            "context_summary": { "type": "string" },
+                            "link_to_previous": { "type": "boolean", "description": "Link parent_action_id to predecessor in batch" }
+                        },
+                        "required": ["action_type", "summary"]
+                    }
+                }
+            },
+            "required": ["actor", "actions"]
         }),
     )
 }
@@ -151,7 +250,7 @@ fn tool_record_decision() -> ToolDescription {
 fn tool_get_context() -> ToolDescription {
     ToolDescription::new(
         "knox_get_context",
-        "Retrieves current context for a file or project, excluding superseded actions by default.",
+        "Retrieves current context for a file, symbol, or project, excluding superseded actions by default.",
         json!({
             "type": "object",
             "properties": {
@@ -180,10 +279,34 @@ fn tool_get_context() -> ToolDescription {
                     "default": true,
                     "description": "Exclude superseded actions (default true)"
                 },
+                "action_type": {
+                    "type": "string",
+                    "description": "Filter by action type (e.g. decide, write, plan)"
+                },
+                "symbols": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Filter by code symbols touched"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "In-context keyword query across summaries and rationales"
+                },
                 "tags": {
                     "type": "array",
                     "items": { "type": "string" },
                     "description": "Filter by tags"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "json", "compact"],
+                    "default": "markdown",
+                    "description": "Output representation format (default: markdown, saves 70%+ tokens)"
+                },
+                "synthesis": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Group into categorized sections: decisions, symbols, and constraints"
                 },
                 "limit": {
                     "type": "integer",
@@ -227,10 +350,24 @@ fn tool_get_history() -> ToolDescription {
                     "default": false,
                     "description": "Include superseded actions (default false)"
                 },
+                "action_type": {
+                    "type": "string",
+                    "description": "Filter by action type"
+                },
+                "symbols": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Filter by code symbols"
+                },
                 "tags": {
                     "type": "array",
                     "items": { "type": "string" },
                     "description": "Filter by tags"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "json"],
+                    "default": "markdown"
                 },
                 "limit": {
                     "type": "integer",
@@ -242,16 +379,149 @@ fn tool_get_history() -> ToolDescription {
     )
 }
 
+fn tool_get_lineage() -> ToolDescription {
+    ToolDescription::new(
+        "knox_get_lineage",
+        "Traces causal ancestry and parent lineage ('Why was this code or decision made?') back to the root plan.",
+        json!({
+            "type": "object",
+            "properties": {
+                "action_id": {
+                    "type": "string",
+                    "description": "Action ID to trace backwards"
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Target file path to trace the latest action for"
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Maximum hops backwards in the causal DAG"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "json"],
+                    "default": "markdown"
+                }
+            }
+        }),
+    )
+}
+
+fn tool_get_impact() -> ToolDescription {
+    ToolDescription::new(
+        "knox_get_impact",
+        "Traces downstream descendant effects of an action or decision ('What depends on or implements this?').",
+        json!({
+            "type": "object",
+            "properties": {
+                "action_id": {
+                    "type": "string",
+                    "description": "Root action or decision to compute downstream impact for"
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Target file path to compute downstream impact for (resolves to latest action)"
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "Maximum traversal depth forward in the DAG"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "json"],
+                    "default": "markdown"
+                }
+            }
+        }),
+    )
+}
+
+fn tool_get_path() -> ToolDescription {
+    ToolDescription::new(
+        "knox_get_path",
+        "Finds the shortest directed causal path between two actions in the graph ('How did A lead to B?').",
+        json!({
+            "type": "object",
+            "properties": {
+                "from_action_id": {
+                    "type": "string",
+                    "description": "Starting action ID"
+                },
+                "from_file": {
+                    "type": "string",
+                    "description": "Starting file path (resolves to latest action on this file)"
+                },
+                "to_action_id": {
+                    "type": "string",
+                    "description": "Destination action ID"
+                },
+                "to_file": {
+                    "type": "string",
+                    "description": "Destination file path (resolves to latest action on this file)"
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "default": 10
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "json"],
+                    "default": "markdown"
+                }
+            }
+        }),
+    )
+}
+
+fn tool_check_guardrails() -> ToolDescription {
+    ToolDescription::new(
+        "knox_check_guardrails",
+        "Pre-flight safety check before editing files. Retrieves active architectural constraints, tests proposed changes, and flags superseded anti-patterns.",
+        json!({
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "List of files about to be modified"
+                },
+                "proposed_action": {
+                    "type": "string",
+                    "description": "Proposed action or change description to check against architectural constraints and rejected alternatives"
+                },
+                "strict": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enforce strict checking; fails if any superseded anti-patterns or constraint conflicts are present"
+                },
+                "project": {
+                    "type": "string",
+                    "description": "Optional project scope identifier"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "json"],
+                    "default": "markdown"
+                }
+            },
+            "required": ["files"]
+        }),
+    )
+}
+
 fn tool_search() -> ToolDescription {
     ToolDescription::new(
         "knox_search",
-        "Full-text keyword and tag search across the entire Knox knowledge graph.",
+        "Full-text keyword and tag search across action summaries and rationales.",
         json!({
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Keyword search across action summaries"
+                    "description": "Keyword search across action summaries and rationales"
                 },
                 "project": {
                     "type": "string",
@@ -284,7 +554,7 @@ fn tool_search() -> ToolDescription {
 fn tool_list_stale() -> ToolDescription {
     ToolDescription::new(
         "knox_list_stale",
-        "Lists superseded (stale) entries for cleanup and review.",
+        "Lists superseded (stale) entries for cleanup and architectural review.",
         json!({
             "type": "object",
             "properties": {
@@ -329,7 +599,7 @@ mod tests {
     #[test]
     fn test_all_tools_count_and_names() {
         let tools = all_tools();
-        assert_eq!(tools.len(), 9);
+        assert_eq!(tools.len(), 14);
         for expected_name in TOOL_NAMES {
             assert!(
                 tools.iter().any(|t| t.name == expected_name),
@@ -342,7 +612,8 @@ mod tests {
     #[test]
     fn test_find_tool_existing_and_missing() {
         assert!(find_tool("knox_start_session").is_some());
-        assert!(find_tool("knox_search").is_some());
+        assert!(find_tool("knox_get_lineage").is_some());
+        assert!(find_tool("knox_check_guardrails").is_some());
         assert!(find_tool("knox_unknown_tool").is_none());
     }
 
@@ -373,6 +644,32 @@ mod tests {
             .unwrap()
             .as_array()
             .unwrap();
-        assert_eq!(record_req.len(), 4);
+        // session_id is now optional for zero-friction auto-sessions
+        assert_eq!(record_req.len(), 3);
+    }
+
+    #[test]
+    fn test_export_antigravity_schemas() {
+        let dest = std::path::Path::new("C:/Users/Diwa/.gemini/antigravity/mcp/knox");
+        if dest.exists() {
+            for tool in all_tools() {
+                let schema_obj = json!({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.input_schema,
+                });
+                let file_path = dest.join(format!("{}.json", tool.name));
+                let _ = std::fs::write(file_path, serde_json::to_string_pretty(&schema_obj).unwrap());
+            }
+            let instructions = r#"# Knox MCP Best Practices for AI Agents
+
+1. **Smart Auto-Sessions**: You do NOT need to call `knox_start_session` before logging actions. Knox will automatically reuse your active session or spawn one transparently.
+2. **Pre-flight Guardrail Check**: Before modifying critical files or architecture, call `knox_check_guardrails` with `files: ["path/to/file"]` to inspect active architectural decisions and avoid repeating superseded patterns.
+3. **Graph Lineage & Impact**: Use `knox_get_lineage` to trace the causal chain of decisions and code modifications, and `knox_get_impact` to assess downstream implications of changing a file or decision.
+4. **Batch Operations**: When performing multiple atomic steps, use `knox_record_batch` with `link_to_previous: true` to record an interconnected causal chain in a single turn.
+5. **Rich Relations & Symbols**: When recording actions, specify `symbols: ["fn_name", "StructName"]` and `relations: [{"target_id": "...", "relation_type": "implements"}]` to enrich Knox's petgraph knowledge graph.
+"#;
+            let _ = std::fs::write(dest.join("instructions.md"), instructions);
+        }
     }
 }

@@ -12,10 +12,15 @@ pub fn run_migrations(conn: &Connection) -> KnoxResult<()> {
         );",
     )?;
 
-    let current_version = get_schema_version(conn)?;
+    let mut current_version = get_schema_version(conn)?;
 
     if current_version < 1 {
         apply_v1(conn)?;
+        current_version = 1;
+    }
+
+    if current_version < 2 {
+        apply_v2(conn)?;
     }
 
     Ok(())
@@ -119,6 +124,81 @@ fn apply_v1(conn: &Connection) -> KnoxResult<()> {
     Ok(())
 }
 
+const V2_SCHEMA_SQL: &str = "BEGIN TRANSACTION;
+
+-- Extended columns on actions
+ALTER TABLE actions ADD COLUMN rationale TEXT;
+ALTER TABLE actions ADD COLUMN context_summary TEXT;
+ALTER TABLE actions ADD COLUMN rejected_alternatives TEXT;
+
+-- Normalized action_relations table
+CREATE TABLE IF NOT EXISTS action_relations (
+    from_action_id TEXT NOT NULL,
+    to_action_id   TEXT NOT NULL,
+    relation_type  TEXT NOT NULL,
+    PRIMARY KEY (from_action_id, to_action_id, relation_type),
+    FOREIGN KEY (from_action_id) REFERENCES actions(id) ON DELETE CASCADE,
+    FOREIGN KEY (to_action_id)   REFERENCES actions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_action_relations_from ON action_relations(from_action_id);
+CREATE INDEX IF NOT EXISTS idx_action_relations_to   ON action_relations(to_action_id);
+CREATE INDEX IF NOT EXISTS idx_action_relations_type ON action_relations(relation_type);
+
+-- Normalized action_symbols table
+CREATE TABLE IF NOT EXISTS action_symbols (
+    action_id TEXT NOT NULL,
+    symbol    TEXT NOT NULL,
+    PRIMARY KEY (action_id, symbol),
+    FOREIGN KEY (action_id) REFERENCES actions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_action_symbols_action ON action_symbols(action_id);
+CREATE INDEX IF NOT EXISTS idx_action_symbols_symbol ON action_symbols(symbol);
+
+-- Rebuild FTS5 virtual table indexing summary, rationale, and context_summary
+DROP TRIGGER IF EXISTS actions_ai;
+DROP TRIGGER IF EXISTS actions_au;
+DROP TABLE IF EXISTS actions_fts;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS actions_fts USING fts5(
+    summary,
+    rationale,
+    context_summary,
+    content='actions',
+    content_rowid='rowid'
+);
+
+INSERT INTO actions_fts(rowid, summary, rationale, context_summary)
+SELECT rowid, summary, coalesce(rationale, ''), coalesce(context_summary, '') FROM actions;
+
+CREATE TRIGGER IF NOT EXISTS actions_ai AFTER INSERT ON actions BEGIN
+    INSERT INTO actions_fts(rowid, summary, rationale, context_summary)
+    VALUES (new.rowid, new.summary, coalesce(new.rationale, ''), coalesce(new.context_summary, ''));
+END;
+
+CREATE TRIGGER IF NOT EXISTS actions_au AFTER UPDATE ON actions BEGIN
+    INSERT INTO actions_fts(actions_fts, rowid, summary, rationale, context_summary)
+    VALUES ('delete', old.rowid, old.summary, coalesce(old.rationale, ''), coalesce(old.context_summary, ''));
+    INSERT INTO actions_fts(rowid, summary, rationale, context_summary)
+    VALUES (new.rowid, new.summary, coalesce(new.rationale, ''), coalesce(new.context_summary, ''));
+END;
+
+CREATE TRIGGER IF NOT EXISTS actions_ad AFTER DELETE ON actions BEGIN
+    INSERT INTO actions_fts(actions_fts, rowid, summary, rationale, context_summary)
+    VALUES ('delete', old.rowid, old.summary, coalesce(old.rationale, ''), coalesce(old.context_summary, ''));
+END;
+
+UPDATE knox_meta SET value = '2' WHERE key = 'schema_version';
+
+COMMIT;";
+
+/// Applies version 2 of the Knox database schema.
+fn apply_v2(conn: &Connection) -> KnoxResult<()> {
+    conn.execute_batch(V2_SCHEMA_SQL)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,11 +208,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         let version = get_schema_version(&conn).unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
 
         // Re-running migrations should be idempotent
         run_migrations(&conn).unwrap();
         let version2 = get_schema_version(&conn).unwrap();
-        assert_eq!(version2, 1);
+        assert_eq!(version2, 2);
     }
 }

@@ -1,21 +1,35 @@
 //! Handlers and dispatcher for Model Context Protocol (MCP) tools in Knox.
 
+pub mod check_guardrails;
 pub mod end_session;
 pub mod get_context;
 pub mod get_history;
+pub mod get_impact;
+pub mod get_lineage;
+pub mod get_path;
 pub mod list_stale;
+pub mod prompts;
 pub mod record_action;
+pub mod record_batch;
 pub mod record_decision;
+pub mod resources;
 pub mod scan_staged;
 pub mod search;
 pub mod start_session;
 
+pub use check_guardrails::handle_check_guardrails;
 pub use end_session::handle_end_session;
 pub use get_context::handle_get_context;
 pub use get_history::handle_get_history;
+pub use get_impact::handle_get_impact;
+pub use get_lineage::handle_get_lineage;
+pub use get_path::handle_get_path;
 pub use list_stale::handle_list_stale;
+pub use prompts::{handle_prompts_get, handle_prompts_list};
 pub use record_action::handle_record_action;
+pub use record_batch::handle_record_batch;
 pub use record_decision::handle_record_decision;
+pub use resources::{handle_resources_list, handle_resources_read};
 pub use scan_staged::handle_scan_staged;
 pub use search::handle_search;
 pub use start_session::handle_start_session;
@@ -54,6 +68,16 @@ pub fn dispatch_with_id(
         "ping" => McpResponse::success(id, json!({})),
         "tools/list" => McpResponse::success(id, json!({ "tools": all_tools() })),
         "tools/call" => handle_tools_call(id, params, db),
+        "resources/list" => McpResponse::success(id, handle_resources_list()),
+        "resources/read" => match handle_resources_read(db, params) {
+            Ok(res) => McpResponse::success(id, res),
+            Err(err) => map_error(id, err),
+        },
+        "prompts/list" => McpResponse::success(id, handle_prompts_list()),
+        "prompts/get" => match handle_prompts_get(db, params) {
+            Ok(res) => McpResponse::success(id, res),
+            Err(err) => map_error(id, err),
+        },
         tool if tool.starts_with("knox_") => match execute_tool(tool, params, db) {
             Ok(res) => McpResponse::success(id, res),
             Err(err) => map_error(id, err),
@@ -72,8 +96,13 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         "knox_end_session" => handle_end_session(db, params),
         "knox_record_action" => handle_record_action(db, params),
         "knox_record_decision" => handle_record_decision(db, params),
+        "knox_record_batch" => handle_record_batch(db, params),
         "knox_get_context" => handle_get_context(db, params),
         "knox_get_history" => handle_get_history(db, params),
+        "knox_get_lineage" => handle_get_lineage(db, params),
+        "knox_get_impact" => handle_get_impact(db, params),
+        "knox_get_path" => handle_get_path(db, params),
+        "knox_check_guardrails" => handle_check_guardrails(db, params),
         "knox_search" => handle_search(db, params),
         "knox_list_stale" => handle_list_stale(db, params),
         "knox_scan_staged" => handle_scan_staged(db, params),
@@ -87,7 +116,9 @@ fn handle_initialize(id: Option<Value>) -> McpResponse {
         json!({
             "protocolVersion": "2024-11-05",
             "capabilities": {
-                "tools": {}
+                "tools": {},
+                "resources": {},
+                "prompts": {}
             },
             "serverInfo": {
                 "name": "knox",
@@ -112,7 +143,11 @@ fn handle_tools_call(id: Option<Value>, params: Value, db: &KnoxDb) -> McpRespon
     let args = call.arguments.unwrap_or(json!({}));
     match execute_tool(&call.name, args, db) {
         Ok(data) => {
-            let text = serde_json::to_string_pretty(&data).unwrap_or_default();
+            let text = if let Some(md) = data.get("markdown").and_then(|v| v.as_str()) {
+                md.to_string()
+            } else {
+                serde_json::to_string_pretty(&data).unwrap_or_default()
+            };
             McpResponse::success(
                 id,
                 json!({
@@ -171,7 +206,25 @@ mod tests {
         assert!(res.error.is_none());
         let result = res.result.unwrap();
         let tools = result.get("tools").unwrap().as_array().unwrap();
-        assert_eq!(tools.len(), 9);
+        assert_eq!(tools.len(), 14);
+    }
+
+    #[test]
+    fn test_dispatch_resources_and_prompts() {
+        let db = KnoxDb::open_memory().unwrap();
+        let res_list = dispatch("resources/list", json!({}), &db);
+        assert!(res_list.error.is_none());
+        let resources = res_list.result.unwrap().get("resources").unwrap().as_array().unwrap().len();
+        assert!(resources >= 2);
+
+        let res_read = dispatch("resources/read", json!({"uri": "knox://project/overview"}), &db);
+        assert!(res_read.error.is_none());
+
+        let p_list = dispatch("prompts/list", json!({}), &db);
+        assert!(p_list.error.is_none());
+
+        let p_get = dispatch("prompts/get", json!({"name": "architectural-audit"}), &db);
+        assert!(p_get.error.is_none());
     }
 
     #[test]

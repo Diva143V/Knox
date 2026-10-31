@@ -30,6 +30,21 @@ pub struct GetContextParams {
     pub tags: Vec<String>,
     /// Optional maximum results to return (defaults to 20).
     pub limit: Option<usize>,
+    /// Optional filter by action type (e.g. "decide", "write").
+    #[serde(default)]
+    pub action_type: Option<String>,
+    /// Optional filter by touched code symbols.
+    #[serde(default)]
+    pub symbols: Vec<String>,
+    /// Optional keyword search query across summaries and rationales.
+    #[serde(default)]
+    pub query: Option<String>,
+    /// Output representation format ("markdown" | "json" | "compact", defaults to "markdown").
+    #[serde(default)]
+    pub format: Option<String>,
+    /// Synthesize context into categorised decisions, symbols, and constraints.
+    #[serde(default)]
+    pub synthesis: Option<bool>,
 }
 
 /// Handles the `knox_get_context` tool invocation.
@@ -50,18 +65,44 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     };
 
     let filter = QueryFilter {
-        file_path: input.file_path.map(|fp| normalize_file_path(&fp)),
-        project: input.project,
+        file_path: input.file_path.as_deref().map(normalize_file_path),
+        project: input.project.clone(),
         session_id: input.session_id.map(SessionId::from),
         actor: input.actor,
         since: since_dt,
         current_only: input.current_only.unwrap_or(true),
         tags: input.tags,
         limit: input.limit.unwrap_or(20),
+        action_type: input.action_type,
+        symbols: input.symbols,
+        query: input.query,
     };
 
     let result = crate::storage::queries::query_actions(db, &filter)?;
-    serde_json::to_value(&result).map_err(KnoxError::Json)
+    let format_mode = input.format.as_deref().unwrap_or("markdown").to_ascii_lowercase();
+
+    if format_mode == "json" {
+        serde_json::to_value(&result).map_err(KnoxError::Json)
+    } else {
+        let title = if let Some(ref fp) = input.file_path {
+            format!("Context for `{fp}`")
+        } else if let Some(ref p) = input.project {
+            format!("Project Context `{p}`")
+        } else {
+            "Active Knox Context".to_string()
+        };
+        let md = crate::mcp::format::format_markdown_digest(
+            &title,
+            &result.results,
+            input.synthesis.unwrap_or(false),
+        );
+        Ok(serde_json::json!({
+            "results": result.results,
+            "total_count": result.total_count,
+            "has_more": result.has_more,
+            "markdown": md
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -89,6 +130,7 @@ mod tests {
             session_id: Some(session.id.clone()),
             parent_action_id: None,
             supersedes: None,
+            ..Default::default()
         };
         crate::storage::nodes::insert_action(&db, &old_act).unwrap();
 
@@ -105,6 +147,7 @@ mod tests {
             session_id: Some(session.id.clone()),
             parent_action_id: None,
             supersedes: None,
+            ..Default::default()
         };
         crate::storage::nodes::insert_action(&db, &new_act).unwrap();
 

@@ -26,6 +26,7 @@ fn make_action(
         parent_action_id: parent,
         supersedes: None,
         is_current: true,
+        ..Default::default()
     }
 }
 
@@ -106,6 +107,7 @@ fn test_graph_cache_hit_miss_and_invalidation() {
         parent_action_id: None,
         supersedes: None,
         is_current: true,
+        ..Default::default()
     };
     insert_action(&db, &action).unwrap();
 

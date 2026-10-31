@@ -36,6 +36,7 @@ pub fn handle_list_stale(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         current_only: false,
         tags: Vec::new(),
         limit: limit.max(100),
+        ..Default::default()
     };
 
     let mut query_res = crate::storage::queries::query_actions(db, &filter)?;
@@ -77,6 +78,7 @@ mod tests {
             session_id: Some(session.id.clone()),
             parent_action_id: None,
             supersedes: None,
+            ..Default::default()
         };
         crate::storage::nodes::insert_action(&db, &old_act).unwrap();
 
@@ -93,6 +95,7 @@ mod tests {
             session_id: Some(session.id.clone()),
             parent_action_id: None,
             supersedes: None,
+            ..Default::default()
         };
         crate::storage::nodes::insert_action(&db, &new_act).unwrap();
 

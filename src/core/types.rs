@@ -6,6 +6,57 @@ use std::collections::HashMap;
 
 use super::ids::{ActionId, ProjectId, SessionId};
 
+/// Semantic nature of a relationship between two actions in the graph.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationType {
+    /// This action depends on the outcome or design of the target.
+    DependsOn,
+    /// This implementation writes code satisfying the target plan or decision.
+    Implements,
+    /// This test, audit, or verification validates the target action.
+    Verifies,
+    /// This action supersedes, undoes, or fixes the target.
+    Reverts,
+    /// General thematic or associative connection.
+    RelatesTo,
+}
+
+impl std::fmt::Display for RelationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DependsOn => write!(f, "depends_on"),
+            Self::Implements => write!(f, "implements"),
+            Self::Verifies => write!(f, "verifies"),
+            Self::Reverts => write!(f, "reverts"),
+            Self::RelatesTo => write!(f, "relates_to"),
+        }
+    }
+}
+
+impl std::str::FromStr for RelationType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "depends_on" | "dependson" | "depends" => Ok(Self::DependsOn),
+            "implements" | "implement" => Ok(Self::Implements),
+            "verifies" | "verify" | "tests" | "test" => Ok(Self::Verifies),
+            "reverts" | "revert" | "fixes" | "fix" => Ok(Self::Reverts),
+            "relates_to" | "relatesto" | "relates" => Ok(Self::RelatesTo),
+            other => Err(format!("Unknown relation type: {other}")),
+        }
+    }
+}
+
+/// A directed semantic relationship linking this action to another action.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActionRelation {
+    /// Target action identifier being referenced.
+    pub target_id: ActionId,
+    /// Semantic type of the relation.
+    pub relation_type: RelationType,
+}
+
 /// A single action recorded in the knowledge graph.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct KnoxAction {
@@ -33,6 +84,45 @@ pub struct KnoxAction {
     pub supersedes: Option<ActionId>,
     /// Indicates whether this action represents current state (false if superseded).
     pub is_current: bool,
+    /// Semantic relations pointing from this action to other actions.
+    #[serde(default)]
+    pub relations: Vec<ActionRelation>,
+    /// Source code symbols touched (structs, functions, traits, modules).
+    #[serde(default)]
+    pub symbols: Vec<String>,
+    /// Detailed architectural rationale or design justification.
+    #[serde(default)]
+    pub rationale: Option<String>,
+    /// Rejected alternatives and reasons why they were discarded.
+    #[serde(default)]
+    pub rejected_alternatives: Vec<String>,
+    /// High-level context summary of the active objective/state.
+    #[serde(default)]
+    pub context_summary: Option<String>,
+}
+
+impl Default for KnoxAction {
+    fn default() -> Self {
+        Self {
+            id: ActionId::new(),
+            actor: String::new(),
+            action_type: String::new(),
+            summary: String::new(),
+            files: Vec::new(),
+            tags: Vec::new(),
+            confidence: None,
+            timestamp: Utc::now(),
+            session_id: None,
+            parent_action_id: None,
+            supersedes: None,
+            is_current: true,
+            relations: Vec::new(),
+            symbols: Vec::new(),
+            rationale: None,
+            rejected_alternatives: Vec::new(),
+            context_summary: None,
+        }
+    }
 }
 
 /// Directed edge connecting nodes in the in-memory graph.
@@ -97,6 +187,15 @@ pub struct QueryFilter {
     pub tags: Vec<String>,
     /// Maximum number of records to return (default: 20).
     pub limit: usize,
+    /// Filter by categorical action type (e.g. "decide", "write", "plan").
+    #[serde(default)]
+    pub action_type: Option<String>,
+    /// Filter by touched code symbols (must contain any of these symbols).
+    #[serde(default)]
+    pub symbols: Vec<String>,
+    /// Optional keyword search query across summaries, rationales, and context.
+    #[serde(default)]
+    pub query: Option<String>,
 }
 
 impl Default for QueryFilter {
@@ -110,6 +209,9 @@ impl Default for QueryFilter {
             current_only: true,
             tags: Vec::new(),
             limit: 20,
+            action_type: None,
+            symbols: Vec::new(),
+            query: None,
         }
     }
 }
@@ -194,6 +296,7 @@ mod tests {
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&action).unwrap();
