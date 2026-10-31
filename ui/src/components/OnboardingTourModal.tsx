@@ -31,6 +31,8 @@ import {
   FileCode,
   Scale,
   Bug,
+  Eye,
+  Maximize2,
 } from "lucide-react";
 import { KnoxLogo } from "@/components/ui/KnoxLogo";
 import { Button } from "@/components/ui/Button";
@@ -44,6 +46,7 @@ import { cn } from "@/lib/cn";
 const TOUR_STEPS: TourStepDef[] = [
   {
     id: "welcome",
+    tabId: "dashboard",
     stepNumber: 1,
     badge: "Architecture Memory",
     badgeVariant: "default",
@@ -336,6 +339,22 @@ export const OnboardingTourModal: React.FC = () => {
   } = useTour(TOUR_STEPS);
 
   const [copiedSnippet, setCopiedSnippet] = useState(false);
+  const [isPeekMode, setIsPeekMode] = useState(false);
+
+  // Toggle peek mode with 'P' key
+  React.useEffect(() => {
+    if (!isTourOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      if (e.key === "p" || e.key === "P") {
+        e.preventDefault();
+        setIsPeekMode((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isTourOpen]);
 
   if (!isTourOpen) return null;
 
@@ -782,14 +801,120 @@ export const OnboardingTourModal: React.FC = () => {
     }
   };
 
+  if (isPeekMode) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="false"
+        aria-label="Welcome and Getting Started Tour (Peek Mode)"
+        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto animate-in slide-in-from-bottom-5 duration-200"
+      >
+        <div className="bg-card/95 border border-primary/40 shadow-2xl rounded-2xl px-5 py-3 flex items-center gap-4 text-foreground ring-1 ring-white/10 backdrop-blur-none">
+          {/* Logo & Step Info */}
+          <div className="flex items-center gap-2.5 pr-3 border-r border-border">
+            <KnoxLogo className="h-5 w-auto" />
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <span className="text-2xs font-mono font-bold text-primary">
+                  Step {currentStepIndex + 1}/{totalSteps}
+                </span>
+                <span className="size-1 rounded-full bg-muted-foreground/40" />
+                <span className="text-2xs font-mono text-muted-foreground uppercase">
+                  #{currentStep.tabId || "dashboard"}
+                </span>
+              </div>
+              <span
+                className="text-xs font-bold text-foreground font-sans truncate max-w-[200px]"
+                title={currentStep.title}
+              >
+                {currentStep.title}
+              </span>
+            </div>
+          </div>
+
+          {/* Jump Dots */}
+          <div className="hidden md:flex items-center gap-1.5">
+            {TOUR_STEPS.map((step, idx) => (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => goToStep(idx)}
+                className={cn(
+                  "size-2 rounded-full transition-all duration-200 cursor-pointer",
+                  idx === currentStepIndex
+                    ? "w-5 bg-primary"
+                    : "bg-muted-foreground/30 hover:bg-muted-foreground/60"
+                )}
+                title={step.title}
+                aria-label={`Jump to step ${idx + 1}`}
+              />
+            ))}
+          </div>
+
+          {/* Prev / Next Controls */}
+          <div className="flex items-center gap-1.5">
+            {!isFirstStep && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={goToPrevStep}
+                className="h-8 text-xs font-medium px-2.5"
+              >
+                <ChevronLeft className="size-3.5 mr-0.5" />
+                <span>Back</span>
+              </Button>
+            )}
+
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={goToNextStep}
+              className="h-8 text-xs font-semibold px-3"
+            >
+              <span>{isLastStep ? "Get Started" : "Next"}</span>
+              <ChevronRight className="size-3.5 ml-0.5" />
+            </Button>
+          </div>
+
+          {/* Restore / Expand Modal */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsPeekMode(false)}
+            className="h-8 text-2xs gap-1.5 px-2.5 border-primary/30 text-primary hover:bg-primary/10"
+            title="Expand full tour view (or press 'P')"
+          >
+            <Maximize2 className="size-3.5" />
+            <span className="hidden sm:inline">Expand Tour</span>
+          </Button>
+
+          {/* Close */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:text-foreground"
+            onClick={skipTour}
+            aria-label="Close tour"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Welcome and Getting Started Tour"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 animate-in fade-in duration-150"
     >
-      <div className="w-full max-w-4xl bg-card/95 border border-primary/30 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-foreground">
+      <div className="w-full max-w-4xl bg-card border border-primary/30 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-foreground">
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between bg-background/50">
           <div className="flex items-center gap-3">
@@ -805,6 +930,25 @@ export const OnboardingTourModal: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Live background window indicator */}
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/25 text-primary text-2xs font-mono font-medium">
+              <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+              <span>Live Window: #{currentStep.tabId || "dashboard"}</span>
+            </div>
+
+            {/* Peek Window Toggle */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsPeekMode(true)}
+              className="h-8 text-2xs gap-1.5 border-border hover:border-primary/40 text-muted-foreground hover:text-foreground"
+              title="Minimize modal into floating bottom bar to view full background window (press 'P')"
+            >
+              <Eye className="size-3.5 text-primary" />
+              <span className="hidden sm:inline">Peek Window</span>
+            </Button>
+
             <Button
               type="button"
               variant="ghost"
