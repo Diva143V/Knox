@@ -6,17 +6,32 @@ import {
   CheckCircle2,
   AlertCircle,
   RotateCcw,
-  Layers,
-  Calendar,
+  X,
 } from "lucide-react";
 import { KnoxAPI } from "@/services/api";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { ActionBadge } from "@/components/ui/ActionBadge";
 import { ActorBadge } from "@/components/ui/ActorBadge";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { FilterBar } from "@/components/ui/FilterBar";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { SkeletonRow } from "@/components/ui/Skeleton";
+import { cn } from "@/lib/cn";
 import type { KnoxAction } from "@/types/knox";
 
+const selectClass =
+  "h-8 bg-background border border-border rounded-md px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring cursor-pointer font-mono";
+
 export const QueryView: React.FC = () => {
-  const { actions, status, selectedAction, setSelectedAction, showToast } = useKnoxStore();
+  const {
+    actions,
+    status,
+    selectedAction,
+    setSelectedAction,
+    setActiveTab,
+    showToast,
+  } = useKnoxStore();
 
   const [searchInput, setSearchInput] = useState("");
   const [filePath, setFilePath] = useState("");
@@ -28,18 +43,20 @@ export const QueryView: React.FC = () => {
   const [results, setResults] = useState<KnoxAction[]>(actions);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [hasQueried, setHasQueried] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Focus search input on view mount
   useEffect(() => {
     searchInputRef.current?.focus();
   }, []);
 
-  // Sync results when global actions change if no custom search is active
   useEffect(() => {
     if (!searchInput && !filePath && !actorFilter && !typeFilter && !sinceFilter) {
       setResults(actions);
+      setHasQueried(false);
+      setSearchError(null);
     }
   }, [actions, searchInput, filePath, actorFilter, typeFilter, sinceFilter]);
 
@@ -47,6 +64,7 @@ export const QueryView: React.FC = () => {
     if (e) e.preventDefault();
     try {
       setIsSearching(true);
+      setSearchError(null);
       const res = await KnoxAPI.queryActions({
         search: searchInput.trim() || undefined,
         filePath: filePath.trim() || undefined,
@@ -58,9 +76,12 @@ export const QueryView: React.FC = () => {
       });
       setResults(res.results);
       setSelectedIndex(-1);
+      setHasQueried(true);
       showToast(`Found ${res.results.length} matched actions.`);
     } catch (err) {
-      showToast(String(err), true);
+      const msg = String(err);
+      setSearchError(msg);
+      showToast(msg, true);
     } finally {
       setIsSearching(false);
     }
@@ -76,10 +97,11 @@ export const QueryView: React.FC = () => {
     setLimit(50);
     setResults(actions);
     setSelectedIndex(-1);
+    setHasQueried(false);
+    setSearchError(null);
     searchInputRef.current?.focus();
   };
 
-  // Keyboard navigation across query results
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -95,12 +117,18 @@ export const QueryView: React.FC = () => {
         if (results[next]) setSelectedAction(results[next]);
         return next;
       });
+    } else if (e.key === "Enter" && selectedIndex >= 0 && results[selectedIndex]) {
+      e.preventDefault();
+      setSelectedAction(results[selectedIndex]);
     } else if (e.key === "Escape") {
+      if (selectedAction) {
+        setSelectedAction(null);
+        return;
+      }
       handleResetFilters();
     }
   };
 
-  // Get dynamic actor and type options
   const knownActors = Array.from(
     new Set([
       "gemini",
@@ -122,259 +150,365 @@ export const QueryView: React.FC = () => {
     ])
   );
 
+  const activeFilterCount = [
+    searchInput,
+    filePath,
+    actorFilter,
+    typeFilter,
+    sinceFilter,
+    !currentOnly ? "all" : "",
+  ].filter(Boolean).length;
+
+  const emptyIsNoData = !hasQueried && actions.length === 0;
+
   return (
     <div
       onKeyDown={handleKeyDown}
-      className="flex h-full w-full overflow-hidden select-none"
+      className="flex h-full w-full overflow-hidden"
+      role="search"
+      aria-label="Knowledge graph search"
     >
-      {/* Left/Main Results Column */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Search & Filter Toolbar */}
-        <form
-          onSubmit={handleSearch}
-          className="p-4 border-b border-border/70 bg-card/60 backdrop-blur space-y-3 shrink-0"
-        >
-          {/* Main Full-Width Search Input */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-2.5" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Search actions, files, decisions (FTS5 full-text index)…"
-                className="w-full bg-background border border-border rounded-lg pl-9 pr-8 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary font-mono transition"
-              />
-              {searchInput && (
-                <button
-                  type="button"
-                  onClick={() => setSearchInput("")}
-                  className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground text-xs"
+        <form onSubmit={handleSearch}>
+          <FilterBar
+            primary={
+              <>
+                <div className="relative flex-1 min-w-[12rem]">
+                  <Search
+                    className="size-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    aria-hidden
+                  />
+                  <Input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    placeholder="Search actions, files, decisions (FTS5)…"
+                    aria-label="Full-text search"
+                    className="pl-9 pr-8 h-9"
+                  />
+                  {searchInput && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchInput("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground rounded-sm cursor-pointer"
+                      aria-label="Clear search text"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="md"
+                  disabled={isSearching}
+                  loading={isSearching}
                 >
-                  ✕
-                </button>
-              )}
-            </div>
+                  {!isSearching && <Filter className="size-3.5" />}
+                  {isSearching ? "Searching…" : "Search"}
+                </Button>
 
-            <button
-              type="submit"
-              disabled={isSearching}
-              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-xs hover:bg-primary/90 transition flex items-center gap-1.5 cursor-pointer shadow-sm shadow-primary/25 disabled:opacity-50 shrink-0"
-            >
-              <Filter className="w-3.5 h-3.5" />
-              <span>{isSearching ? "Searching…" : "Filter"}</span>
-            </button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={handleResetFilters}
+                  title="Reset all filters"
+                  aria-label="Reset all filters"
+                >
+                  <RotateCcw className="size-3.5" />
+                </Button>
+              </>
+            }
+            secondary={
+              <>
+                <div className="relative flex-1 sm:flex-initial">
+                  <FileText
+                    className="size-3 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                    aria-hidden
+                  />
+                  <Input
+                    type="text"
+                    value={filePath}
+                    onChange={(e) => setFilePath(e.target.value)}
+                    placeholder="File path…"
+                    aria-label="Filter by file path"
+                    className="pl-7 sm:w-44"
+                  />
+                </div>
 
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              title="Reset all filters (Esc)"
-              className="p-2 rounded-lg border border-border bg-card hover:bg-background text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          </div>
+                <select
+                  value={actorFilter}
+                  onChange={(e) => setActorFilter(e.target.value)}
+                  className={selectClass}
+                  aria-label="Filter by actor"
+                >
+                  <option value="">All Actors</option>
+                  {knownActors.map((act) => (
+                    <option key={act} value={act}>
+                      {act}
+                    </option>
+                  ))}
+                </select>
 
-          {/* Sub-Filters: File, Actor, Type, Current-Only, Limit */}
-          <div className="flex flex-wrap items-center gap-2.5 text-xs">
-            {/* File Path Filter */}
-            <div className="relative flex-1 sm:flex-initial">
-              <FileText className="w-3 h-3 text-muted-foreground absolute left-2.5 top-2" />
-              <input
-                type="text"
-                value={filePath}
-                onChange={(e) => setFilePath(e.target.value)}
-                placeholder="File path filter…"
-                className="bg-background border border-border rounded-md pl-7 pr-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary font-mono w-full sm:w-44"
-              />
-            </div>
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className={selectClass}
+                  aria-label="Filter by action type"
+                >
+                  <option value="">All Types</option>
+                  {knownTypes.map((typ) => (
+                    <option key={typ} value={typ}>
+                      {typ}
+                    </option>
+                  ))}
+                </select>
 
-            {/* Actor Select Dropdown */}
-            <select
-              value={actorFilter}
-              onChange={(e) => setActorFilter(e.target.value)}
-              className="bg-background border border-border rounded-md px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-primary cursor-pointer font-mono"
-            >
-              <option value="">All Actors</option>
-              {knownActors.map((act) => (
-                <option key={act} value={act}>
-                  {act}
-                </option>
-              ))}
-            </select>
+                <select
+                  value={sinceFilter}
+                  onChange={(e) => setSinceFilter(e.target.value)}
+                  className={selectClass}
+                  aria-label="Filter by time range"
+                >
+                  <option value="">All Time</option>
+                  <option
+                    value={new Date(Date.now() - 3600 * 1000).toISOString()}
+                  >
+                    Past 1 Hour
+                  </option>
+                  <option
+                    value={new Date(Date.now() - 24 * 3600 * 1000).toISOString()}
+                  >
+                    Past 24 Hours
+                  </option>
+                  <option
+                    value={new Date(
+                      Date.now() - 7 * 24 * 3600 * 1000
+                    ).toISOString()}
+                  >
+                    Past 7 Days
+                  </option>
+                  <option
+                    value={new Date(
+                      Date.now() - 30 * 24 * 3600 * 1000
+                    ).toISOString()}
+                  >
+                    Past 30 Days
+                  </option>
+                </select>
 
-            {/* Action Type Select Dropdown */}
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="bg-background border border-border rounded-md px-2.5 py-1 text-xs text-foreground focus:outline-none focus:border-primary cursor-pointer font-mono"
-            >
-              <option value="">All Types</option>
-              {knownTypes.map((typ) => (
-                <option key={typ} value={typ}>
-                  {typ}
-                </option>
-              ))}
-            </select>
+                <label className="flex items-center gap-1.5 text-muted-foreground text-xs cursor-pointer hover:text-foreground transition-colors ml-auto">
+                  <input
+                    type="checkbox"
+                    checked={currentOnly}
+                    onChange={(e) => setCurrentOnly(e.target.checked)}
+                    className="rounded border-border accent-primary cursor-pointer"
+                  />
+                  <span>Current only</span>
+                </label>
 
-            {/* Date Range / Since Filter */}
-            <div className="relative">
-              <Calendar className="w-3 h-3 text-muted-foreground absolute left-2 top-2 pointer-events-none" />
-              <select
-                value={sinceFilter}
-                onChange={(e) => setSinceFilter(e.target.value)}
-                className="bg-background border border-border rounded-md pl-6 pr-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary cursor-pointer font-mono"
-              >
-                <option value="">All Time</option>
-                <option value={new Date(Date.now() - 3600 * 1000).toISOString()}>Past 1 Hour</option>
-                <option value={new Date(Date.now() - 24 * 3600 * 1000).toISOString()}>Past 24 Hours</option>
-                <option value={new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()}>Past 7 Days</option>
-                <option value={new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()}>Past 30 Days</option>
-              </select>
-            </div>
-
-            {/* Current Only Toggle */}
-            <label className="flex items-center gap-1.5 text-muted-foreground text-xs cursor-pointer ml-auto hover:text-foreground transition">
-              <input
-                type="checkbox"
-                checked={currentOnly}
-                onChange={(e) => setCurrentOnly(e.target.checked)}
-                className="rounded border-border text-primary focus:ring-0 cursor-pointer"
-              />
-              <span>Current Only</span>
-            </label>
-
-            {/* Row Limit Select */}
-            <select
-              value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
-              className="bg-background border border-border rounded-md px-2 py-1 text-xs text-foreground focus:outline-none cursor-pointer font-mono"
-            >
-              <option value={20}>20 rows</option>
-              <option value={50}>50 rows</option>
-              <option value={100}>100 rows</option>
-              <option value={200}>200 rows</option>
-            </select>
-          </div>
+                <select
+                  value={limit}
+                  onChange={(e) => setLimit(Number(e.target.value))}
+                  className={selectClass}
+                  aria-label="Result limit"
+                >
+                  <option value={20}>20 rows</option>
+                  <option value={50}>50 rows</option>
+                  <option value={100}>100 rows</option>
+                  <option value={200}>200 rows</option>
+                </select>
+              </>
+            }
+            meta={
+              <>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span>
+                    Showing{" "}
+                    <span className="font-semibold text-foreground">
+                      {results.length}
+                    </span>{" "}
+                    actions
+                  </span>
+                  {activeFilterCount > 0 && (
+                    <span className="text-primary bg-primary-muted px-1.5 py-0.5 rounded-sm border border-primary/20">
+                      {activeFilterCount} filter
+                      {activeFilterCount === 1 ? "" : "s"}
+                    </span>
+                  )}
+                  {searchInput && (
+                    <span className="text-primary truncate max-w-[12rem]">
+                      “{searchInput}”
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground/70 hidden sm:inline shrink-0">
+                  ↑↓ navigate · Enter inspect · Esc clear
+                </span>
+              </>
+            }
+          />
         </form>
 
-        {/* Results Metadata Bar */}
-        <div className="px-4 py-2 border-b border-border/50 bg-background/50 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
-          <div className="flex items-center gap-2">
-            <span>
-              Showing <span className="font-semibold text-foreground">{results.length}</span> actions
-            </span>
-            {searchInput && (
-              <span className="text-primary bg-primary/10 px-1.5 py-0.2 rounded border border-primary/20">
-                matching "{searchInput}"
-              </span>
-            )}
+        {searchError && (
+          <div
+            role="alert"
+            className="mx-4 mt-3 px-3 py-2 rounded-md border border-danger/40 bg-danger/10 text-xs text-danger flex items-center gap-2"
+          >
+            <AlertCircle className="size-3.5 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1">{searchError}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setSearchError(null)}
+              aria-label="Dismiss error"
+            >
+              Dismiss
+            </Button>
           </div>
+        )}
 
-          <span className="text-[10px] text-muted-foreground/70 hidden sm:inline">
-            Use ↑ / ↓ arrow keys to navigate rows
-          </span>
-        </div>
-
-        {/* Results Virtualized/Scrollable List */}
-        <div className="flex-1 overflow-y-auto divide-y divide-border/40">
+        <div
+          className="flex-1 overflow-y-auto"
+          role="listbox"
+          aria-label="Search results"
+        >
           {isSearching ? (
-            <div className="p-4 space-y-3">
+            <div className="p-4 space-y-2">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-14 rounded-lg border border-border/40 bg-card/40 animate-pulse px-4 py-3 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="h-4 w-14 bg-muted/60 rounded" />
-                    <div className="h-4 w-12 bg-muted/50 rounded" />
-                    <div className="h-4 w-60 bg-muted/40 rounded" />
-                  </div>
-                  <div className="h-3 w-16 bg-muted/40 rounded" />
-                </div>
+                <SkeletonRow key={i} />
               ))}
             </div>
           ) : results.length === 0 ? (
-            <div className="py-24 text-center space-y-3 px-6">
-              <Layers className="w-10 h-10 text-muted-foreground/30 mx-auto" />
-              <p className="text-sm font-semibold text-foreground">No matching actions found</p>
-              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                No actions matched your query or filters. Try clearing the file path, actor, or search text.
-              </p>
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={handleResetFilters}
-                  className="px-3.5 py-1.5 rounded-lg border border-border bg-card hover:bg-background text-xs font-medium text-foreground transition cursor-pointer"
-                >
-                  Clear All Filters
-                </button>
-              </div>
+            <div className="p-6">
+              <EmptyState
+                icon={<Search />}
+                title={
+                  emptyIsNoData
+                    ? "No actions in the knowledge graph"
+                    : "No matching actions"
+                }
+                description={
+                  emptyIsNoData
+                    ? "Ingest a transcript or record actions via MCP, then search here."
+                    : "Nothing matched your query or filters. Clear filters or broaden the search text."
+                }
+                action={
+                  emptyIsNoData ? (
+                    <div className="flex gap-2 justify-center">
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        onClick={() => setActiveTab("ingest")}
+                      >
+                        Ingest Transcript
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setActiveTab("mcp")}
+                      >
+                        Configure MCP
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleResetFilters}
+                    >
+                      Clear all filters
+                    </Button>
+                  )
+                }
+              />
             </div>
           ) : (
-            results.map((action, idx) => {
-              const isSelected =
-                selectedAction?.id === action.id || selectedIndex === idx;
+            <div className="divide-y divide-border-subtle">
+              {results.map((action, idx) => {
+                const isSelected =
+                  selectedAction?.id === action.id || selectedIndex === idx;
 
-              return (
-                <div
-                  key={action.id}
-                  onClick={() => {
-                    setSelectedAction(action);
-                    setSelectedIndex(idx);
-                  }}
-                  className={`p-3.5 transition cursor-pointer flex items-start justify-between gap-3 ${
-                    isSelected
-                      ? "bg-primary/10 border-l-2 border-primary shadow-sm"
-                      : "hover:bg-card/60"
-                  }`}
-                >
-                  <div className="space-y-1.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <ActionBadge type={action.action_type} />
-                      <ActorBadge actor={action.actor} />
-
-                      {action.is_current ? (
-                        <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>CURRENT</span>
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-[10px] text-amber-400 font-mono">
-                          <AlertCircle className="w-3 h-3" />
-                          <span>SUPERSEDED</span>
-                        </span>
-                      )}
-
-                      <span className="text-[11px] font-mono text-muted-foreground ml-auto">
-                        {new Date(action.timestamp).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                        })}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-foreground font-medium leading-normal">
-                      {action.summary}
-                    </p>
-
-                    {action.files && action.files.length > 0 && (
-                      <div className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground truncate pt-0.5">
-                        <FileText className="w-3 h-3 text-muted-foreground/70 shrink-0" />
-                        <span className="text-foreground/80">{action.files[0]}</span>
-                        {action.files.length > 1 && (
-                          <span className="text-[10px] bg-muted/60 px-1 py-0.2 rounded text-muted-foreground">
-                            +{action.files.length - 1} more
+                return (
+                  <div
+                    key={action.id}
+                    role="option"
+                    aria-selected={isSelected}
+                    tabIndex={0}
+                    onClick={() => {
+                      setSelectedAction(action);
+                      setSelectedIndex(idx);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedAction(action);
+                        setSelectedIndex(idx);
+                      }
+                    }}
+                    className={cn(
+                      "p-3.5 transition-colors cursor-pointer flex items-start gap-3 border-l-2",
+                      "focus-visible:outline-none focus-visible:bg-primary-muted",
+                      isSelected
+                        ? "bg-primary-muted border-primary"
+                        : "border-transparent hover:bg-card/80"
+                    )}
+                  >
+                    <div className="space-y-1.5 min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <ActionBadge type={action.action_type} />
+                        <ActorBadge actor={action.actor} />
+                        {action.is_current ? (
+                          <span className="flex items-center gap-1 text-xs text-success font-mono">
+                            <CheckCircle2 className="size-3" aria-hidden />
+                            CURRENT
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs text-warning font-mono">
+                            <AlertCircle className="size-3" aria-hidden />
+                            SUPERSEDED
                           </span>
                         )}
+                        <span className="text-sm font-mono text-muted-foreground ml-auto">
+                          {new Date(action.timestamp).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
+                        </span>
                       </div>
-                    )}
+
+                      <p className="text-xs text-foreground font-medium leading-normal">
+                        {action.summary}
+                      </p>
+
+                      {action.files && action.files.length > 0 && (
+                        <div className="flex items-center gap-1.5 text-sm font-mono text-muted-foreground truncate pt-0.5">
+                          <FileText className="size-3 shrink-0" aria-hidden />
+                          <span className="text-foreground/80 truncate">
+                            {action.files[0]}
+                          </span>
+                          {action.files.length > 1 && (
+                            <span className="text-xs bg-muted px-1 py-0.5 rounded-sm text-muted-foreground shrink-0">
+                              +{action.files.length - 1} more
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })
+                );
+              })}
+            </div>
           )}
         </div>
       </div>

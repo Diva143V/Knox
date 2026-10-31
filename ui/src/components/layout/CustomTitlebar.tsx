@@ -15,6 +15,9 @@ import {
 import { KnoxLogo } from "@/components/ui/KnoxLogo";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { KnoxAPI } from "@/services/api";
+import { APP_VERSION } from "@/lib/navigation";
+import { cn } from "@/lib/cn";
+import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
 
 const isTauri =
   typeof window !== "undefined" &&
@@ -85,7 +88,7 @@ export const CustomTitlebar: React.FC = () => {
   const handleClose = async () => {
     if (!isTauri) return;
     try {
-      // In Tauri v2 configured with hide-to-tray, close triggers WindowEvent::CloseRequested
+      // Hide-to-tray: CloseRequested handled by Tauri backend
       await getCurrentWindow().close();
     } catch (e) {
       console.error(e);
@@ -111,81 +114,85 @@ export const CustomTitlebar: React.FC = () => {
   return (
     <div
       data-tauri-drag-region
-      className="h-10 w-full border-b border-border/60 bg-sidebar/90 backdrop-blur flex items-center justify-between px-3 select-none z-50 text-xs shrink-0 relative"
+      className="h-9 w-full border-b border-border bg-sidebar flex items-center justify-between px-2.5 select-none z-50 text-sm shrink-0"
     >
       {/* Left: Branding & Project / Global Scope Dropdown */}
-      <div className="flex items-center gap-2.5 no-drag">
-        <div className="flex items-center gap-1.5 font-bold text-foreground tracking-tight">
+      <div className="flex items-center gap-2 min-w-0 no-drag flex-1">
+        <div className="flex items-center gap-1.5 font-semibold text-foreground tracking-tight shrink-0">
           <KnoxLogo size={18} variant="mark" />
-          <span>KNOX</span>
-          <span className="text-[10px] text-muted-foreground font-mono font-normal">
-            v1.2.1
+          <span>Knox</span>
+          <span className="text-xs text-muted-foreground font-mono font-normal">
+            v{APP_VERSION}
           </span>
         </div>
 
-        <div className="h-3 w-px bg-border/80 mx-1" />
+        <div className="h-3 w-px bg-border shrink-0 hidden sm:block" aria-hidden />
 
         {/* Interactive Scope Switcher Pill */}
         <div className="relative" ref={dropdownRef}>
           <button
+            type="button"
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-card/70 hover:bg-card border border-border/70 hover:border-border text-foreground transition cursor-pointer text-[11px]"
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-card hover:bg-muted border border-border text-foreground transition-colors cursor-pointer text-xs"
             title="Switch Knowledge Graph Scope (Global vs Project Drive)"
           >
             {activeProjectScope ? (
-              <HardDrive className="w-3.5 h-3.5 text-primary shrink-0" />
+              <HardDrive className="size-3 text-primary shrink-0" />
             ) : (
-              <Globe className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <Globe className="size-3 text-primary shrink-0" />
             )}
-            <span className="font-medium truncate max-w-[170px]">
+            <span className="font-medium truncate max-w-[140px] lg:max-w-[180px]">
               {activeProjectScope ? currentProjectName : "Global KG"}
             </span>
             <ChevronDown
-              className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${
-                dropdownOpen ? "rotate-180" : ""
-              }`}
+              className={cn(
+                "size-3 text-muted-foreground transition-transform duration-200",
+                dropdownOpen && "rotate-180"
+              )}
             />
           </button>
 
           {/* Scope Dropdown Menu */}
           {dropdownOpen && (
-            <div className="absolute top-full left-0 mt-1.5 w-84 rounded-xl border border-border/90 bg-zinc-950/95 backdrop-blur-xl shadow-2xl p-2 z-50 space-y-1 text-xs">
-              <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+            <div className="absolute top-full left-0 mt-1.5 w-80 rounded-lg border border-border bg-card/95 backdrop-blur-xl shadow-xl p-2 z-50 space-y-1 text-xs">
+              <div className="px-2 py-1 text-2xs font-mono uppercase tracking-wider text-muted-foreground flex items-center justify-between">
                 <span>Knowledge Graph Scope</span>
-                <span className="text-[9px] bg-primary/10 text-primary border border-primary/20 px-1 rounded">
+                <span className="text-2xs bg-primary/10 text-primary border border-primary/20 px-1 py-0.5 rounded-sm">
                   Single DB
                 </span>
               </div>
 
               {/* Global Option */}
               <button
+                type="button"
                 onClick={() => {
                   setProjectScope(null);
                   setDropdownOpen(false);
                 }}
-                className={`w-full flex items-center justify-between p-2 rounded-lg transition text-left cursor-pointer ${
+                className={cn(
+                  "w-full flex items-center justify-between p-2 rounded-md transition-colors text-left cursor-pointer",
                   !activeProjectScope
                     ? "bg-primary/15 border border-primary/40 text-foreground"
-                    : "hover:bg-zinc-900 border border-transparent text-muted-foreground hover:text-foreground"
-                }`}
+                    : "hover:bg-muted border border-transparent text-muted-foreground hover:text-foreground"
+                )}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-6 h-6 rounded-md bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0">
-                    <Globe className="w-3.5 h-3.5 text-indigo-400" />
+                  <div className="size-6 rounded-md bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
+                    <Globe className="size-3.5 text-primary" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold leading-tight">Global Knowledge Graph</p>
-                    <p className="text-[10px] font-mono text-muted-foreground truncate max-w-[210px]">
+                    <p className="text-xs font-semibold leading-tight text-foreground">Global Knowledge Graph</p>
+                    <p className="text-2xs font-mono text-muted-foreground truncate max-w-[190px]">
                       {config?.kg_path || "~/.knox/knox.db"}
                     </p>
                   </div>
                 </div>
-                {!activeProjectScope && <Check className="w-4 h-4 text-primary shrink-0" />}
+                {!activeProjectScope && <Check className="size-4 text-primary shrink-0" />}
               </button>
 
-              <div className="h-px bg-border/60 my-1" />
+              <div className="h-px bg-border my-1" />
 
-              <div className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+              <div className="px-2 py-0.5 text-2xs font-mono uppercase tracking-wider text-muted-foreground">
                 Project Folders (Choice KG)
               </div>
 
@@ -197,26 +204,28 @@ export const CustomTitlebar: React.FC = () => {
                   return (
                     <div
                       key={proj.path}
-                      className={`group flex items-center justify-between p-2 rounded-lg transition ${
+                      className={cn(
+                        "group flex items-center justify-between p-2 rounded-md transition-colors",
                         isSelected
                           ? "bg-primary/15 border border-primary/40 text-foreground"
-                          : "hover:bg-zinc-900 border border-transparent text-muted-foreground hover:text-foreground"
-                      }`}
+                          : "hover:bg-muted border border-transparent text-muted-foreground hover:text-foreground"
+                      )}
                     >
                       <button
+                        type="button"
                         onClick={() => {
                           setProjectScope(proj.path);
                           setDropdownOpen(false);
                         }}
                         className="flex items-center gap-2.5 min-w-0 text-left flex-1 cursor-pointer"
                       >
-                        <div className="w-6 h-6 rounded-md bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0">
-                          <HardDrive className="w-3.5 h-3.5 text-primary" />
+                        <div className="size-6 rounded-md bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
+                          <HardDrive className="size-3.5 text-primary" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-xs font-semibold leading-tight">{proj.name}</p>
+                          <p className="text-xs font-semibold leading-tight text-foreground">{proj.name}</p>
                           <p
-                            className="text-[10px] font-mono text-muted-foreground truncate max-w-[190px]"
+                            className="text-2xs font-mono text-muted-foreground truncate max-w-[180px]"
                             title={proj.path}
                           >
                             {proj.path}
@@ -225,16 +234,18 @@ export const CustomTitlebar: React.FC = () => {
                       </button>
 
                       <div className="flex items-center gap-1 shrink-0">
-                        {isSelected && <Check className="w-3.5 h-3.5 text-primary mr-1" />}
+                        {isSelected && <Check className="size-3.5 text-primary mr-1" />}
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             removeRecentProject(proj.path);
                           }}
-                          className="opacity-0 group-hover:opacity-100 hover:text-rose-400 p-1 rounded hover:bg-zinc-800 transition cursor-pointer"
+                          className="opacity-0 group-hover:opacity-100 hover:text-danger p-1 rounded-sm hover:bg-muted transition-opacity cursor-pointer"
                           title="Remove from recent"
+                          aria-label={`Remove ${proj.name} from recent`}
                         >
-                          <Trash2 className="w-3 h-3" />
+                          <Trash2 className="size-3" />
                         </button>
                       </div>
                     </div>
@@ -244,16 +255,17 @@ export const CustomTitlebar: React.FC = () => {
 
               {/* Add Folder Action */}
               <button
+                type="button"
                 onClick={handleSelectFolder}
-                className="w-full flex items-center gap-2 p-2 rounded-lg text-primary hover:bg-primary/10 border border-dashed border-primary/30 hover:border-primary/50 transition cursor-pointer font-medium text-xs mt-1"
+                className="w-full flex items-center gap-2 p-2 rounded-md text-primary hover:bg-primary/10 border border-dashed border-primary/30 hover:border-primary/50 transition-colors cursor-pointer font-medium text-xs mt-1"
               >
-                <FolderOpen className="w-3.5 h-3.5" />
+                <FolderOpen className="size-3.5" />
                 <span>+ Open Project Folder…</span>
               </button>
 
               {/* Informative Footer */}
-              <div className="p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-[10px] text-muted-foreground leading-relaxed">
-                <span className="font-semibold text-zinc-300">Single Global Storage:</span> All
+              <div className="p-2 rounded-md bg-muted/50 border border-border text-2xs text-muted-foreground leading-relaxed">
+                <span className="font-semibold text-foreground">Single Global Storage:</span> All
                 actions persist in <span className="font-mono text-primary">~/.knox/knox.db</span>.
                 Switching filters causal branches & files without DB fragmentation.
               </div>
@@ -262,49 +274,78 @@ export const CustomTitlebar: React.FC = () => {
         </div>
 
         {status && (
-          <span className="text-[10px] bg-card px-1.5 py-0.5 rounded border border-border text-muted-foreground font-mono">
+          <span className="hidden sm:inline-flex text-xs bg-card px-1.5 py-0.5 rounded-sm border border-border text-muted-foreground font-mono shrink-0">
             {status.total_actions} actions
           </span>
         )}
       </div>
 
-      {/* Center: Command Palette Trigger Button */}
+      {/* Center: Command palette trigger */}
       <button
+        type="button"
         onClick={toggleCommandPalette}
-        className="no-drag flex items-center gap-2 px-3 py-1 rounded-md bg-card/80 hover:bg-card border border-border/80 text-muted-foreground hover:text-foreground text-[11px] transition-all cursor-pointer"
+        aria-label="Open command palette"
+        className={cn(
+          "no-drag hidden lg:flex items-center gap-2 px-3 py-1 rounded-md max-w-[280px]",
+          "bg-card border border-border text-muted-foreground hover:text-foreground",
+          "text-xs transition-colors duration-100 cursor-pointer",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        )}
       >
-        <Search className="w-3.5 h-3.5" />
-        <span>Search actions, files, views…</span>
-        <kbd className="ml-2 font-mono text-[10px] bg-muted/60 px-1 py-0.5 rounded border border-border/50 text-muted-foreground">
+        <Search className="size-3.5 shrink-0" aria-hidden />
+        <span className="truncate">Search actions, files, views…</span>
+        <kbd className="ml-1 font-mono text-2xs bg-muted px-1 py-0.5 rounded-sm border border-border text-muted-foreground">
           Ctrl+K
         </kbd>
       </button>
 
-      {/* Right: Window Controls */}
-      <div className="flex items-center no-drag">
+      {/* Compact command trigger below lg */}
+      <button
+        type="button"
+        onClick={toggleCommandPalette}
+        aria-label="Open command palette"
+        className={cn(
+          "no-drag lg:hidden flex items-center justify-center size-7 rounded-md",
+          "text-muted-foreground hover:text-foreground hover:bg-card",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring cursor-pointer"
+        )}
+      >
+        <Search className="size-3.5" />
+      </button>
+
+      {/* Right: Appearance + window controls */}
+      <div className="flex items-center gap-1 no-drag flex-1 justify-end min-w-0">
+        <div className="shrink-0 mr-1">
+          <ThemeSwitcher />
+        </div>
         <button
+          type="button"
           onClick={handleMinimize}
-          className="w-8 h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-card rounded transition cursor-pointer"
+          className="w-10 h-7 shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           title="Minimize"
+          aria-label="Minimize window"
         >
-          <Minus className="w-3.5 h-3.5" />
+          <Minus className="size-3.5" />
         </button>
         <button
+          type="button"
           onClick={handleToggleMaximize}
-          className="w-8 h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-card rounded transition cursor-pointer"
+          className="w-10 h-7 shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           title={isMaximized ? "Restore" : "Maximize"}
+          aria-label={isMaximized ? "Restore window" : "Maximize window"}
         >
-          <Square className="w-3 h-3" />
+          <Square className="size-3" aria-hidden />
         </button>
         <button
+          type="button"
           onClick={handleClose}
-          className="w-8 h-7 flex items-center justify-center text-muted-foreground hover:text-white hover:bg-rose-600 rounded transition cursor-pointer"
+          className="w-10 h-7 shrink-0 flex items-center justify-center text-muted-foreground hover:text-[var(--close-fg-hover)] hover:bg-danger rounded-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           title="Hide to Tray"
+          aria-label="Close window (hide to tray)"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="size-3.5" />
         </button>
       </div>
     </div>
   );
 };
-

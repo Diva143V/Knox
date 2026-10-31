@@ -4,6 +4,8 @@ import { create } from "zustand";
 import { KnoxAPI } from "@/services/api";
 import type { KnoxAction, KnoxConfig, Project, StatusReport, ViewTab } from "@/types/knox";
 import { isValidTab } from "@/types/knox";
+import type { ToastVariant } from "@/components/ui/Toast";
+import { applyTheme, getStoredTheme, type ThemeMode } from "@/lib/theme";
 
 const getInitialTab = (): ViewTab => {
   if (typeof window !== "undefined" && window.location.hash) {
@@ -61,10 +63,11 @@ interface KnoxStore {
   searchQuery: string;
   currentOnly: boolean;
   isLoading: boolean;
-  toast: { message: string; isError: boolean } | null;
+  toast: { message: string; isError: boolean; variant: ToastVariant } | null;
   commandPaletteOpen: boolean;
   onboardingOpen: boolean;
   config: KnoxConfig | null;
+  theme: ThemeMode;
 
   // Global KG vs Project Folder Scope
   activeProjectScope: string | null;
@@ -79,11 +82,13 @@ interface KnoxStore {
   setSelectedAction: (action: KnoxAction | null) => void;
   setSearchQuery: (query: string) => void;
   setCurrentOnly: (currentOnly: boolean) => void;
-  showToast: (message: string, isError?: boolean) => void;
+  /** Pass `true` for error, or a ToastVariant for success/error/warning/info. */
+  showToast: (message: string, isErrorOrVariant?: boolean | ToastVariant) => void;
   clearToast: () => void;
   toggleCommandPalette: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setOnboardingOpen: (open: boolean) => void;
+  setTheme: (theme: ThemeMode) => void;
   refreshData: () => Promise<void>;
 }
 
@@ -101,6 +106,7 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   commandPaletteOpen: false,
   onboardingOpen: isFirstRun(),
   config: null,
+  theme: getStoredTheme(),
 
   activeProjectScope: getSavedActiveProject(),
   recentProjects: getSavedRecentProjects(),
@@ -209,8 +215,15 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
     get().refreshData();
   },
 
-  showToast: (message, isError = false) => {
-    set({ toast: { message, isError } });
+  showToast: (message, isErrorOrVariant = false) => {
+    const variant: ToastVariant =
+      typeof isErrorOrVariant === "string"
+        ? isErrorOrVariant
+        : isErrorOrVariant
+          ? "error"
+          : "success";
+    const isError = variant === "error";
+    set({ toast: { message, isError, variant } });
     setTimeout(() => {
       if (get().toast?.message === message) {
         set({ toast: null });
@@ -223,6 +236,10 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
     set((state) => ({ commandPaletteOpen: !state.commandPaletteOpen })),
   setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
   setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),
+  setTheme: (theme) => {
+    applyTheme(theme);
+    set({ theme });
+  },
 
   refreshData: async () => {
     try {

@@ -5,45 +5,55 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileCode,
-  Sparkles,
   ArrowRight,
   Layers,
   ChevronDown,
   ChevronRight,
-  RefreshCw,
   FolderOpen,
+  Info,
 } from "lucide-react";
 import { KnoxAPI } from "@/services/api";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import type { IngestReport, KnoxAction } from "@/types/knox";
 import { ActionBadge } from "@/components/ui/ActionBadge";
 import { ActorBadge } from "@/components/ui/ActorBadge";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { cn } from "@/lib/cn";
+
+/** Backend currently registers only AntigravityMapper (src/ingest/mod.rs). */
+function detectFormat(path: string | null): {
+  label: string;
+  supported: boolean;
+} {
+  if (!path) return { label: "No file selected", supported: false };
+  const lower = path.toLowerCase();
+  if (lower.includes("antigravity") || lower.endsWith(".jsonl")) {
+    return { label: "Antigravity JSONL (expected)", supported: true };
+  }
+  if (lower.endsWith(".json")) {
+    return {
+      label: "JSON — may fail if not Antigravity format",
+      supported: false,
+    };
+  }
+  return { label: "Unrecognized — Antigravity .jsonl required", supported: false };
+}
 
 export const IngestView: React.FC = () => {
-  const { showToast, refreshData, setActiveTab, setSelectedAction } = useKnoxStore();
+  const { showToast, refreshData, setActiveTab, setSelectedAction } =
+    useKnoxStore();
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState<string | null>(null);
   const [isIngesting, setIsIngesting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [report, setReport] = useState<IngestReport | null>(null);
+  const [ingestError, setIngestError] = useState<string | null>(null);
   const [previewActions, setPreviewActions] = useState<KnoxAction[]>([]);
   const [showPreview, setShowPreview] = useState(true);
-
-  // Auto-detect transcript format mapper name from path
-  const detectFormat = (path: string | null): string => {
-    if (!path) return "Unknown";
-    const lower = path.toLowerCase();
-    if (lower.includes("antigravity") || lower.includes("transcript.jsonl")) {
-      return "Antigravity JSONL";
-    }
-    if (lower.includes("claude")) {
-      return "Claude Chat History";
-    }
-    if (lower.includes("cursor")) {
-      return "Cursor Transcript";
-    }
-    return "Generic JSONL Transcript";
-  };
 
   const handleBrowse = async () => {
     try {
@@ -53,17 +63,21 @@ export const IngestView: React.FC = () => {
       });
       if (selected) {
         setSelectedFile(selected);
+        setFileSize(null);
         setReport(null);
+        setIngestError(null);
       }
     } catch (err) {
       console.warn("Dialog failed or not in Tauri:", err);
       const promptPath = window.prompt(
-        "Enter transcript file path:",
+        "Enter Antigravity transcript path:",
         "fixtures/transcript_antigravity.jsonl"
       );
       if (promptPath) {
         setSelectedFile(promptPath);
+        setFileSize(null);
         setReport(null);
+        setIngestError(null);
       }
     }
   };
@@ -84,14 +98,13 @@ export const IngestView: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      // In Tauri or web, get file path or name
-      const path = (file as any).path || file.name;
+      const path = (file as File & { path?: string }).path || file.name;
       setSelectedFile(path);
       setFileSize(`${(file.size / 1024).toFixed(1)} KB`);
       setReport(null);
+      setIngestError(null);
     }
   };
 
@@ -99,229 +112,253 @@ export const IngestView: React.FC = () => {
     if (!selectedFile) return;
     try {
       setIsIngesting(true);
+      setIngestError(null);
       const res = await KnoxAPI.ingestTranscript(selectedFile);
       setReport(res);
-      showToast(`Successfully imported ${res.actions_imported} actions into knowledge graph!`);
-
-      // Refresh global store and grab preview of latest actions
+      showToast(
+        `Imported ${res.actions_imported} actions into the knowledge graph.`
+      );
       await refreshData();
       const updatedActions = await KnoxAPI.getGraphData(false, 5);
       setPreviewActions(updatedActions.slice(0, 5));
     } catch (err) {
-      showToast(String(err), true);
+      const msg = String(err);
+      setIngestError(msg);
+      showToast(msg, true);
     } finally {
       setIsIngesting(false);
     }
   };
 
-  const detectedFormat = detectFormat(selectedFile);
+  const format = detectFormat(selectedFile);
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto overflow-y-auto h-full">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
-          <FileInput className="w-5 h-5 text-primary" />
-          <span>Ingest Conversation Transcripts</span>
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1">
-          Import Antigravity, Claude, or Cursor session history to bootstrap your knowledge graph.
-        </p>
-      </div>
+    <div className="p-5 sm:p-6 space-y-5 max-w-4xl mx-auto overflow-y-auto h-full">
+      <PageHeader
+        title="Ingest Transcripts"
+        description="Import Antigravity session transcripts (.jsonl) to bootstrap the knowledge graph. Deterministic clustering — no LLM tokens used."
+        icon={<FileInput />}
+      />
 
-      {/* Drag & Drop Area */}
+      <Card>
+        <CardContent className="p-4 flex gap-3 text-xs text-muted-foreground">
+          <Info className="size-4 text-primary shrink-0 mt-0.5" aria-hidden />
+          <div className="space-y-1 leading-relaxed">
+            <p>
+              <span className="text-foreground font-medium">Supported format:</span>{" "}
+              Antigravity transcript JSONL (the only mapper registered in Knox today).
+            </p>
+            <p>
+              Claude, Cursor, and other formats are not ingested by the current backend.
+              Prefer files named like <code className="font-mono text-foreground">transcript.jsonl</code>.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <div
+        role="button"
+        tabIndex={0}
+        aria-label="Drop Antigravity transcript or browse for file"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleBrowse();
+          }
+        }}
         onDragOver={handleDragOver}
         onDragEnter={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={handleBrowse}
-        className={`rounded-xl border-2 border-dashed p-10 text-center transition-all cursor-pointer space-y-3 ${
+        className={cn(
+          "rounded-lg border-2 border-dashed p-8 sm:p-10 text-center cursor-pointer space-y-3 transition-colors duration-100",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
           isDragging
-            ? "border-primary bg-primary/10 shadow-lg shadow-primary/10"
-            : "border-border/80 hover:border-primary/60 bg-card/40 hover:bg-card/70"
-        }`}
+            ? "border-primary bg-primary-muted"
+            : "border-border hover:border-primary/50 bg-card/50 hover:bg-card"
+        )}
       >
-        <div className="w-12 h-12 rounded-full bg-primary/10 text-primary mx-auto flex items-center justify-center">
-          <UploadCloud className="w-6 h-6" />
+        <div className="size-11 rounded-md bg-primary-muted text-primary mx-auto flex items-center justify-center border border-primary/20">
+          <UploadCloud className="size-5" aria-hidden />
         </div>
         <div>
           <p className="text-sm font-semibold text-foreground">
-            Drop .jsonl transcript here, or click to browse
+            Drop Antigravity .jsonl here, or click to browse
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Supports Antigravity transcript.jsonl with automatic intent clustering
+            Extensions: .jsonl (preferred), .json
           </p>
         </div>
-
-        <div className="pt-2">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleBrowse();
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-background text-xs font-medium text-foreground transition cursor-pointer shadow-sm"
-          >
-            <FolderOpen className="w-3.5 h-3.5 text-primary" />
-            <span>Select Local File</span>
-          </button>
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleBrowse();
+          }}
+        >
+          <FolderOpen className="size-3.5" />
+          Select file
+        </Button>
       </div>
 
-      {/* Selected File Chip & Ingest Action */}
+      {!selectedFile && !report && (
+        <EmptyState
+          compact
+          icon={<FileInput />}
+          title="No transcript selected"
+          description="Choose an Antigravity JSONL export to parse plans, decisions, and file writes into Knox."
+        />
+      )}
+
       {selectedFile && (
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3 animate-in fade-in-50 duration-150">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <FileCode className="w-4 h-4 text-primary shrink-0" />
-              <span className="text-xs font-mono text-foreground font-medium truncate max-w-md select-all">
-                {selectedFile}
-              </span>
-              {fileSize && (
-                <span className="text-[10px] text-muted-foreground font-mono">
-                  ({fileSize})
-                </span>
-              )}
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="flex items-start gap-2 min-w-0">
+                <FileCode className="size-4 text-primary shrink-0 mt-0.5" aria-hidden />
+                <div className="min-w-0">
+                  <p className="text-xs font-mono text-foreground break-all select-all">
+                    {selectedFile}
+                  </p>
+                  {fileSize && (
+                    <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                      {fileSize}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Badge variant={format.supported ? "default" : "warning"}>
+                  {format.label}
+                </Badge>
+                <Badge variant="secondary">Ready</Badge>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Format Auto-Detection Badge */}
-              <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono font-medium">
-                {detectedFormat}
-              </span>
+            {ingestError && (
+              <div
+                role="alert"
+                className="px-3 py-2 rounded-md border border-danger/40 bg-danger/10 text-xs text-danger"
+              >
+                {ingestError}
+              </div>
+            )}
 
-              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                Ready
-              </span>
-            </div>
-          </div>
-
-          <div className="pt-1">
-            <button
+            <Button
+              type="button"
+              variant="primary"
+              className="w-full"
               onClick={handleIngest}
               disabled={isIngesting}
-              className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-primary/25 disabled:opacity-50"
+              loading={isIngesting}
             >
-              {isIngesting ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Parsing & Clustering Actions…</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Start Ingestion into Knowledge Graph</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
+              {isIngesting
+                ? "Parsing & clustering actions…"
+                : "Start ingestion"}
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Ingest Report Post-Ingestion */}
       {report && (
-        <div className="p-5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 space-y-4 animate-in fade-in-50 duration-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Ingestion Completed Successfully</span>
-            </div>
-
-            <button
+        <Card className="border-success/30">
+          <CardHeader className="flex-row items-center justify-between space-y-0 pb-0">
+            <CardTitle className="flex items-center gap-2 text-success">
+              <CheckCircle2 className="size-4" aria-hidden />
+              Ingestion complete
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setActiveTab("graph")}
-              className="flex items-center gap-1 text-xs text-primary hover:underline font-medium cursor-pointer"
+              className="text-primary"
             >
-              <span>View in Graph</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1 font-mono text-xs">
-            <div className="p-3.5 rounded-lg bg-card border border-border text-center space-y-1">
-              <span className="text-muted-foreground block text-[10px] uppercase font-semibold">
-                Actions Imported
-              </span>
-              <span className="text-2xl font-bold text-foreground">
-                {report.actions_imported}
-              </span>
-            </div>
-            <div className="p-3.5 rounded-lg bg-card border border-border text-center space-y-1">
-              <span className="text-muted-foreground block text-[10px] uppercase font-semibold">
-                Files Touched
-              </span>
-              <span className="text-2xl font-bold text-foreground">
-                {report.files_touched}
-              </span>
-            </div>
-            <div className="p-3.5 rounded-lg bg-card border border-border text-center space-y-1">
-              <span className="text-muted-foreground block text-[10px] uppercase font-semibold">
-                Sessions Created
-              </span>
-              <span className="text-2xl font-bold text-foreground">
-                {report.sessions_created}
-              </span>
-            </div>
-          </div>
-
-          {/* First 5 Parsed Actions Preview Accordion */}
-          {previewActions.length > 0 && (
-            <div className="pt-2 border-t border-emerald-500/20">
-              <button
-                type="button"
-                onClick={() => setShowPreview(!showPreview)}
-                className="w-full flex items-center justify-between py-1 text-xs font-medium text-foreground hover:text-primary transition cursor-pointer"
-              >
-                <span className="flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-primary" />
-                  <span>Preview Ingested Actions ({previewActions.length})</span>
-                </span>
-                {showPreview ? (
-                  <ChevronDown className="w-3.5 h-3.5" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5" />
-                )}
-              </button>
-
-              {showPreview && (
-                <div className="mt-2 space-y-2">
-                  {previewActions.map((act) => (
-                    <div
-                      key={act.id}
-                      onClick={() => setSelectedAction(act)}
-                      className="p-2.5 rounded-lg bg-card/80 border border-border/60 hover:border-primary/40 text-xs transition cursor-pointer flex items-center justify-between gap-3"
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <ActorBadge actor={act.actor} />
-                        <ActionBadge type={act.action_type} />
-                        <span className="truncate font-medium text-foreground">
-                          {act.summary}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                        {new Date(act.timestamp).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                    </div>
-                  ))}
+              View in Graph
+              <ArrowRight className="size-3" />
+            </Button>
+          </CardHeader>
+          <CardContent className="pt-4 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono text-xs">
+              {[
+                { label: "Actions imported", value: report.actions_imported },
+                { label: "Files touched", value: report.files_touched },
+                { label: "Sessions created", value: report.sessions_created },
+              ].map((m) => (
+                <div
+                  key={m.label}
+                  className="p-3 rounded-md bg-background border border-border text-center space-y-1"
+                >
+                  <span className="text-overline block">{m.label}</span>
+                  <span className="text-xl font-semibold text-foreground">
+                    {m.value}
+                  </span>
                 </div>
-              )}
+              ))}
             </div>
-          )}
-        </div>
+
+            {previewActions.length > 0 && (
+              <div className="pt-2 border-t border-border-subtle">
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="w-full flex items-center justify-between py-1 text-xs font-medium text-foreground hover:text-primary transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring rounded-sm"
+                  aria-expanded={showPreview}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Layers className="size-3.5 text-primary" aria-hidden />
+                    Preview ingested actions ({previewActions.length})
+                  </span>
+                  {showPreview ? (
+                    <ChevronDown className="size-3.5" aria-hidden />
+                  ) : (
+                    <ChevronRight className="size-3.5" aria-hidden />
+                  )}
+                </button>
+                {showPreview && (
+                  <div className="mt-2 space-y-1.5">
+                    {previewActions.map((act) => (
+                      <button
+                        key={act.id}
+                        type="button"
+                        onClick={() => setSelectedAction(act)}
+                        className="w-full p-2.5 rounded-md bg-background border border-border hover:border-primary/40 text-xs transition-colors cursor-pointer flex items-center justify-between gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <ActorBadge actor={act.actor} />
+                          <ActionBadge type={act.action_type} />
+                          <span className="truncate font-medium text-foreground">
+                            {act.summary}
+                          </span>
+                        </div>
+                        <span className="text-xs font-mono text-muted-foreground shrink-0">
+                          {new Date(act.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
-      {/* Explanatory Info Card */}
-      <div className="p-4 rounded-xl border border-border/60 bg-card/30 flex gap-3 text-xs text-muted-foreground">
-        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-        <p className="leading-relaxed">
-          Knox uses a deterministic heuristic state machine to group noisy raw tool events into
-          meaningful high-level plans, decisions, and file writes. Zero LLM tokens are wasted
-          during transcript processing.
-        </p>
-      </div>
+      <Card>
+        <CardContent className="p-4 flex gap-3 text-xs text-muted-foreground">
+          <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" aria-hidden />
+          <p className="leading-relaxed">
+            Knox uses a deterministic heuristic state machine to group raw tool
+            events into plans, decisions, and file writes. Processing does not
+            call an LLM.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 };

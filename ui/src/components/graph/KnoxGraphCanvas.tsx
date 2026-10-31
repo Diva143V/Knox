@@ -1,14 +1,16 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   ReactFlow,
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   useNodesState,
   useEdgesState,
+  MarkerType,
   type Node,
   type Edge,
-  MarkerType,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -17,7 +19,11 @@ import { ActionNode } from "./ActionNode";
 import { FileNode } from "./FileNode";
 import { ProjectRootNode } from "./ProjectRootNode";
 import { CausalEdge } from "./CausalEdge";
-import { useGraphLayout } from "@/hooks/useGraphLayout";
+import { useGraphLayout, type LayoutEngine } from "@/hooks/useGraphLayout";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { cn } from "@/lib/cn";
 import {
   Filter,
   Search,
@@ -29,6 +35,8 @@ import {
   Workflow,
   RotateCcw,
   UploadCloud,
+  Maximize2,
+  Eye,
 } from "lucide-react";
 import type { KnoxAction, Project } from "@/types/knox";
 
@@ -41,6 +49,50 @@ const nodeTypes = {
 const edgeTypes = {
   causalEdge: CausalEdge,
 };
+
+const selectClass =
+  "h-7 bg-background border border-border rounded-md px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring cursor-pointer font-mono";
+
+const LAYOUTS: {
+  id: LayoutEngine;
+  label: string;
+  title: string;
+  icon: React.ReactNode;
+}[] = [
+  {
+    id: "hierarchical",
+    label: "ELK",
+    title: "Hierarchical layered layout (ELK)",
+    icon: <GitBranch className="size-3.5" />,
+  },
+  {
+    id: "dagre",
+    label: "Dagre",
+    title: "Fast hierarchical layout (Dagre)",
+    icon: <Workflow className="size-3.5" />,
+  },
+  {
+    id: "force",
+    label: "Force",
+    title: "Force-directed layout (D3)",
+    icon: <Network className="size-3.5" />,
+  },
+  {
+    id: "grid",
+    label: "Grid",
+    title: "Compact grid layout",
+    icon: <Grid className="size-3.5" />,
+  },
+];
+
+const MARKER = {
+  follows: { type: MarkerType.ArrowClosed, color: "var(--primary)", width: 16, height: 16 },
+  supersedes: { type: MarkerType.ArrowClosed, color: "var(--warning)", width: 16, height: 16 },
+  targets: { type: MarkerType.ArrowClosed, color: "var(--plan)", width: 16, height: 16 },
+  project: { type: MarkerType.ArrowClosed, color: "var(--info, #38bdf8)", width: 16, height: 16 },
+  contains: { type: MarkerType.ArrowClosed, color: "var(--success, #10b981)", width: 16, height: 16 },
+  origin: { type: MarkerType.ArrowClosed, color: "var(--purple, #8b5cf6)", width: 16, height: 16 },
+} as const;
 
 export const KnoxGraphCanvas: React.FC = () => {
   const {
@@ -58,19 +110,22 @@ export const KnoxGraphCanvas: React.FC = () => {
     refreshData,
     activeProjectScope,
     config,
+    isLoading,
   } = useKnoxStore();
 
   const [actorFilter, setActorFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [searchHighlight, setSearchHighlight] = useState<string>("");
   const [showFileNodes, setShowFileNodes] = useState<boolean>(true);
+  const [showLegend, setShowLegend] = useState<boolean>(true);
+  const rfRef = useRef<ReactFlowInstance | null>(null);
 
-  const { layoutEngine, setLayoutEngine, isLayouting, applyLayout } = useGraphLayout();
+  const { layoutEngine, setLayoutEngine, isLayouting, applyLayout } =
+    useGraphLayout();
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  // Unique actors and action types for filter dropdowns
   const availableActors = useMemo(() => {
     const set = new Set<string>();
     actions.forEach((a) => {
@@ -87,7 +142,16 @@ export const KnoxGraphCanvas: React.FC = () => {
     return Array.from(set).sort();
   }, [actions]);
 
-  // Compute graph structure
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (actorFilter !== "all") n++;
+    if (typeFilter !== "all") n++;
+    if (searchHighlight.trim()) n++;
+    if (currentOnly) n++;
+    if (!showFileNodes) n++;
+    return n;
+  }, [actorFilter, typeFilter, searchHighlight, currentOnly, showFileNodes]);
+
   useEffect(() => {
     let isCancelled = false;
 
@@ -98,13 +162,21 @@ export const KnoxGraphCanvas: React.FC = () => {
       // Filter actions
       const filteredActions = actions.filter((a) => {
         if (currentOnly && !a.is_current) return false;
-        if (actorFilter !== "all" && a.actor.toLowerCase() !== actorFilter.toLowerCase()) return false;
-        if (typeFilter !== "all" && a.action_type.toLowerCase() !== typeFilter.toLowerCase()) return false;
+        if (
+          actorFilter !== "all" &&
+          a.actor.toLowerCase() !== actorFilter.toLowerCase()
+        )
+          return false;
+        if (
+          typeFilter !== "all" &&
+          a.action_type.toLowerCase() !== typeFilter.toLowerCase()
+        )
+          return false;
         return true;
       });
 
       // Global DB root node
-      const globalDbPath = config?.kg_path || "C:\\Users\\Diwa\\.knox\\knox.db";
+      const globalDbPath = config?.kg_path || "~/.knox/knox.db";
       const globalNodeId = "root-global-db";
 
       // 1. Determine active project branches to display
@@ -129,7 +201,7 @@ export const KnoxGraphCanvas: React.FC = () => {
         ];
       }
 
-      // If activeProjectScope is selected (e.g. D:\Knox or D:\hongli), filter to that project branch
+      // If activeProjectScope is selected (e.g. D:\Knox), filter to that project branch
       if (activeProjectScope) {
         const normScope = activeProjectScope.toLowerCase().replace(/\\/g, "/");
         const matched = activeProjects.filter(
@@ -227,17 +299,14 @@ export const KnoxGraphCanvas: React.FC = () => {
           },
         });
 
-        // Directed Edge: Global DB -> Project Folder Branch (#38bdf8 sky blue)
+        // Directed Edge: Global DB -> Project Folder Branch
         rawEdges.push({
           id: `proj-edge-${globalNodeId}->${projNodeId}`,
           source: globalNodeId,
           target: projNodeId,
           type: "causalEdge",
           data: { relation: "project" },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: "#38bdf8",
-          },
+          markerEnd: MARKER.project,
         });
 
         // 4a. Add File Nodes belonging to this project (if showFileNodes is true)
@@ -255,20 +324,17 @@ export const KnoxGraphCanvas: React.FC = () => {
               data: { filePath, count },
             });
 
-            // Project Folder -> File ("contains", emerald #10b981)
+            // Project Folder -> File ("contains")
             rawEdges.push({
               id: `contains-${projNodeId}->${fileNodeId}`,
               source: projNodeId,
               target: fileNodeId,
               type: "causalEdge",
               data: { relation: "contains" },
-              markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: "#10b981",
-              },
+              markerEnd: MARKER.contains,
             });
 
-            // Action -> File ("targets", cyan #06b6d4)
+            // Action -> File ("targets")
             projActions.forEach((action) => {
               if (action.files && action.files.includes(filePath)) {
                 rawEdges.push({
@@ -277,10 +343,7 @@ export const KnoxGraphCanvas: React.FC = () => {
                   target: fileNodeId,
                   type: "causalEdge",
                   data: { relation: "targets" },
-                  markerEnd: {
-                    type: MarkerType.ArrowClosed,
-                    color: "#06b6d4",
-                  },
+                  markerEnd: MARKER.targets,
                 });
               }
             });
@@ -315,23 +378,17 @@ export const KnoxGraphCanvas: React.FC = () => {
               target: action.id,
               type: "causalEdge",
               data: { relation: "follows" },
-              markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: "#6366f1",
-              },
+              markerEnd: MARKER.follows,
             });
           } else {
-            // Action has no parent in this project: anchor to Project Root ("origin", purple #8b5cf6)
+            // Action has no parent in this project: anchor to Project Root ("origin")
             rawEdges.push({
               id: `origin-${projNodeId}->${action.id}`,
               source: projNodeId,
               target: action.id,
               type: "causalEdge",
               data: { relation: "origin" },
-              markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: "#8b5cf6",
-              },
+              markerEnd: MARKER.origin,
             });
           }
 
@@ -343,20 +400,21 @@ export const KnoxGraphCanvas: React.FC = () => {
               target: action.supersedes,
               type: "causalEdge",
               data: { relation: "supersedes" },
-              markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: "#f59e0b",
-              },
+              markerEnd: MARKER.supersedes,
             });
           }
         });
       });
 
-      // Run automatic layout engine
       const positioned = await applyLayout(rawNodes, rawEdges, layoutEngine);
       if (!isCancelled) {
         setNodes(positioned);
         setEdges(rawEdges);
+        requestAnimationFrame(() => {
+          if (!isCancelled) {
+            rfRef.current?.fitView({ padding: 0.18, duration: 200 });
+          }
+        });
       }
     };
 
@@ -373,7 +431,6 @@ export const KnoxGraphCanvas: React.FC = () => {
     getProjectForAction,
     recentProjects,
     config?.kg_path,
-    selectedAction?.id,
     currentOnly,
     actorFilter,
     typeFilter,
@@ -400,39 +457,77 @@ export const KnoxGraphCanvas: React.FC = () => {
     [setSelectedAction, setSelectedProject]
   );
 
+  const onPaneClick = useCallback(() => {
+    setSelectedAction(null);
+  }, [setSelectedAction]);
+
   const handleResetFilters = useCallback(() => {
     setActorFilter("all");
     setTypeFilter("all");
     setSearchHighlight("");
-    setCurrentOnly(false);
+    setCurrentOnly(true);
+    setShowFileNodes(true);
   }, [setCurrentOnly]);
 
+  const handleFitView = useCallback(() => {
+    rfRef.current?.fitView({ padding: 0.18, duration: 200 });
+  }, []);
+
+  const handleRelayout = useCallback(() => {
+    void (async () => {
+      if (nodes.length === 0) return;
+      const positioned = await applyLayout(nodes, edges, layoutEngine);
+      setNodes(positioned);
+      requestAnimationFrame(() =>
+        rfRef.current?.fitView({ padding: 0.18, duration: 200 })
+      );
+    })();
+  }, [applyLayout, nodes, edges, layoutEngine, setNodes]);
+
+  const actionNodeCount = nodes.filter((n) => n.type === "actionNode").length;
+  const fileNodeCount = nodes.filter((n) => n.type === "fileNode").length;
+
   return (
-    <div className="relative w-full h-full flex overflow-hidden select-none bg-[#0b0f15]">
-      {/* Top Left Floating Filter & Search Overlay */}
-      <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-2 bg-card/90 backdrop-blur border border-border/80 px-3 py-1.5 rounded-xl shadow-xl">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mr-1">
-          <Filter className="w-3.5 h-3.5 text-primary" />
-          <span>Graph:</span>
+    <div className="relative w-full h-full flex overflow-hidden select-none bg-background">
+      {/* Filter toolbar */}
+      <div
+        className={cn(
+          "absolute top-3 left-3 z-20 flex flex-wrap items-center gap-2",
+          "max-w-[min(100%-1.5rem,42rem)] bg-card border border-border px-2.5 py-1.5 rounded-md shadow-sm"
+        )}
+        role="toolbar"
+        aria-label="Graph filters"
+      >
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground shrink-0">
+          <Filter className="size-3.5 text-primary" aria-hidden />
+          <span className="font-medium text-foreground">Graph</span>
+          {activeFilterCount > 0 && (
+            <span className="font-mono text-xs text-primary bg-primary-muted px-1 rounded-sm">
+              {activeFilterCount}
+            </span>
+          )}
         </div>
 
-        {/* Real-time search highlight input */}
         <div className="relative">
-          <Search className="w-3 h-3 text-muted-foreground absolute left-2 top-2 pointer-events-none" />
-          <input
+          <Search
+            className="size-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none"
+            aria-hidden
+          />
+          <Input
             type="text"
             value={searchHighlight}
             onChange={(e) => setSearchHighlight(e.target.value)}
-            placeholder="Highlight node…"
-            className="bg-background border border-border rounded-md pl-6 pr-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary font-mono w-32"
+            placeholder="Highlight…"
+            aria-label="Highlight matching nodes"
+            className="pl-6 h-7 w-28 text-sm"
           />
         </div>
 
-        {/* Actor filter */}
         <select
           value={actorFilter}
           onChange={(e) => setActorFilter(e.target.value)}
-          className="bg-background border border-border rounded-md px-2 py-1 text-xs text-foreground focus:outline-none cursor-pointer font-mono"
+          className={selectClass}
+          aria-label="Filter by actor"
         >
           <option value="all">All Actors</option>
           {availableActors.map((actor) => (
@@ -442,11 +537,11 @@ export const KnoxGraphCanvas: React.FC = () => {
           ))}
         </select>
 
-        {/* Type filter */}
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="bg-background border border-border rounded-md px-2 py-1 text-xs text-foreground focus:outline-none cursor-pointer font-mono"
+          className={selectClass}
+          aria-label="Filter by type"
         >
           <option value="all">All Types</option>
           {availableTypes.map((type) => (
@@ -456,143 +551,210 @@ export const KnoxGraphCanvas: React.FC = () => {
           ))}
         </select>
 
-        {/* Current / Active Only Toggle */}
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer pl-1 hover:text-foreground transition">
+        <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer hover:text-foreground">
           <input
             type="checkbox"
             checked={currentOnly}
             onChange={(e) => setCurrentOnly(e.target.checked)}
-            className="rounded border-border text-primary focus:ring-0 cursor-pointer"
+            className="rounded border-border accent-primary cursor-pointer"
           />
-          <span>Active Only</span>
+          <span>Current</span>
         </label>
 
-        {/* Show File Nodes Toggle */}
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer pl-1 border-l border-border/50 pl-2 hover:text-foreground transition">
+        <label className="flex items-center gap-1 text-sm text-muted-foreground cursor-pointer hover:text-foreground border-l border-border pl-2">
           <input
             type="checkbox"
             checked={showFileNodes}
             onChange={(e) => setShowFileNodes(e.target.checked)}
-            className="rounded border-border text-cyan-400 focus:ring-0 cursor-pointer"
+            className="rounded border-border accent-primary cursor-pointer"
           />
-          <span className="flex items-center gap-1">
-            <FileCode className="w-3 h-3 text-cyan-400" />
-            <span>Files</span>
-          </span>
+          <FileCode className="size-3 text-plan" aria-hidden />
+          <span>Files</span>
         </label>
       </div>
 
-      {/* Top Right Floating Layout Selector */}
-      <div className="absolute top-3 right-3 z-20 flex items-center gap-1 bg-card/90 backdrop-blur border border-border/80 p-1 rounded-xl shadow-xl">
-        <button
-          onClick={() => setLayoutEngine("hierarchical")}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
-            layoutEngine === "hierarchical"
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-background"
-          }`}
-          title="Hierarchical layered DAG layout (ELK Layered)"
-        >
-          <GitBranch className="w-3.5 h-3.5" />
-          <span>ELK</span>
-        </button>
+      {/* Layout + view toolbar */}
+      <div
+        className={cn(
+          "absolute top-3 right-3 z-20 flex items-center gap-0.5",
+          "bg-card border border-border p-1 rounded-md shadow-sm"
+        )}
+        role="toolbar"
+        aria-label="Layout and view controls"
+      >
+        {LAYOUTS.map((layout) => (
+          <button
+            key={layout.id}
+            type="button"
+            onClick={() => setLayoutEngine(layout.id)}
+            title={layout.title}
+            aria-pressed={layoutEngine === layout.id}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded-sm text-sm font-medium transition-colors cursor-pointer",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+              layoutEngine === layout.id
+                ? "bg-primary-muted text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+          >
+            {layout.icon}
+            <span className="hidden sm:inline">{layout.label}</span>
+          </button>
+        ))}
 
-        <button
-          onClick={() => setLayoutEngine("dagre")}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
-            layoutEngine === "dagre"
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-background"
-          }`}
-          title="Fast hierarchical layout (Dagre)"
-        >
-          <Workflow className="w-3.5 h-3.5" />
-          <span>Dagre</span>
-        </button>
+        <div className="w-px h-4 bg-border mx-0.5" aria-hidden />
 
-        <button
-          onClick={() => setLayoutEngine("force")}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
-            layoutEngine === "force"
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-background"
-          }`}
-          title="Force-directed organic physics layout (D3 Force)"
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={handleFitView}
+          title="Fit to view"
+          aria-label="Fit graph to view"
         >
-          <Network className="w-3.5 h-3.5" />
-          <span>Force</span>
-        </button>
+          <Maximize2 className="size-3.5" />
+        </Button>
 
-        <button
-          onClick={() => setLayoutEngine("grid")}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
-            layoutEngine === "grid"
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-background"
-          }`}
-          title="Compact uniform grid layout"
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={handleRelayout}
+          title="Re-run layout"
+          aria-label="Re-run layout"
+          disabled={isLayouting || nodes.length === 0}
         >
-          <Grid className="w-3.5 h-3.5" />
-          <span>Grid</span>
-        </button>
+          <RotateCcw
+            className={cn("size-3.5", isLayouting && "animate-spin text-primary")}
+          />
+        </Button>
 
-        {isLayouting && (
-          <div className="px-1 text-primary animate-spin">
-            <RefreshCw className="w-3.5 h-3.5" />
-          </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={() => setShowLegend((v) => !v)}
+          title="Toggle legend"
+          aria-label="Toggle legend"
+          aria-pressed={showLegend}
+        >
+          <Eye className="size-3.5" />
+        </Button>
+
+        {(isLayouting || isLoading) && (
+          <RefreshCw
+            className="size-3.5 text-primary animate-spin mx-1"
+            aria-label="Layout in progress"
+          />
         )}
       </div>
 
-      {/* Empty State: 0 Actions in Database */}
+      {/* Legend */}
+      {showLegend && actions.length > 0 && (
+        <div
+          className="absolute bottom-14 left-3 z-20 bg-card border border-border rounded-md px-3 py-2 shadow-sm text-xs space-y-1.5 max-w-[220px]"
+          aria-label="Graph legend"
+        >
+          <div className="text-overline mb-1">Legend</div>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <span className="size-2.5 rounded-sm border border-success/50 bg-card shrink-0" />
+            <span>
+              Action nodes{" "}
+              <span className="font-mono text-foreground">{actionNodeCount}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <span className="size-2.5 rounded-sm border border-plan/50 bg-card shrink-0" />
+            <span>
+              File nodes{" "}
+              <span className="font-mono text-foreground">{fileNodeCount}</span>
+              {!showFileNodes && " (hidden)"}
+            </span>
+          </div>
+          <div className="pt-1 border-t border-border-subtle space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="w-4 h-px bg-primary shrink-0" />
+              <span className="text-muted-foreground">follows</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className="w-4 h-px shrink-0 border-t border-dashed border-warning"
+                aria-hidden
+              />
+              <span className="text-muted-foreground">supersedes</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-4 h-px bg-plan shrink-0" />
+              <span className="text-muted-foreground">targets file</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-4 h-px bg-[var(--info,#38bdf8)] shrink-0" />
+              <span className="text-muted-foreground">project branch</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-4 h-px bg-[var(--purple,#8b5cf6)] shrink-0" />
+              <span className="text-muted-foreground">branch origin</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Empty: no data */}
       {actions.length === 0 && !isLayouting && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none p-4">
-          <div className="p-6 rounded-2xl bg-card/95 backdrop-blur border border-border text-center max-w-sm shadow-2xl pointer-events-auto space-y-3">
-            <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto text-primary">
-              <Network className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Empty Knowledge Graph</h3>
-              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                No actions recorded yet. Ingest an agent transcript or run CLI commands to populate nodes and causal edges.
-              </p>
-            </div>
-            <div className="pt-2 flex items-center justify-center gap-2">
-              <button
-                onClick={() => setActiveTab("ingest")}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition cursor-pointer"
-              >
-                <UploadCloud className="w-3.5 h-3.5" />
-                <span>Ingest Transcript</span>
-              </button>
-              <button
-                onClick={() => refreshData()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs font-medium hover:bg-secondary/80 border border-border transition cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Refresh</span>
-              </button>
-            </div>
+        <div className="absolute inset-0 z-10 flex items-center justify-center p-4 pointer-events-none">
+          <div className="pointer-events-auto w-full max-w-sm">
+            <EmptyState
+              icon={<Network />}
+              title="Empty knowledge graph"
+              description="No actions recorded yet. Ingest a transcript or connect an agent via MCP to populate nodes and causal edges."
+              action={
+                <div className="flex items-center justify-center gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setActiveTab("ingest")}
+                  >
+                    <UploadCloud className="size-3.5" />
+                    Ingest Transcript
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => refreshData()}
+                  >
+                    <RefreshCw className="size-3.5" />
+                    Refresh
+                  </Button>
+                </div>
+              }
+            />
           </div>
         </div>
       )}
 
-      {/* Empty Filter State: Actions exist, but filters return 0 nodes */}
+      {/* Empty: filters hide everything */}
       {actions.length > 0 && nodes.length === 0 && !isLayouting && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-          <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-card/95 backdrop-blur border border-amber-500/30 text-amber-200 shadow-xl pointer-events-auto text-xs">
-            <span>No actions match current filters.</span>
-            <button
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-10">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-card border border-warning/40 text-xs shadow-sm">
+            <span className="text-foreground">
+              No nodes match the current filters.
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
               onClick={handleResetFilters}
-              className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[11px] font-medium text-amber-300 transition cursor-pointer"
             >
-              <RotateCcw className="w-3 h-3" />
-              <span>Reset Filters</span>
-            </button>
+              <RotateCcw className="size-3" />
+              Reset
+            </Button>
           </div>
         </div>
       )}
 
-      {/* Main React Flow Canvas */}
       <div className="flex-1 w-full h-full">
         <ReactFlow
           nodes={nodes}
@@ -600,19 +762,39 @@ export const KnoxGraphCanvas: React.FC = () => {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}
+          onPaneClick={onPaneClick}
+          onInit={(instance) => {
+            rfRef.current = instance;
+          }}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView
           minZoom={0.05}
-          maxZoom={4.0}
+          maxZoom={4}
           proOptions={{ hideAttribution: true }}
+          deleteKeyCode={null}
+          multiSelectionKeyCode={null}
         >
-          <Background color="#1e2530" gap={24} size={1} />
-          <Controls position="bottom-left" showInteractive={false} />
+          <Background
+            variant={BackgroundVariant.Dots}
+            color="var(--border)"
+            gap={20}
+            size={1}
+          />
+          <Controls
+            position="bottom-left"
+            showInteractive={false}
+            className="!shadow-sm"
+          />
           <MiniMap
             position="bottom-right"
-            nodeColor={(n) => (n.type === "actionNode" ? "#6366f1" : "#06b6d4")}
-            maskColor="rgba(11, 15, 21, 0.75)"
+            nodeColor={(n) =>
+              n.type === "actionNode" ? "var(--primary)" : "var(--plan)"
+            }
+            maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
+            className="!shadow-sm"
+            pannable
+            zoomable
           />
         </ReactFlow>
       </div>

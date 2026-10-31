@@ -1,4 +1,4 @@
-import React from "react";
+import { memo } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -6,7 +6,22 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 
-export const CausalEdge: React.FC<EdgeProps> = ({
+/** Token-aligned edge colors (Graphite Vault). */
+const RELATION_STYLE: Record<
+  string,
+  { stroke: string; dashed?: boolean; label: string }
+> = {
+  follows: { stroke: "var(--primary)", label: "follows" },
+  caused: { stroke: "var(--primary)", label: "follows" },
+  supersedes: { stroke: "var(--warning)", dashed: true, label: "supersedes" },
+  superseded_by: { stroke: "var(--warning)", dashed: true, label: "supersedes" },
+  targets: { stroke: "var(--plan)", label: "targets" },
+  project: { stroke: "var(--info, #38bdf8)", label: "project" },
+  contains: { stroke: "var(--success, #10b981)", label: "contains" },
+  origin: { stroke: "var(--purple, #8b5cf6)", label: "origin" },
+};
+
+export const CausalEdge = memo(function CausalEdge({
   id,
   sourceX,
   sourceY,
@@ -16,7 +31,8 @@ export const CausalEdge: React.FC<EdgeProps> = ({
   targetPosition,
   data,
   markerEnd,
-}) => {
+  selected,
+}: EdgeProps) {
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -26,24 +42,8 @@ export const CausalEdge: React.FC<EdgeProps> = ({
     targetPosition,
   });
 
-  const relation = (data?.relation as string) || "caused";
-  let stroke = "#6366f1";
-  let strokeWidth = 1.5;
-  let isDashed = false;
-
-  if (relation === "supersedes" || relation === "superseded_by") {
-    stroke = "#f59e0b";
-    isDashed = true;
-  } else if (relation === "targets") {
-    stroke = "#06b6d4";
-  } else if (relation === "contains") {
-    stroke = "#10b981";
-  } else if (relation === "origin") {
-    stroke = "#8b5cf6";
-  } else if (relation === "project") {
-    stroke = "#38bdf8";
-    strokeWidth = 2;
-  }
+  const relation = ((data?.relation as string) || "follows").toLowerCase();
+  const style = RELATION_STYLE[relation] || RELATION_STYLE.follows;
 
   return (
     <>
@@ -52,27 +52,24 @@ export const CausalEdge: React.FC<EdgeProps> = ({
         path={edgePath}
         markerEnd={markerEnd}
         style={{
-          stroke,
-          strokeWidth,
-          strokeDasharray: isDashed ? "4,4" : undefined,
-          opacity: 0.85,
+          stroke: style.stroke,
+          strokeWidth: selected ? 2.25 : 1.5,
+          strokeDasharray: style.dashed ? "5 4" : undefined,
+          opacity: selected ? 1 : 0.7,
         }}
       />
-      {relation && (
-        <EdgeLabelRenderer>
-          <div
-            style={{
-              position: "absolute",
-              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-              pointerEvents: "none",
-            }}
-            className="px-1.5 py-0.5 rounded text-[9px] font-mono uppercase tracking-wider bg-card border border-border text-muted-foreground shadow-sm select-none"
-          >
-            {relation}
-          </div>
-        </EdgeLabelRenderer>
-      )}
+      <EdgeLabelRenderer>
+        <div
+          style={{
+            position: "absolute",
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: "none",
+          }}
+          className="px-1 py-0.5 rounded-sm text-2xs font-mono uppercase tracking-wider bg-card/95 border border-border text-muted-foreground select-none nodrag nopan"
+        >
+          {style.label}
+        </div>
+      </EdgeLabelRenderer>
     </>
   );
-};
-
+});

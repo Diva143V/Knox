@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import {
   X,
-  Layers,
   FolderGit2,
   Copy,
   Check,
@@ -9,9 +8,15 @@ import {
   FileCode,
   Sparkles,
   GitBranch,
+  PanelRightClose,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { ActionDetail } from "@/components/graph/ActionDetail";
+import { ActionBadge } from "@/components/ui/ActionBadge";
+import { ActorBadge } from "@/components/ui/ActorBadge";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { cn } from "@/lib/cn";
 
 export const DetailInspector: React.FC = () => {
   const {
@@ -62,162 +67,201 @@ export const DetailInspector: React.FC = () => {
     setTimeout(() => setCopiedPath(false), 2000);
   };
 
+  const handleClose = () => {
+    setSelectedAction(null);
+    setSelectedProject(null);
+  };
+
   if (!selectedAction && !selectedProject) return null;
 
   return (
-    <aside className="w-80 shrink-0 border-l border-border/80 bg-sidebar/40 flex flex-col h-full z-20 select-none overflow-hidden animate-in slide-in-from-right-4 duration-150">
-      {/* Inspector Header */}
-      <div className="h-12 border-b border-border/60 px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          {selectedAction ? (
-            <>
-              <Layers className="w-4 h-4 text-primary" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Action Detail
-              </span>
-            </>
-          ) : (
-            <>
-              <FolderGit2 className="w-4 h-4 text-sky-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Project Summary
-              </span>
-            </>
-          )}
-        </div>
-        <button
-          onClick={() => {
-            setSelectedAction(null);
-            setSelectedProject(null);
-          }}
-          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-card transition cursor-pointer"
-          title="Close Inspector (Esc)"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+    <>
+      {/* Narrow-viewport scrim — tap to close */}
+      <button
+        type="button"
+        aria-label="Close inspector overlay"
+        className="fixed inset-0 top-9 z-30 bg-background/60 xl:hidden cursor-pointer"
+        onClick={handleClose}
+      />
 
-      {/* Inspector Scrollable Body */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {selectedAction ? (
-          <ActionDetail action={selectedAction} />
-        ) : selectedProject ? (
-          <div className="space-y-4 text-xs text-foreground">
-            {/* Project Header Card */}
-            <div className="p-3.5 rounded-xl border border-sky-500/40 bg-gradient-to-br from-sky-950/40 via-zinc-950 to-zinc-900 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400">
-                    <FolderGit2 className="w-4 h-4" />
+      <aside
+        className={cn(
+          "shrink-0 border-l border-border bg-sidebar flex flex-col z-40 select-none overflow-hidden",
+          "w-[min(100vw-3.5rem,20rem)] xl:w-80",
+          "fixed right-0 top-9 bottom-0 xl:static xl:top-auto xl:bottom-auto xl:h-full",
+          "motion-safe:animate-in motion-safe:slide-in-from-right-4 motion-safe:duration-150"
+        )}
+        aria-label="Detail inspector"
+      >
+        {/* Header */}
+        <div className="h-11 border-b border-border px-3 flex items-center justify-between shrink-0 gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            {selectedAction ? (
+              <>
+                <PanelRightClose className="size-4 text-primary shrink-0" aria-hidden />
+                <div className="min-w-0">
+                  <div className="text-overline leading-none mb-1">Action Inspector</div>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <ActorBadge actor={selectedAction.actor} />
+                    <ActionBadge type={selectedAction.action_type} />
                   </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-100 font-sans tracking-tight">
+                </div>
+              </>
+            ) : selectedProject ? (
+              <>
+                <FolderGit2 className="size-4 text-primary shrink-0" aria-hidden />
+                <div className="min-w-0">
+                  <div className="text-overline leading-none mb-1">Project Summary</div>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-xs font-semibold text-foreground truncate">
                       {selectedProject.name}
-                    </h3>
-                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 uppercase font-semibold">
-                      PROJECT BRANCH
                     </span>
                   </div>
                 </div>
-                <Sparkles className="w-4 h-4 text-sky-400" />
-              </div>
+              </>
+            ) : null}
+          </div>
 
-              {/* Physical Path */}
-              <div className="space-y-1 pt-1 border-t border-zinc-800">
-                <div className="flex items-center justify-between text-zinc-400 text-[10px]">
-                  <span>Root Filesystem Path:</span>
-                  <button
-                    onClick={() => handleCopyPath(selectedProject.path)}
-                    className="text-sky-400 hover:underline flex items-center gap-0.5 cursor-pointer font-mono"
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handleClose}
+            title="Close Inspector (Esc)"
+            aria-label="Close inspector"
+            className="size-7 shrink-0"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+
+        {/* Scrollable Body */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {selectedAction ? (
+            <ActionDetail action={selectedAction} />
+          ) : selectedProject ? (
+            <div className="space-y-4 text-xs text-foreground">
+              {/* Project Header Card */}
+              <div className="p-3.5 rounded-lg border border-border bg-card space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="size-8 rounded-md bg-primary/15 border border-primary/30 flex items-center justify-center text-primary">
+                      <FolderGit2 className="size-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-foreground font-sans tracking-tight">
+                        {selectedProject.name}
+                      </h3>
+                      <Badge variant="outline" className="text-2xs">
+                        PROJECT BRANCH
+                      </Badge>
+                    </div>
+                  </div>
+                  <Sparkles className="size-4 text-primary" />
+                </div>
+
+                {/* Physical Path */}
+                <div className="space-y-1 pt-1 border-t border-border">
+                  <div className="flex items-center justify-between text-muted-foreground text-2xs">
+                    <span>Root Filesystem Path:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyPath(selectedProject.path)}
+                      className="text-primary hover:underline flex items-center gap-0.5 cursor-pointer font-mono"
+                    >
+                      {copiedPath ? (
+                        <Check className="size-2.5 text-success" />
+                      ) : (
+                        <Copy className="size-2.5" />
+                      )}
+                      <span>{copiedPath ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+                  <p
+                    className="font-mono text-xs text-foreground bg-background p-2 rounded-md border border-border truncate select-all"
+                    title={selectedProject.path}
                   >
-                    {copiedPath ? (
-                      <Check className="w-2.5 h-2.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-2.5 h-2.5" />
-                    )}
-                    <span>{copiedPath ? "Copied" : "Copy"}</span>
-                  </button>
+                    {selectedProject.path}
+                  </p>
                 </div>
-                <p
-                  className="font-mono text-[11px] text-zinc-300 bg-zinc-900/90 p-2 rounded border border-zinc-800 truncate select-all"
-                  title={selectedProject.path}
-                >
-                  {selectedProject.path}
-                </p>
+
+                {/* Metric Counters */}
+                <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-xs">
+                  <div className="p-2 rounded-md bg-background border border-border flex flex-col items-center">
+                    <span className="text-xs font-bold text-success">
+                      {projectStats.actionCount}
+                    </span>
+                    <span className="text-2xs text-muted-foreground uppercase">Actions</span>
+                  </div>
+                  <div className="p-2 rounded-md bg-background border border-border flex flex-col items-center">
+                    <span className="text-xs font-bold text-primary">
+                      {projectStats.files.length}
+                    </span>
+                    <span className="text-2xs text-muted-foreground uppercase">Files</span>
+                  </div>
+                </div>
               </div>
 
-              {/* Project Metric Counters */}
-              <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
-                <div className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-800 flex flex-col items-center">
-                  <span className="text-xs font-bold text-emerald-400">
-                    {projectStats.actionCount}
+              {/* Quick Action: Focus Project */}
+              <div>
+                {activeProjectScope?.toLowerCase() ===
+                selectedProject.path.toLowerCase() ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setProjectScope(null)}
+                  >
+                    <GitBranch className="size-3.5" />
+                    <span>Clear Focus (Show All Projects)</span>
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="w-full"
+                    onClick={() => setProjectScope(selectedProject.path)}
+                  >
+                    <Target className="size-3.5" />
+                    <span>Focus this Project</span>
+                  </Button>
+                )}
+              </div>
+
+              {/* Codebase Files */}
+              <div className="space-y-2 pt-2 border-t border-border">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <FileCode className="size-3.5 text-primary" />
+                    <span>Project Files</span>
                   </span>
-                  <span className="text-[9px] text-zinc-500 uppercase">Actions</span>
-                </div>
-                <div className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-800 flex flex-col items-center">
-                  <span className="text-xs font-bold text-cyan-400">
+                  <span className="text-2xs font-mono text-muted-foreground bg-card px-1.5 py-0.5 rounded-sm border border-border">
                     {projectStats.files.length}
                   </span>
-                  <span className="text-[9px] text-zinc-500 uppercase">Files</span>
                 </div>
+
+                {projectStats.files.length > 0 ? (
+                  <div className="space-y-1 max-h-56 overflow-y-auto pr-0.5">
+                    {projectStats.files.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="p-1.5 rounded-md bg-card hover:bg-muted border border-border text-xs font-mono text-foreground truncate select-all flex items-center gap-1.5"
+                      >
+                        <FileCode className="size-3 text-muted-foreground shrink-0" />
+                        <span className="truncate">{file}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">
+                    No files recorded under this project branch yet.
+                  </p>
+                )}
               </div>
             </div>
-
-            {/* Quick Action: Focus Project */}
-            <div>
-              {activeProjectScope?.toLowerCase() ===
-              selectedProject.path.toLowerCase() ? (
-                <button
-                  onClick={() => setProjectScope(null)}
-                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-medium text-xs transition cursor-pointer"
-                >
-                  <GitBranch className="w-3.5 h-3.5 text-zinc-400" />
-                  <span>Clear Focus (Show All Projects)</span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => setProjectScope(selectedProject.path)}
-                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 font-medium text-xs transition cursor-pointer shadow-xs"
-                >
-                  <Target className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Focus this Project</span>
-                </button>
-              )}
-            </div>
-
-            {/* Codebase Files */}
-            <div className="space-y-2 pt-2 border-t border-zinc-800">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <FileCode className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Project Files</span>
-                </span>
-                <span className="text-[10px] font-mono text-muted-foreground bg-card px-1.5 py-0.2 rounded border border-border/50">
-                  {projectStats.files.length}
-                </span>
-              </div>
-
-              {projectStats.files.length > 0 ? (
-                <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
-                  {projectStats.files.map((file, idx) => (
-                    <div
-                      key={idx}
-                      className="p-1.5 rounded bg-card/50 hover:bg-card border border-border/50 text-[11px] font-mono text-foreground truncate select-all flex items-center gap-1.5"
-                    >
-                      <FileCode className="w-3 h-3 text-zinc-500 shrink-0" />
-                      <span className="truncate">{file}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] text-muted-foreground italic">
-                  No files recorded under this project branch yet.
-                </p>
-              )}
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </aside>
+          ) : null}
+        </div>
+      </aside>
+    </>
   );
 };

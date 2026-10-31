@@ -1,26 +1,34 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Shield,
   Database,
   PlugZap,
   CheckCircle2,
-  Copy,
   Check,
   ChevronRight,
   ChevronLeft,
   X,
-  Sparkles,
-  Command,
+  FolderGit2,
+  FileInput,
+  FolderOpen,
+  GitCommit,
 } from "lucide-react";
 import { KnoxLogo } from "@/components/ui/KnoxLogo";
 import { useKnoxStore } from "@/store/useKnoxStore";
+import { KnoxAPI } from "@/services/api";
+import type { KnoxConfig } from "@/types/knox";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { Input } from "@/components/ui/Input";
+import { CodeBlock } from "@/components/ui/CodeBlock";
+import { cn } from "@/lib/cn";
 
 const AI_CONFIGS = [
   {
     id: "antigravity",
     name: "Antigravity",
     badge: "Official",
-    desc: "Google DeepMind's advanced agentic coding assistant",
+    desc: "Google DeepMind agentic coding assistant",
     snippet: `{
   "mcpServers": {
     "knox": {
@@ -34,7 +42,7 @@ const AI_CONFIGS = [
     id: "cursor",
     name: "Cursor",
     badge: "IDE",
-    desc: "AI code editor with custom MCP server support",
+    desc: "AI code editor with MCP server support",
     snippet: `{
   "mcpServers": {
     "knox": {
@@ -48,7 +56,7 @@ const AI_CONFIGS = [
     id: "claude",
     name: "Claude Code / Desktop",
     badge: "Anthropic",
-    desc: "Claude Desktop and Claude CLI agent workflows",
+    desc: "Claude Desktop and Claude CLI workflows",
     snippet: `{
   "mcpServers": {
     "knox": {
@@ -62,7 +70,7 @@ const AI_CONFIGS = [
     id: "gemini",
     name: "Gemini CLI",
     badge: "CLI",
-    desc: "Gemini agent terminal interface with MCP integration",
+    desc: "Gemini terminal agent with MCP integration",
     snippet: `{
   "mcpServers": {
     "knox": {
@@ -74,12 +82,34 @@ const AI_CONFIGS = [
   },
 ];
 
-export const OnboardingWizard: React.FC = () => {
-  const { onboardingOpen, setOnboardingOpen, status, showToast } = useKnoxStore();
-  const [currentStep, setCurrentStep] = useState<number>(0);
-  const [selectedAgent, setSelectedAgent] = useState<string>("antigravity");
-  const [copied, setCopied] = useState<boolean>(false);
+const STEPS = [
+  { title: "Welcome", icon: Shield },
+  { title: "Workspace", icon: Database },
+  { title: "MCP", icon: PlugZap },
+  { title: "Ready", icon: CheckCircle2 },
+] as const;
 
+export const OnboardingWizard: React.FC = () => {
+  const {
+    onboardingOpen,
+    setOnboardingOpen,
+    status,
+    showToast,
+    setActiveTab,
+    refreshData,
+  } = useKnoxStore();
+
+  const [currentStep, setCurrentStep] = useState(0);
+  const [selectedAgent, setSelectedAgent] = useState("antigravity");
+  const [config, setConfig] = useState<KnoxConfig | null>(null);
+  const [workspacePath, setWorkspacePath] = useState(".");
+  const [hookInstalled, setHookInstalled] = useState(false);
+  const [hasKnoxMd, setHasKnoxMd] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [isInstallingHook, setIsInstallingHook] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
+
+  // Hooks must run unconditionally — early return after hooks (fixes blank root).
   useEffect(() => {
     if (!onboardingOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -91,338 +121,558 @@ export const OnboardingWizard: React.FC = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onboardingOpen, setOnboardingOpen]);
 
-  if (!onboardingOpen) return null;
+  useEffect(() => {
+    if (!onboardingOpen) return;
+    let cancelled = false;
+    KnoxAPI.getConfig()
+      .then((cfg) => {
+        if (!cancelled) setConfig(cfg);
+      })
+      .catch(() => {
+        if (!cancelled) setConfig(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onboardingOpen]);
 
-  const steps = [
-    { title: "Welcome", icon: <Shield className="w-4 h-4" /> },
-    { title: "Workspace & DB", icon: <Database className="w-4 h-4" /> },
-    { title: "AI Integration", icon: <PlugZap className="w-4 h-4" /> },
-    { title: "Ready", icon: <CheckCircle2 className="w-4 h-4" /> },
-  ];
+  const refreshWorkspaceStatus = useCallback(async (path: string) => {
+    try {
+      const [md, hook] = await Promise.all([
+        KnoxAPI.getKnoxMd(path),
+        KnoxAPI.getHookStatus(path),
+      ]);
+      setHasKnoxMd(md !== null);
+      setHookInstalled(hook);
+    } catch {
+      setHasKnoxMd(false);
+      setHookInstalled(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!onboardingOpen || currentStep !== 1) return;
+    refreshWorkspaceStatus(workspacePath);
+  }, [onboardingOpen, currentStep, workspacePath, refreshWorkspaceStatus]);
+
+  const handleDismiss = () => {
+    setOnboardingOpen(false);
+  };
 
   const handleComplete = () => {
     try {
       localStorage.setItem("knox_onboarding_completed", "true");
     } catch {
-      // Storage unavailable or restricted
+      /* storage unavailable */
     }
     setOnboardingOpen(false);
-    showToast("Welcome to Knox 🛡️ v1.2.1!");
+    showToast("Welcome to Knox 🛡️!");
+    refreshData();
   };
 
-  const handleCopy = (text: string) => {
+  const handleBrowseFolder = async () => {
     try {
-      navigator.clipboard
-        .writeText(text)
-        .then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-        })
-        .catch(() => {});
-    } catch {
-      // Clipboard write failed or blocked
+      const selected = await KnoxAPI.openFolderDialog();
+      if (selected) {
+        setWorkspacePath(selected);
+        setSetupError(null);
+        await refreshWorkspaceStatus(selected);
+      }
+    } catch (e) {
+      console.warn("Folder picker unavailable:", e);
     }
   };
 
-  const currentConfig = AI_CONFIGS.find((a) => a.id === selectedAgent) || AI_CONFIGS[0];
+  const handleInitWorkspace = async () => {
+    setIsInitializing(true);
+    setSetupError(null);
+    try {
+      const res = await KnoxAPI.initProject(workspacePath);
+      showToast(res);
+      await refreshWorkspaceStatus(workspacePath);
+    } catch (err) {
+      const msg = String(err);
+      setSetupError(msg);
+      showToast(msg, true);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+  const handleToggleHook = async () => {
+    setIsInstallingHook(true);
+    setSetupError(null);
+    try {
+      const res = hookInstalled
+        ? await KnoxAPI.uninstallHook(workspacePath)
+        : await KnoxAPI.installHook(workspacePath);
+      showToast(res);
+      await refreshWorkspaceStatus(workspacePath);
+    } catch (err) {
+      const msg = String(err);
+      setSetupError(msg);
+      showToast(msg, true);
+    } finally {
+      setIsInstallingHook(false);
+    }
+  };
+
+  const goToTab = (tab: "workspace" | "ingest" | "mcp") => {
+    handleComplete();
+    setActiveTab(tab);
+  };
+
+  if (!onboardingOpen) return null;
+
+  const currentConfig =
+    AI_CONFIGS.find((a) => a.id === selectedAgent) || AI_CONFIGS[0];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl bg-card border border-border/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Wizard Header */}
-        <div className="px-6 py-4 border-b border-border/60 flex items-center justify-between bg-card/50">
-          <div className="flex items-center gap-3">
-            <KnoxLogo size={36} variant="card" />
-            <div>
-              <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay motion-safe:animate-in motion-safe:fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="onboarding-title"
+    >
+      <div className="w-full max-w-2xl bg-card border border-border rounded-[var(--radius-xl,10px)] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between bg-card">
+          <div className="flex items-center gap-3 min-w-0">
+            <KnoxLogo size={28} variant="card" />
+            <div className="min-w-0">
+              <h2
+                id="onboarding-title"
+                className="text-sm font-semibold text-foreground flex items-center gap-2"
+              >
                 Knox Setup & Onboarding Wizard
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/20 text-primary font-mono font-medium">
-                  v1.2.1
-                </span>
+                <Badge variant="secondary">v1.2.1</Badge>
               </h2>
               <p className="text-xs text-muted-foreground">
-                Step {currentStep + 1} of {steps.length} — {steps[currentStep].title}
+                Step {currentStep + 1} of {STEPS.length} —{" "}
+                {STEPS[currentStep].title}
               </p>
             </div>
           </div>
-          <button
-            onClick={() => setOnboardingOpen(false)}
-            className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition cursor-pointer"
-            title="Close Setup Wizard"
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handleDismiss}
+            aria-label="Close setup wizard"
+            title="Close (Esc). You can reopen from Setup Guide."
           >
-            <X className="w-4 h-4" />
-          </button>
+            <X className="size-4" />
+          </Button>
         </div>
 
-        {/* Step Indicator Progress Bar */}
-        <div className="grid grid-cols-4 border-b border-border/40 bg-muted/20">
-          {steps.map((step, idx) => (
-            <button
-              key={step.title}
-              onClick={() => setCurrentStep(idx)}
-              className={`flex items-center justify-center gap-2 py-2.5 text-xs font-medium border-b-2 transition cursor-pointer ${
-                idx === currentStep
-                  ? "border-primary text-primary bg-primary/5"
-                  : idx < currentStep
-                  ? "border-emerald-500/60 text-emerald-400 bg-emerald-500/5"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {idx < currentStep ? (
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-              ) : (
-                step.icon
-              )}
-              <span className="hidden sm:inline">{step.title}</span>
-            </button>
-          ))}
+        <div
+          className="grid grid-cols-4 border-b border-border bg-muted/20"
+          role="tablist"
+          aria-label="Onboarding steps"
+        >
+          {STEPS.map((step, idx) => {
+            const Icon = step.icon;
+            const done = idx < currentStep;
+            const active = idx === currentStep;
+            return (
+              <button
+                key={step.title}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setCurrentStep(idx)}
+                className={cn(
+                  "flex items-center justify-center gap-2 py-2.5 text-xs font-medium border-b-2 transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring",
+                  active
+                    ? "border-primary text-primary bg-primary/5"
+                    : done
+                      ? "border-success/60 text-success bg-success/5"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {done ? (
+                  <Check className="size-3.5" aria-hidden />
+                ) : (
+                  <Icon className="size-3.5" aria-hidden />
+                )}
+                <span className="hidden sm:inline">{step.title}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Wizard Body Viewport */}
-        <div className="p-6 overflow-y-auto flex-1 min-h-[320px]">
-          {/* STEP 0: WELCOME */}
+        <div className="p-5 sm:p-6 overflow-y-auto flex-1 min-h-[300px]">
           {currentStep === 0 && (
-            <div className="space-y-4 animate-in fade-in-50 duration-200">
-              <div className="text-center py-4 space-y-2">
-                <div className="inline-flex p-3 rounded-2xl bg-gradient-to-tr from-primary/20 via-primary/10 to-transparent border border-primary/30 shadow-lg shadow-primary/10">
-                  <Sparkles className="w-8 h-8 text-primary" />
+            <div className="space-y-5">
+              <div className="text-center space-y-2 py-2">
+                <div className="inline-flex items-center justify-center">
+                  <KnoxLogo size={56} variant="card" />
                 </div>
-                <h3 className="text-lg font-bold text-foreground">
-                  The Local-First Knowledge Graph for AI Agents
+                <h3 className="text-lg font-semibold text-foreground tracking-tight">
+                  Local knowledge graph for AI agents
                 </h3>
                 <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-                  Knox automatically captures coding decisions, human edits, and architectural
-                  lineage across sessions. AI assistants query your knowledge graph instead of
-                  wasting tokens rediscovering context.
+                  Knox records coding decisions, human edits, and architectural
+                  lineage in SQLite on your machine. Agents query the graph
+                  instead of rediscovering context every session.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
-                <div className="p-3.5 rounded-xl border border-border/60 bg-muted/20 space-y-1.5">
-                  <div className="text-primary font-semibold text-xs flex items-center gap-1.5">
-                    <Database className="w-3.5 h-3.5" />
-                    Zero Context Loss
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-normal">
-                    Preserves decisions and architectural intent between resets.
-                  </p>
-                </div>
-
-                <div className="p-3.5 rounded-xl border border-border/60 bg-muted/20 space-y-1.5">
-                  <div className="text-emerald-400 font-semibold text-xs flex items-center gap-1.5">
-                    <Shield className="w-3.5 h-3.5" />
-                    100% Private & Local
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-normal">
-                    Pure Rust core + SQLite database on your machine with FTS5 search.
-                  </p>
-                </div>
-
-                <div className="p-3.5 rounded-xl border border-border/60 bg-muted/20 space-y-1.5">
-                  <div className="text-violet-400 font-semibold text-xs flex items-center gap-1.5">
-                    <PlugZap className="w-3.5 h-3.5" />
-                    Universal MCP Bridge
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-normal">
-                    Model Context Protocol stdio transport for any compatible agent.
-                  </p>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {[
+                  {
+                    icon: Database,
+                    title: "Persistent memory",
+                    body: "Decisions and actions survive context resets.",
+                  },
+                  {
+                    icon: Shield,
+                    title: "Private & local",
+                    body: "Rust core + SQLite with FTS5 — data stays on disk.",
+                  },
+                  {
+                    icon: PlugZap,
+                    title: "Standard MCP",
+                    body: "Connects to Antigravity, Cursor, Claude, and CLI tools.",
+                  },
+                ].map((item) => {
+                  const ItemIcon = item.icon;
+                  return (
+                    <div
+                      key={item.title}
+                      className="p-3.5 rounded-lg border border-border bg-card space-y-1.5"
+                    >
+                      <div className="flex items-center gap-2 text-primary font-semibold text-xs">
+                        <ItemIcon className="size-4 shrink-0" aria-hidden />
+                        <span>{item.title}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground leading-relaxed">
+                        {item.body}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
+
+              {status && (
+                <div className="p-3 rounded-lg bg-background border border-border flex items-center justify-between text-xs font-mono">
+                  <span className="text-muted-foreground">Current graph</span>
+                  <span className="text-foreground">
+                    <span className="font-semibold text-primary">
+                      {status.total_actions}
+                    </span>{" "}
+                    actions ·{" "}
+                    <span className="font-semibold text-foreground">
+                      {status.projects_tracked}
+                    </span>{" "}
+                    projects
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
-          {/* STEP 1: WORKSPACE & DATABASE */}
           {currentStep === 1 && (
-            <div className="space-y-4 animate-in fade-in-50 duration-200">
-              <div className="space-y-1">
+            <div className="space-y-4">
+              <div>
                 <h3 className="text-sm font-semibold text-foreground">
-                  Knowledge Graph Storage & Status
+                  Workspace & git repository
                 </h3>
-                <p className="text-xs text-muted-foreground">
-                  Knox connects directly to your local workspace and manages SQLite state.
+                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                  Point Knox at a repository to create a{" "}
+                  <code className="font-mono text-foreground">knox.md</code>{" "}
+                  context file and optionally install the pre-commit hook that
+                  surfaces human edits to the knowledge graph.
                 </p>
               </div>
 
-              <div className="space-y-3 pt-2">
-                <div className="p-4 rounded-xl border border-border/60 bg-muted/20 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">Database Path</span>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                      Active
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-card border border-border/40 font-mono text-xs text-foreground truncate">
-                    ~/.knox/knox.db
-                  </div>
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="onboarding-workspace-path"
+                  className="text-sm font-medium text-foreground"
+                >
+                  Repository root
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    id="onboarding-workspace-path"
+                    value={workspacePath}
+                    onChange={(e) => {
+                      setWorkspacePath(e.target.value);
+                      setSetupError(null);
+                    }}
+                    placeholder="."
+                    className="font-mono text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleBrowseFolder}
+                    title="Browse for folder"
+                  >
+                    <FolderOpen className="size-3.5" />
+                    Browse
+                  </Button>
                 </div>
+              </div>
 
-                <div className="p-4 rounded-xl border border-border/60 bg-muted/20 space-y-2">
+              {setupError && (
+                <p
+                  role="alert"
+                  className="text-xs text-danger bg-danger/10 border border-danger/30 p-2.5 rounded-md"
+                >
+                  {setupError}
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="p-3.5 rounded-lg border border-border bg-card space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">Workspace Memory</span>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono">
-                      knox.md
+                    <span className="font-medium text-xs text-foreground flex items-center gap-1.5">
+                      <FolderGit2 className="size-3.5 text-primary" />
+                      knox.md file
                     </span>
+                    <Badge variant={hasKnoxMd ? "success" : "secondary"}>
+                      {hasKnoxMd ? "Present" : "Missing"}
+                    </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Knox maintains an active project summary in <code className="text-primary font-mono">knox.md</code> in your project root, which AI coding tools can automatically ingest.
+                  <p className="text-sm text-muted-foreground">
+                    Project-level context document read by AI agents.
                   </p>
+                  <Button
+                    type="button"
+                    variant={hasKnoxMd ? "outline" : "primary"}
+                    size="sm"
+                    className="w-full"
+                    onClick={handleInitWorkspace}
+                    disabled={isInitializing}
+                  >
+                    {isInitializing
+                      ? "Writing…"
+                      : hasKnoxMd
+                        ? "Re-initialize knox.md"
+                        : "Create knox.md"}
+                  </Button>
                 </div>
 
-                {status && (
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    <div className="p-3 rounded-lg border border-border/60 bg-card/60 text-center">
-                      <div className="text-base font-bold text-foreground font-mono">
-                        {status.total_actions}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">Total Actions Logged</div>
-                    </div>
-                    <div className="p-3 rounded-lg border border-border/60 bg-card/60 text-center">
-                      <div className="text-base font-bold text-foreground font-mono">
-                        {status.total_sessions}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">Sessions Tracked</div>
-                    </div>
+                <div className="p-3.5 rounded-lg border border-border bg-card space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-xs text-foreground flex items-center gap-1.5">
+                      <GitCommit className="size-3.5 text-primary" />
+                      Pre-commit hook
+                    </span>
+                    <Badge variant={hookInstalled ? "success" : "secondary"}>
+                      {hookInstalled ? "Active" : "Inactive"}
+                    </Badge>
                   </div>
-                )}
+                  <p className="text-sm text-muted-foreground">
+                    Captures human git commits into the knowledge graph.
+                  </p>
+                  <Button
+                    type="button"
+                    variant={hookInstalled ? "outline" : "primary"}
+                    size="sm"
+                    className="w-full"
+                    onClick={handleToggleHook}
+                    disabled={isInstallingHook}
+                  >
+                    {isInstallingHook
+                      ? "Updating…"
+                      : hookInstalled
+                        ? "Remove hook"
+                        : "Install hook"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-background border border-border font-mono text-xs space-y-1">
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Global database</span>
+                  <span
+                    className="text-foreground truncate max-w-[280px]"
+                    title={config?.kg_path}
+                  >
+                    {config?.kg_path || "~/.knox/knox.db"}
+                  </span>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Format</span>
+                  <span className="text-foreground">
+                    SQLite + FTS5 full-text index
+                  </span>
+                </div>
               </div>
             </div>
           )}
 
-          {/* STEP 2: AI ASSISTANT MCP INTEGRATION */}
           {currentStep === 2 && (
-            <div className="space-y-4 animate-in fade-in-50 duration-200">
-              <div className="space-y-1">
+            <div className="space-y-4">
+              <div>
                 <h3 className="text-sm font-semibold text-foreground">
-                  Connect AI Coding Assistants via MCP
+                  Connect your AI assistant
                 </h3>
-                <p className="text-xs text-muted-foreground">
-                  Add Knox as a Model Context Protocol tool in your favorite AI environment.
+                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                  Knox exposes 9 MCP tools over stdio. Paste this configuration
+                  into your tool’s MCP config file.
                 </p>
               </div>
 
-              {/* Agent Selector Tabs */}
-              <div className="flex gap-2 p-1 bg-muted/30 border border-border/40 rounded-xl overflow-x-auto">
-                {AI_CONFIGS.map((agent) => (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {AI_CONFIGS.map((cfg) => (
                   <button
-                    key={agent.id}
-                    onClick={() => setSelectedAgent(agent.id)}
-                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-medium transition cursor-pointer whitespace-nowrap ${
-                      selectedAgent === agent.id
-                        ? "bg-card text-foreground shadow-sm border border-border/60"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    key={cfg.id}
+                    type="button"
+                    onClick={() => setSelectedAgent(cfg.id)}
+                    className={cn(
+                      "p-2.5 rounded-lg border text-left transition-colors cursor-pointer",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+                      selectedAgent === cfg.id
+                        ? "bg-primary-muted border-primary text-foreground"
+                        : "bg-card border-border hover:bg-muted/50 text-foreground"
+                    )}
                   >
-                    {agent.name}
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold text-xs">{cfg.name}</span>
+                      <span className="text-2xs font-mono uppercase text-muted-foreground">
+                        {cfg.badge}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-snug line-clamp-2">
+                      {cfg.desc}
+                    </p>
                   </button>
                 ))}
               </div>
 
-              {/* Code Snippet Block */}
-              <div className="relative rounded-xl border border-border/80 bg-zinc-950 p-4 font-mono text-xs text-zinc-100 shadow-inner">
-                <div className="flex items-center justify-between mb-2 pb-2 border-b border-zinc-800 text-[11px] text-zinc-400">
-                  <span>{currentConfig.name} Configuration Snippet</span>
-                  <button
-                    onClick={() => handleCopy(currentConfig.snippet)}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition cursor-pointer"
-                  >
-                    {copied ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className="text-emerald-400">Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Copy JSON</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-                <pre className="overflow-x-auto text-[11.5px] leading-relaxed text-emerald-400">
-                  {currentConfig.snippet}
-                </pre>
-              </div>
+              <CodeBlock
+                code={currentConfig.snippet}
+                language="json"
+                onCopied={() =>
+                  showToast(`Copied ${currentConfig.name} configuration!`)
+                }
+              />
 
-              <div className="text-[11px] text-muted-foreground bg-muted/20 p-3 rounded-xl border border-border/50">
-                💡 <strong>Protocol Note:</strong> Knox operates its MCP server via{" "}
-                <code className="text-primary font-mono">knox serve --stdio</code>. It runs seamlessly as a sub-process for any MCP-compliant client.
+              <div className="p-3 rounded-lg bg-background border border-border flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  Need custom flags or manual command?
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => goToTab("mcp")}
+                >
+                  Open MCP docs →
+                </Button>
               </div>
             </div>
           )}
 
-          {/* STEP 3: READY & LAUNCH */}
           {currentStep === 3 && (
-            <div className="space-y-4 animate-in fade-in-50 duration-200">
-              <div className="text-center py-4 space-y-2">
-                <div className="inline-flex p-3 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <CheckCircle2 className="w-8 h-8" />
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl border border-success/30 bg-success/10 text-center space-y-1.5">
+                <div className="size-9 rounded-full bg-success/20 border border-success/40 text-success flex items-center justify-center mx-auto">
+                  <Check className="size-5" />
                 </div>
-                <h3 className="text-lg font-bold text-foreground">You are Ready to Use Knox!</h3>
-                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                  Your local knowledge graph is online and ready to empower your AI workflows.
+                <h3 className="text-base font-semibold text-foreground">
+                  Knox is ready
+                </h3>
+                <p className="text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
+                  Start an agent session or explore existing knowledge using the
+                  navigation sidebar or keyboard shortcuts.
                 </p>
               </div>
 
-              {/* Quick Navigation Cheat Sheet */}
-              <div className="p-4 rounded-xl border border-border/60 bg-muted/20 space-y-2.5">
-                <div className="text-xs font-semibold text-foreground flex items-center gap-2">
-                  <Command className="w-3.5 h-3.5 text-primary" />
-                  Key Desktop Shortcuts
-                </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-auto py-3 flex-col gap-1.5"
+                  onClick={() => goToTab("workspace")}
+                >
+                  <FolderGit2 className="size-4 text-primary" />
+                  <span>Workspace</span>
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-auto py-3 flex-col gap-1.5"
+                  onClick={() => goToTab("ingest")}
+                >
+                  <FileInput className="size-4 text-primary" />
+                  <span>Ingest</span>
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-auto py-3 flex-col gap-1.5"
+                  onClick={() => goToTab("mcp")}
+                >
+                  <PlugZap className="size-4 text-primary" />
+                  <span>MCP</span>
+                </Button>
+              </div>
+
+              <div className="p-3.5 rounded-lg border border-border bg-background space-y-2">
+                <p className="text-xs font-semibold text-foreground">
+                  Desktop shortcuts
+                </p>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/40">
-                    <span className="text-muted-foreground text-[11px]">Command Palette</span>
-                    <kbd className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">Ctrl + K</kbd>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/40">
-                    <span className="text-muted-foreground text-[11px]">Live Refresh</span>
-                    <kbd className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">F5</kbd>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/40">
-                    <span className="text-muted-foreground text-[11px]">Tab Navigation</span>
-                    <kbd className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">1 – 8</kbd>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/40">
-                    <span className="text-muted-foreground text-[11px]">Close Inspector</span>
-                    <kbd className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">Esc</kbd>
-                  </div>
+                  {[
+                    ["Command palette", "Ctrl + K"],
+                    ["Refresh", "F5"],
+                    ["Tab navigation", "1 – 8"],
+                    ["Close inspector", "Esc"],
+                  ].map(([label, keys]) => (
+                    <div
+                      key={label}
+                      className="flex items-center justify-between p-2 rounded-md bg-card border border-border"
+                    >
+                      <span className="text-muted-foreground text-sm">
+                        {label}
+                      </span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">
+                        {keys}
+                      </kbd>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Wizard Footer Controls */}
-        <div className="px-6 py-4 border-t border-border/60 flex items-center justify-between bg-card/50">
+        <div className="px-5 py-4 border-t border-border flex items-center justify-between bg-card">
           <div>
             {currentStep > 0 && (
-              <button
+              <Button
+                type="button"
+                variant="ghost"
                 onClick={() => setCurrentStep((s) => s - 1)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition cursor-pointer"
               >
-                <ChevronLeft className="w-4 h-4" />
+                <ChevronLeft className="size-4" />
                 Back
-              </button>
+              </Button>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            {currentStep < steps.length - 1 ? (
-              <button
+            {currentStep < STEPS.length - 1 ? (
+              <Button
+                type="button"
+                variant="primary"
                 onClick={() => setCurrentStep((s) => s + 1)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-primary text-primary-foreground hover:opacity-90 shadow-md transition cursor-pointer"
               >
                 Continue
-                <ChevronRight className="w-4 h-4" />
-              </button>
+                <ChevronRight className="size-4" />
+              </Button>
             ) : (
-              <button
-                onClick={handleComplete}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 shadow-md shadow-emerald-600/20 transition cursor-pointer"
-              >
-                <Check className="w-4 h-4" />
-                Get Started
-              </button>
+              <Button type="button" variant="primary" onClick={handleComplete}>
+                <Check className="size-4" />
+                Get started
+              </Button>
             )}
           </div>
         </div>
