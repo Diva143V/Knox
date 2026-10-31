@@ -25,6 +25,17 @@ const isFirstRun = (): boolean => {
   }
 };
 
+const isTourFirstRun = (): boolean => {
+  try {
+    return (
+      typeof window !== "undefined" &&
+      localStorage.getItem("knox_has_completed_tour") !== "true"
+    );
+  } catch {
+    return false;
+  }
+};
+
 const STORAGE_KEY_RECENT_PROJECTS = "knox_recent_projects";
 const STORAGE_KEY_ACTIVE_PROJECT = "knox_active_project";
 
@@ -66,6 +77,7 @@ interface KnoxStore {
   toast: { message: string; isError: boolean; variant: ToastVariant } | null;
   commandPaletteOpen: boolean;
   onboardingOpen: boolean;
+  isTourOpen: boolean;
   config: KnoxConfig | null;
   theme: ThemeMode;
 
@@ -88,6 +100,8 @@ interface KnoxStore {
   toggleCommandPalette: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setOnboardingOpen: (open: boolean) => void;
+  openTour: () => void;
+  closeTour: () => void;
   setTheme: (theme: ThemeMode) => void;
   refreshData: () => Promise<void>;
 }
@@ -104,7 +118,10 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   isLoading: false,
   toast: null,
   commandPaletteOpen: false,
-  onboardingOpen: isFirstRun(),
+  onboardingOpen: !isTourFirstRun() && isFirstRun(),
+  isTourOpen: isTourFirstRun(),
+  openTour: () => set({ isTourOpen: true }),
+  closeTour: () => set({ isTourOpen: false }),
   config: null,
   theme: getStoredTheme(),
 

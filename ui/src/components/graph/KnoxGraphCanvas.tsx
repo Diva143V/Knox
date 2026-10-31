@@ -19,7 +19,9 @@ import { ActionNode } from "./ActionNode";
 import { FileNode } from "./FileNode";
 import { ProjectRootNode } from "./ProjectRootNode";
 import { CausalEdge } from "./CausalEdge";
+import { CircleNode, type CircleNodeData } from "./CircleNode";
 import { useGraphLayout, type LayoutEngine } from "@/hooks/useGraphLayout";
+import { useLivePhysics } from "@/hooks/useLivePhysics";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -37,6 +39,10 @@ import {
   UploadCloud,
   Maximize2,
   Eye,
+  LayoutDashboard,
+  Orbit,
+  Atom,
+  Flame,
 } from "lucide-react";
 import type { KnoxAction, Project } from "@/types/knox";
 
@@ -44,6 +50,7 @@ const nodeTypes = {
   projectRootNode: ProjectRootNode,
   actionNode: ActionNode,
   fileNode: FileNode,
+  circleNode: CircleNode,
 };
 
 const edgeTypes = {
@@ -92,6 +99,11 @@ const MARKER = {
   project: { type: MarkerType.ArrowClosed, color: "var(--info, #38bdf8)", width: 16, height: 16 },
   contains: { type: MarkerType.ArrowClosed, color: "var(--success, #10b981)", width: 16, height: 16 },
   origin: { type: MarkerType.ArrowClosed, color: "var(--purple, #8b5cf6)", width: 16, height: 16 },
+  depends_on: { type: MarkerType.ArrowClosed, color: "var(--warning, #f59e0b)", width: 16, height: 16 },
+  implements: { type: MarkerType.ArrowClosed, color: "var(--success, #10b981)", width: 16, height: 16 },
+  verifies: { type: MarkerType.ArrowClosed, color: "var(--plan, #06b6d4)", width: 16, height: 16 },
+  relates_to: { type: MarkerType.ArrowClosed, color: "var(--muted-foreground, #94a3b8)", width: 16, height: 16 },
+  reverts: { type: MarkerType.ArrowClosed, color: "var(--danger, #ef4444)", width: 16, height: 16 },
 } as const;
 
 export const KnoxGraphCanvas: React.FC = () => {
@@ -120,11 +132,67 @@ export const KnoxGraphCanvas: React.FC = () => {
   const [showLegend, setShowLegend] = useState<boolean>(true);
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
+  type ViewMode = "cards" | "cosmos";
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const saved = localStorage.getItem("knox_graph_view_mode");
+      if (saved === "cosmos" || saved === "cards") return saved;
+    } catch {}
+    return "cards";
+  });
+
+  const [livePhysics, setLivePhysics] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("knox_graph_live_physics");
+      if (saved !== null) return saved === "true";
+    } catch {}
+    return false;
+  });
+
+  const handleToggleViewMode = (mode: ViewMode) => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem("knox_graph_view_mode", mode);
+    } catch {}
+    if (mode === "cosmos" && !livePhysics) {
+      setLivePhysics(true);
+      try {
+        localStorage.setItem("knox_graph_live_physics", "true");
+      } catch {}
+    }
+  };
+
+  const handleTogglePhysics = () => {
+    setLivePhysics((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("knox_graph_live_physics", String(next));
+      } catch {}
+      return next;
+    });
+  };
+
   const { layoutEngine, setLayoutEngine, isLayouting, applyLayout } =
     useGraphLayout();
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  const {
+    isRunning: isPhysicsRunning,
+    reheat,
+    onNodeDragStart,
+    onNodeDrag,
+    onNodeDragStop,
+  } = useLivePhysics({
+    enabled: livePhysics,
+    nodes,
+    edges,
+    setNodes,
+    chargeStrength: viewMode === "cosmos" ? -340 : -450,
+    linkDistance: viewMode === "cosmos" ? 110 : 180,
+    collisionPadding: viewMode === "cosmos" ? 22 : 35,
+  });
 
   const availableActors = useMemo(() => {
     const set = new Set<string>();
@@ -226,18 +294,33 @@ export const KnoxGraphCanvas: React.FC = () => {
       const allFileSet = new Set<string>();
       filteredActions.forEach((a) => a.files?.forEach((f) => allFileSet.add(f)));
 
-      rawNodes.push({
-        id: globalNodeId,
-        type: "projectRootNode",
-        position: { x: 0, y: 0 },
-        data: {
-          name: "Global Knowledge Graph",
-          path: globalDbPath,
-          isGlobal: true,
-          actionCount: filteredActions.length,
-          fileCount: allFileSet.size,
-        },
-      });
+      if (viewMode === "cosmos") {
+        rawNodes.push({
+          id: globalNodeId,
+          type: "circleNode",
+          position: { x: 0, y: 0 },
+          data: {
+            kind: "project",
+            title: "Global KG",
+            subtitle: "Global Graph Root",
+            actionCount: filteredActions.length,
+            fileCount: allFileSet.size,
+          },
+        });
+      } else {
+        rawNodes.push({
+          id: globalNodeId,
+          type: "projectRootNode",
+          position: { x: 0, y: 0 },
+          data: {
+            name: "Global Knowledge Graph",
+            path: globalDbPath,
+            isGlobal: true,
+            actionCount: filteredActions.length,
+            fileCount: allFileSet.size,
+          },
+        });
+      }
 
       // 3. Partition actions into their respective projects
       const projectActionMap = new Map<string, KnoxAction[]>();
@@ -284,20 +367,35 @@ export const KnoxGraphCanvas: React.FC = () => {
         });
 
         // Add Project Folder Node
-        rawNodes.push({
-          id: projNodeId,
-          type: "projectRootNode",
-          position: { x: 0, y: 0 },
-          data: {
-            name: proj.name,
-            path: proj.path,
-            isGlobal: false,
-            actionCount: projActions.length,
-            fileCount: projFileCounts.size,
-            project: proj,
-            isSelected: selectedProject?.path === proj.path,
-          },
-        });
+        if (viewMode === "cosmos") {
+          rawNodes.push({
+            id: projNodeId,
+            type: "circleNode",
+            position: { x: 0, y: 0 },
+            data: {
+              kind: "project",
+              title: proj.name,
+              subtitle: `${projActions.length} actions`,
+              project: proj,
+              isSelected: selectedProject?.path === proj.path,
+            },
+          });
+        } else {
+          rawNodes.push({
+            id: projNodeId,
+            type: "projectRootNode",
+            position: { x: 0, y: 0 },
+            data: {
+              name: proj.name,
+              path: proj.path,
+              isGlobal: false,
+              actionCount: projActions.length,
+              fileCount: projFileCounts.size,
+              project: proj,
+              isSelected: selectedProject?.path === proj.path,
+            },
+          });
+        }
 
         // Directed Edge: Global DB -> Project Folder Branch
         rawEdges.push({
@@ -317,12 +415,27 @@ export const KnoxGraphCanvas: React.FC = () => {
 
           sortedFiles.forEach(([filePath, count]) => {
             const fileNodeId = `file:${proj.name}:${filePath}`;
-            rawNodes.push({
-              id: fileNodeId,
-              type: "fileNode",
-              position: { x: 0, y: 0 },
-              data: { filePath, count },
-            });
+            if (viewMode === "cosmos") {
+              rawNodes.push({
+                id: fileNodeId,
+                type: "circleNode",
+                position: { x: 0, y: 0 },
+                data: {
+                  kind: "file",
+                  title: filePath.split(/[/\\]/).pop() || filePath,
+                  subtitle: filePath,
+                  filePath,
+                  count,
+                },
+              });
+            } else {
+              rawNodes.push({
+                id: fileNodeId,
+                type: "fileNode",
+                position: { x: 0, y: 0 },
+                data: { filePath, count },
+              });
+            }
 
             // Project Folder -> File ("contains")
             rawEdges.push({
@@ -359,16 +472,32 @@ export const KnoxGraphCanvas: React.FC = () => {
               (action.files &&
                 action.files.some((f) => f.toLowerCase().includes(lowerSearch))));
 
-          rawNodes.push({
-            id: action.id,
-            type: "actionNode",
-            position: { x: 0, y: 0 },
-            data: {
-              action,
-              selected: selectedAction?.id === action.id,
-              isHighlighted,
-            },
-          });
+          if (viewMode === "cosmos") {
+            rawNodes.push({
+              id: action.id,
+              type: "circleNode",
+              position: { x: 0, y: 0 },
+              data: {
+                kind: "action",
+                title: action.summary,
+                subtitle: `${action.actor} • ${action.action_type}`,
+                action,
+                selected: selectedAction?.id === action.id,
+                isHighlighted,
+              },
+            });
+          } else {
+            rawNodes.push({
+              id: action.id,
+              type: "actionNode",
+              position: { x: 0, y: 0 },
+              data: {
+                action,
+                selected: selectedAction?.id === action.id,
+                isHighlighted,
+              },
+            });
+          }
 
           // Causal edge to parent or Project Root
           if (action.parent_action_id && projActionIds.has(action.parent_action_id)) {
@@ -401,6 +530,23 @@ export const KnoxGraphCanvas: React.FC = () => {
               type: "causalEdge",
               data: { relation: "supersedes" },
               markerEnd: MARKER.supersedes,
+            });
+          }
+
+          // Semantic Relations (depends_on, implements, verifies, relates_to, reverts)
+          if (action.relations && action.relations.length > 0) {
+            action.relations.forEach((rel) => {
+              const targetId = rel.target_id;
+              rawEdges.push({
+                id: `rel-${action.id}->${targetId}:${rel.relation_type}`,
+                source: action.id,
+                target: targetId,
+                type: "causalEdge",
+                data: { relation: rel.relation_type },
+                markerEnd:
+                  (MARKER as Record<string, any>)[rel.relation_type] ||
+                  MARKER.follows,
+              });
             });
           }
         });
@@ -440,6 +586,7 @@ export const KnoxGraphCanvas: React.FC = () => {
     applyLayout,
     setNodes,
     setEdges,
+    viewMode,
   ]);
 
   const onNodeClick = useCallback(
@@ -447,6 +594,14 @@ export const KnoxGraphCanvas: React.FC = () => {
       if (node.type === "actionNode") {
         const action = (node.data as { action: KnoxAction }).action;
         setSelectedAction(action);
+      } else if (node.type === "circleNode") {
+        const cData = node.data as CircleNodeData;
+        if (cData.kind === "action" && cData.action) {
+          setSelectedAction(cData.action);
+        } else if (cData.kind === "project") {
+          const proj = (cData as Record<string, unknown>).project as Project | undefined;
+          if (proj) setSelectedProject(proj);
+        }
       } else if (node.type === "projectRootNode") {
         const pData = node.data as { isGlobal?: boolean; project?: Project };
         if (!pData.isGlobal && pData.project) {
@@ -576,12 +731,77 @@ export const KnoxGraphCanvas: React.FC = () => {
       {/* Layout + view toolbar */}
       <div
         className={cn(
-          "absolute top-3 right-3 z-20 flex items-center gap-0.5",
+          "absolute top-3 right-3 z-20 flex flex-wrap items-center gap-1",
           "bg-card border border-border p-1 rounded-md shadow-sm"
         )}
         role="toolbar"
         aria-label="Layout and view controls"
       >
+        {/* View Mode Toggle: Cards vs Cosmos */}
+        <div className="flex items-center bg-muted/60 p-0.5 rounded-sm border border-border mr-0.5">
+          <button
+            type="button"
+            onClick={() => handleToggleViewMode("cards")}
+            className={cn(
+              "flex items-center gap-1 px-2 py-0.5 rounded-xs text-xs font-medium transition-colors cursor-pointer",
+              viewMode === "cards"
+                ? "bg-card text-foreground shadow-xs font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            title="Card nodes view"
+          >
+            <LayoutDashboard className="size-3 text-primary" />
+            <span className="hidden sm:inline">Cards</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleToggleViewMode("cosmos")}
+            className={cn(
+              "flex items-center gap-1 px-2 py-0.5 rounded-xs text-xs font-medium transition-colors cursor-pointer",
+              viewMode === "cosmos"
+                ? "bg-primary text-primary-foreground shadow-xs font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            title="Cosmos knowledge graph orb view"
+          >
+            <Orbit className="size-3" />
+            <span className="hidden sm:inline">Cosmos</span>
+          </button>
+        </div>
+
+        {/* Live Physics Toggle */}
+        <button
+          type="button"
+          onClick={handleTogglePhysics}
+          aria-pressed={livePhysics}
+          className={cn(
+            "flex items-center gap-1 px-2 py-1 rounded-sm text-xs font-medium transition-all cursor-pointer mr-0.5",
+            livePhysics
+              ? "bg-warning/20 text-warning border border-warning/40 shadow-[0_0_10px_rgba(245,158,11,0.2)] font-semibold"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          )}
+          title={livePhysics ? "Pause live physics simulation" : "Start live dynamic physics simulation"}
+        >
+          <Atom className={cn("size-3.5", livePhysics && isPhysicsRunning && "animate-spin text-warning")} />
+          <span className="hidden sm:inline">Physics</span>
+        </button>
+
+        {livePhysics && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 text-warning hover:text-warning hover:bg-warning/10"
+            onClick={() => reheat(0.55)}
+            title="Shake / Reheat live physics motion"
+            aria-label="Shake simulation"
+          >
+            <Flame className="size-3.5" />
+          </Button>
+        )}
+
+        <div className="w-px h-4 bg-border mx-0.5" aria-hidden />
+
         {LAYOUTS.map((layout) => (
           <button
             key={layout.id}
@@ -590,7 +810,7 @@ export const KnoxGraphCanvas: React.FC = () => {
             title={layout.title}
             aria-pressed={layoutEngine === layout.id}
             className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded-sm text-sm font-medium transition-colors cursor-pointer",
+              "flex items-center gap-1 px-2 py-1 rounded-sm text-xs font-medium transition-colors cursor-pointer",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
               layoutEngine === layout.id
                 ? "bg-primary-muted text-primary"
@@ -763,6 +983,9 @@ export const KnoxGraphCanvas: React.FC = () => {
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}
           onPaneClick={onPaneClick}
+          onNodeDragStart={onNodeDragStart}
+          onNodeDrag={onNodeDrag}
+          onNodeDragStop={onNodeDragStop}
           onInit={(instance) => {
             rfRef.current = instance;
           }}
@@ -789,7 +1012,11 @@ export const KnoxGraphCanvas: React.FC = () => {
           <MiniMap
             position="bottom-right"
             nodeColor={(n) =>
-              n.type === "actionNode" ? "var(--primary)" : "var(--plan)"
+              n.type === "circleNode"
+                ? "var(--warning)"
+                : n.type === "actionNode"
+                ? "var(--primary)"
+                : "var(--plan)"
             }
             maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
             className="!shadow-sm"

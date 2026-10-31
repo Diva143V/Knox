@@ -19,6 +19,11 @@ const RELATION_STYLE: Record<
   project: { stroke: "var(--info, #38bdf8)", label: "project" },
   contains: { stroke: "var(--success, #10b981)", label: "contains" },
   origin: { stroke: "var(--purple, #8b5cf6)", label: "origin" },
+  depends_on: { stroke: "var(--warning, #f59e0b)", dashed: true, label: "depends on" },
+  implements: { stroke: "var(--success, #10b981)", label: "implements" },
+  verifies: { stroke: "var(--plan, #06b6d4)", dashed: true, label: "verifies" },
+  relates_to: { stroke: "var(--muted-foreground, #94a3b8)", dashed: true, label: "relates to" },
+  reverts: { stroke: "var(--danger, #ef4444)", label: "reverts" },
 };
 
 export const CausalEdge = memo(function CausalEdge({

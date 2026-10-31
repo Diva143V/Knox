@@ -11,6 +11,7 @@ const elk = new ELK();
 const getNodeDimensions = (type?: string) => {
   if (type === "projectRootNode") return { width: 340, height: 140 };
   if (type === "fileNode") return { width: 220, height: 48 };
+  if (type === "circleNode") return { width: 90, height: 90 };
   return { width: 240, height: 130 };
 };
 
