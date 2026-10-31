@@ -1,51 +1,87 @@
-# Knox v1 — Implementation Plan
+# Knox — Implementation Plan & Project Roadmap (v1.2.1)
 
-## Goal
+## Goal & System Overview
 
-Build Knox v1: a Rust CLI + MCP server that maintains a persistent knowledge graph from IDE conversation history, enabling AI agents to query context instead of re-deriving it. Single binary, cross-platform, local-only.
+Build Knox: a persistent, cross-platform knowledge graph for AI-assisted software development that maintains conversation-derived context across sessions, tools, and developer workflows. Knox eliminates token re-discovery waste by capturing architectural decisions, implementation actions, and human edits in a local SQLite knowledge graph accessible via standard Model Context Protocol (MCP) and an interactive desktop application.
+
+In Knox v1.2.1, the project delivers a consolidated distribution and execution model:
+1. **Unified Hybrid Binary (`knox.exe`)**: Single binary compiling GUI (Tauri v2 + React 19) and headless CLI/MCP stdio server into `target/release/knox.exe` (17.68 MB), eliminating separate `knox-desktop.exe`.
+2. **Zero Console Flash GUI Launch**: Subsystem `#![windows_subsystem = "windows"]` ensures zero command prompt flashing when launching the graphical desktop app via shortcut or `knox gui`.
+3. **Dynamic Terminal Console Attachment**: Attaches to parent terminal via Win32 `AttachConsole(ATTACH_PARENT_PROCESS)` and rebinds `CONOUT$` / `CONIN$` for interactive CLI commands (`init`, `query`, `status`, `scan`, `hook`).
+4. **Inherited Stdio Pipe Preservation**: Automatically preserves inherited pipes (`FILE_TYPE_PIPE`) untouched when spawned by AI agents (`knox serve --stdio`), guaranteeing clean JSON-RPC 2.0 communication.
+5. **Windows NSIS Setup Wizard**: Default build output (`pnpm build`) produces `target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe` (~5.46 MB, LZMA compressed from 17.68 MB). Supports dual installation scope (per-user `%LOCALAPPDATA%\Programs\Knox` default and machine-wide `Program Files\Knox`) with integrated uninstaller (`uninstall.exe`).
+6. **In-App Onboarding Wizard**: First-run interactive setup dialog (`ui/src/components/OnboardingWizard.tsx`) with 1-click MCP configuration for Antigravity, Cursor, Claude Code, and Gemini CLI, re-accessible via the "Setup Guide" button in `Header.tsx`.
+7. **Synchronous Shell Wrapper (`knox.cmd`)**: Ensures synchronous terminal execution and return code propagation in Windows Command Prompt and PowerShell.
+8. **Consistent Project Version 1.2.1**: Bumped across all workspace manifests (`Cargo.toml`, `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `knox.md`).
 
 > [!IMPORTANT]
-> This plan is derived from [goal.md](file:///d:/Knox/goal.md) (design decisions) and [code.md](file:///d:/Knox/code.md) (architecture & coding standards). Both documents are the source of truth. This plan is the execution order.
+> This roadmap reflects the cumulative evolutionary milestones of Knox from initial engine conception (v1.0.0) through production desktop distribution (v1.2.1) and future cloud collaboration (v2.0.0). Historical milestone specifications (such as `v1.2.0.md`) are preserved intact as immutable historical references.
 
 ---
 
-## Phase Overview
+## Multi-Milestone Roadmap Status
+
+| Milestone | Version | Focus Area | Status | Key Deliverables |
+|---|---|---|---|---|
+| **M1** | v1.0.0 | Core Engine & MCP Server | **COMPLETED** | CLI (`init`, `query`, `status`, `scan`, `hook`), SQLite WAL/FTS5 storage, 9 MCP tools, Antigravity transcript ingestion |
+| **M2** | v1.1.0 | egui Desktop Prototype | **COMPLETED / RETIRED** | Experimental GUI prototype in `src/gui/` using `egui`/`eframe` (validated 2D canvas; retired in v1.2.0) |
+| **M3** | v1.2.0 | Tauri v2 Consumer Desktop App | **COMPLETED** | Full desktop transformation: Tauri v2 + React 19 + Tailwind v4 + shadcn/ui + React Flow KG canvas (see `v1.2.0.md`) |
+| **M4** | v1.2.1 | Unified Binary & Distribution | **COMPLETED** | Single unified `knox.exe` hybrid binary, NSIS setup wizard with uninstaller, `OnboardingWizard.tsx`, `knox.cmd` |
+| **M5** | v2.0.0 | Cloud Sync & Team Collaboration | **PLANNED** | Central cloud repository, multi-developer KG synchronization, Git author signatures, team review agent |
+
+---
+
+## Multi-Milestone Architecture Flowchart
 
 ```mermaid
-flowchart LR
-    P0["Phase 0\nProject Setup"]
-    P1["Phase 1\nCore Types\n+ Storage"]
-    P2["Phase 2\nGraph Layer"]
-    P3["Phase 3\nTranscript\nIngestion"]
-    P4["Phase 4\nCLI Commands"]
-    P5["Phase 5\nMCP Server"]
-    P6["Phase 6\nHuman Edit\nDetection"]
-    P7["Phase 7\nIntegration\n+ Polish"]
-    P8["Phase 8\nRelease"]
+flowchart TD
+    subgraph M1["Milestone 1: Core Engine & MCP Server (v1.0.0) [COMPLETED]"]
+        P0["Phase 0: Setup"] --> P1["Phase 1: Storage"] --> P2["Phase 2: Graph"] --> P3["Phase 3: Ingest"]
+        P2 & P3 --> P4["Phase 4: CLI"] --> P5["Phase 5: MCP"] --> P6["Phase 6: Scan"] --> P7["Phase 7: Polish"] --> P8["Phase 8: Release v1.0.0"]
+    end
 
-    P0 --> P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8
+    subgraph M2["Milestone 2: egui Prototype (v1.1.0) [RETIRED]"]
+        P4 --> EG["egui/eframe Prototype in src/gui/"]
+    end
 
-    style P0 fill:#e8f5e9
-    style P1 fill:#e8f5e9
-    style P2 fill:#e8f5e9
-    style P3 fill:#e8f5e9
-    style P4 fill:#e8f5e9
-    style P5 fill:#fff3e0
-    style P6 fill:#e3f2fd
-    style P7 fill:#fce4ec
-    style P8 fill:#f3e5f5
+    subgraph M3["Milestone 3: Tauri Desktop GUI (v1.2.0) [COMPLETED]"]
+        P7 --> T1["Tauri v2 Shell & IPC"] --> T2["React 19 UI & OKLCH Theme"] --> T3["React Flow 2D Canvas & 8 Views"]
+    end
+
+    subgraph M4["Milestone 4: Unified Binary & Distribution (v1.2.1) [COMPLETED]"]
+        T3 --> U1["Phase 4.1: Unified Hybrid Binary (knox.exe)"]
+        U1 --> U2["Phase 4.2: NSIS Setup Wizard & Uninstaller"]
+        U1 --> U3["Phase 4.3: In-App Onboarding Wizard"]
+        U1 --> U4["Phase 4.4: Synchronous Wrapper (knox.cmd)"]
+        U1 --> U5["Phase 4.5: Repository Version Alignment (1.2.1)"]
+        U2 & U3 & U4 & U5 --> U6["Phase 4.6: Verification & Validation"]
+    end
+
+    subgraph M5["Milestone 5: Cloud Sync & Team Collaboration (v2.0.0) [PLANNED]"]
+        U6 -.-> F1["Multi-Developer KG"]
+        U6 -.-> F2["Cloud Synchronization"]
+        U6 -.-> F3["Git Author Attribution"]
+    end
+
+    style M1 fill:#f0fdf4,stroke:#16a34a
+    style M2 fill:#fef2f2,stroke:#dc2626
+    style M3 fill:#f0fdf4,stroke:#16a34a
+    style M4 fill:#eff6ff,stroke:#2563eb
+    style M5 fill:#f8fafc,stroke:#94a3b8
 ```
 
 ---
 
-## Phase 0 — Project Setup
+## Milestone 1: Core Engine & MCP Server (Knox v1.0.0) [COMPLETED]
+
+### Phase 0 — Project Setup [COMPLETED]
 
 **Goal:** Rust project compiles, all dependencies resolve, directory structure exists.  
 **Verification:** `cargo build` succeeds with zero warnings.
 
 | # | Task | Files | Details |
 |---|---|---|---|
-| 0.1 | Initialize Rust project | `Cargo.toml`, `src/main.rs` | `cargo init --name knox` in `d:\Knox` |
+| 0.1 | Initialize Rust project | `Cargo.toml`, `src/main.rs` | `cargo init --name knox` in `d:\Knox`. *(Note: In v1.2.1, the standalone CLI entrypoint was consolidated into `src-tauri/src/main.rs` to produce the unified hybrid `knox.exe` binary. `src/` now serves as the foundational library crate `src/lib.rs` with `autobins = false`).* |
 | 0.2 | Configure Cargo.toml | `Cargo.toml` | All dependencies from [code.md](file:///d:/Knox/code.md#L670-L719): rusqlite (bundled-full), petgraph, clap (derive), serde, serde_json, tokio (full), chrono, uuid, thiserror, tracing, tracing-subscriber, anyhow, notify. Dev-deps: tempfile, assert_cmd, predicates. Release profile: LTO, strip, codegen-units=1. |
 | 0.3 | Create directory skeleton | All `mod.rs` files | Create empty `src/core/`, `src/storage/`, `src/graph/`, `src/ingest/`, `src/commands/`, `src/mcp/`, `src/mcp/handlers/`, `src/cli/`. Each with a `mod.rs` stub. |
 | 0.4 | Create test & fixture dirs | `tests/`, `fixtures/` | Empty directories. Add `.gitkeep` if needed. |
@@ -152,7 +188,7 @@ flowchart LR
 
 | # | Task | File | Details |
 |---|---|---|---|
-| 4.10 | Wire main.rs | `src/main.rs` | Parse `KnoxCli` via clap. Match subcommand → dispatch to `cmd_*` function. Initialize `tracing_subscriber` for logging. Open `KnoxDb` from config path. Handle errors with `anyhow`. |
+| 4.10 | Wire main.rs | `src/main.rs` | Parse `KnoxCli` via clap. Match subcommand → dispatch to `cmd_*` function. Initialize `tracing_subscriber` for logging. Open `KnoxDb` from config path. Handle errors with `anyhow`. *(Note: In v1.2.1, this dispatch logic was moved to `src-tauri/src/main.rs` to build the unified `knox.exe` binary).* |
 | 4.11 | Command tests | `tests/test_commands.rs` | Test `knox init` creates knox.md, test `knox ingest` with fixture, test `knox status` shows correct counts, test `knox query` returns expected results. |
 
 **Deliverable:** Fully functional CLI. User can `knox init . && knox ingest transcript.jsonl && knox status && knox query parser`.
@@ -235,195 +271,226 @@ flowchart LR
 
 ---
 
-## Phase 8 — Release
+### Phase 8 — Initial v1.0.0 Release [COMPLETED]
 
-**Goal:** Knox v1 is published, installable, and works on all three platforms.  
+**Goal:** Knox v1.0.0 is published, installable, and works on all three platforms.  
 **Verification:** `cargo install` on Windows, macOS, Linux. Binary runs correctly on each.
 
 | # | Task | File | Details |
 |---|---|---|---|
 | 8.1 | CI pipeline | `.github/workflows/ci.yml` | GitHub Actions: matrix build (ubuntu-latest, windows-latest, macos-latest). Steps: checkout → install Rust → `cargo build --release` → `cargo test` → upload binary artifacts. |
-| 8.2 | Release workflow | `.github/workflows/release.yml` | On tag push (`v0.1.0`): build release binaries for all 3 platforms → create GitHub Release → attach binaries. |
+| 8.2 | Release workflow | `.github/workflows/release.yml` | On tag push (`v1.0.0`): build release binaries for all 3 platforms → create GitHub Release → attach binaries. |
 | 8.3 | Cross-compile verification | — | `cargo build --release` on each platform. Run `knox init` + `knox status` on each. Verify SQLite bundled correctly. |
 | 8.4 | Publish to crates.io | — | `cargo publish` (optional, if ready). |
 | 8.5 | Announce | — | Update README with install instructions, badges, examples. |
 
-**Deliverable:** Tagged v0.1.0 release with binaries for Windows, macOS, Linux.
+**Deliverable:** Tagged v1.0.0 release with binaries for Windows, macOS, Linux.
 
 ---
 
-## Dependency Graph
+## Milestone 2: egui Desktop Prototype (Knox v1.1.0) [COMPLETED & RETIRED]
+
+**Goal:** Rapidly prototype an embedded GUI cockpit directly in Rust using `egui` and `eframe` within `src/gui/`.  
+**Outcome:** Validated the core UX concepts of the 2D physics knowledge graph, live transcript ingestion studio, and real-time metrics dashboard.  
+**Retirement Rationale:** While performant, `egui` presented significant barriers to achieving consumer-grade visual polish (e.g. typography rendering, smooth responsive flexbox/grid layouts, accessible modals, and modern design systems). The `src/gui/` subsystem was formally retired and completely replaced by Tauri v2 + React 19 in Milestone 3.
+
+---
+
+## Milestone 3: Tauri v2 Consumer Desktop App (Knox v1.2.0) [COMPLETED]
+
+**Goal:** Transform Knox into a consumer-grade desktop application (Linear/Raycast/Cursor tier) using **Tauri v2 + React 19 + Vite + Tailwind CSS v4 + shadcn/ui**, while keeping the entire Rust domain core (Layers 0–5: `core`, `storage`, `graph`, `ingest`, `commands`, `mcp`) 100% untouched.
+
+> [!NOTE]
+> The complete historical specification, UI design system tokens, 58-file inventory, and phase-by-phase implementation plan for this milestone are preserved in [`v1.2.0.md`](file:///d:/Knox/v1.2.0.md).
+
+### Delivered Capabilities
+- **Presentation Layer (`ui/`)**: React 19 SPA built with Vite, Tailwind CSS v4 OKLCH dark design tokens (`#0d1117` background floor), bundled Inter and JetBrains Mono typography.
+- **Interactive 2D Knowledge Graph Canvas**: Powered by `@xyflow/react` with D3 force-directed physics, Hierarchical ELK layout, Dagre layout, custom ActionNode, FileNode, and CausalEdge renderers, minimap, and inspector rail.
+- **8 Dedicated Desktop Views**: Dashboard, Knowledge Graph, Query Console (FTS5 search), Deep Statistics, Transcript Ingestion Studio, Git Human Edit Scanner, MCP Server Configurator, and Workspace Settings.
+- **Global Command Palette (`Ctrl+K`)**: Keyboard-driven command palette (`cmdk`) for global search, view switching, and quick action execution.
+- **Custom Frameless Titlebar**: Custom drag region with native window controls (minimize, maximize, close) and close-to-tray lifecycle management.
+- **Typed IPC Boundary (`src-tauri/`)**: Thin adapter bridging React `invoke` calls to Knox domain APIs across 17 registered commands.
+
+---
+
+## Milestone 4: Distribution Architecture, Unified Binary & Setup Wizard (Knox v1.2.1) [COMPLETED]
+
+**Goal:** Deliver a seamless end-user distribution model by consolidating the desktop GUI and headless CLI/MCP server into a **single unified hybrid binary (`knox.exe`)**, packaging a multi-page **Windows NSIS Setup Wizard with uninstaller**, embedding an **In-App Onboarding Wizard**, and adding a **synchronous Windows shell wrapper (`knox.cmd`)**.
+
+### Phase 4.1 — Single Unified Hybrid Binary (`knox.exe`) [COMPLETED]
+- **Target**: `target/release/knox.exe` (17.68 MB).
+- **Subsystem**: Compiled under `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` to eliminate console window flash when launched via GUI shortcuts.
+- **Dynamic Terminal Console Attachment**: For CLI subcommands (`init`, `query`, `status`, `scan`, `hook`), calls Win32 `AttachConsole(ATTACH_PARENT_PROCESS)` and rebinds standard streams (`CONOUT$`, `CONIN$`) to `SetStdHandle()`.
+- **Inherited Stdio Pipe Preservation**: When spawned by AI agents (`knox serve --stdio`), detects `FILE_TYPE_PIPE` and preserves inherited stdio handles untouched, guaranteeing pristine JSON-RPC 2.0 communication.
+- **Explicit GUI Subcommand**: `knox gui` command allows launching the desktop interface directly from terminal sessions.
+- **Crate Reorganization**: Root `Cargo.toml` specifies `autobins = false` and library target only (`src/lib.rs`). `src-tauri/Cargo.toml` defines `[[bin]] name = "knox" path = "src/main.rs"`, compiling the sole unified binary. Eliminates `knox-desktop.exe`.
+
+### Phase 4.2 — Windows NSIS Setup Wizard & Dedicated Uninstaller [COMPLETED]
+- **Production Build**: Running `pnpm build` executes `tauri build --bundles nsis`, compiling the release binary and generating `target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe` (~5.46 MB).
+- **LZMA Compression**: Compresses the 17.68 MB binary into a 5.46 MB self-contained installer.
+- **Dual Installation Scope**: Configured in `src-tauri/tauri.conf.json` with `installMode: "both"`:
+  - Per-User (default): Installs into `%LOCALAPPDATA%\Programs\Knox` without requiring UAC elevation.
+  - All Users (machine-wide): Installs into `C:\Program Files\Knox` with standard elevation prompt.
+- **Integrated Dedicated Uninstaller**: Automatically packages `uninstall.exe`, creates Start Menu uninstall shortcuts, and registers Knox in Windows *Settings > Installed apps* / *Control Panel* for clean file and registry removal.
+- **Portable Build**: `pnpm build:portable` (`tauri build --no-bundle`) outputs standalone `knox.exe`.
+
+### Phase 4.3 — In-App First-Run Onboarding Wizard [COMPLETED]
+- **Component**: Implemented in `ui/src/components/OnboardingWizard.tsx` (433 lines) and integrated into `AppShell.tsx`.
+- **First-Run Auto-Detection**: Automatically launches on initial app boot when `localStorage.getItem("knox_onboarding_completed")` is absent.
+- **4-Step Interactive Guide**:
+  1. *Welcome & Architecture*: Local-first SQLite graph, zero token waste, persistent memory across agents.
+  2. *Storage Verification*: Confirms active database path (`~/.knox/knox.db`) and workspace instruction file (`knox.md`).
+  3. *1-Click AI Integration*: Ready-to-copy JSON configuration snippets for Antigravity, Cursor, Claude Code, and Gemini CLI.
+  4. *Keyboard Navigation*: Cheat sheet for `Ctrl+K` (Command Palette), `1-8` (View Switching), and `F5` (Refresh).
+- **Header Trigger**: "Setup Guide" button (`<Sparkles />`) in `ui/src/components/layout/Header.tsx` allows reopening the wizard at any time.
+
+### Phase 4.4 — Synchronous Shell Wrapper (`knox.cmd`) [COMPLETED]
+- **File**: `knox.cmd` located at repository root.
+- **Content**:
+  ```cmd
+  @echo off
+  REM Knox unified launcher for Windows terminal sessions (CMD & PowerShell).
+  REM Ensures synchronous execution when running headless CLI / MCP subcommands.
+  "%~dp0target\release\knox.exe" %*
+  ```
+- **Rationale**: Solves Windows asynchronous process launching for GUI subsystem executables, ensuring CMD and PowerShell wait for command completion and cleanly return exit codes.
+
+### Phase 4.5 — Repository Version Alignment (v1.2.1) [COMPLETED]
+- Synchronized version `1.2.1` across all workspace manifests and files:
+  - `Cargo.toml`: `version = "1.2.1"`
+  - `package.json`: `"version": "1.2.1"`
+  - `src-tauri/Cargo.toml`: `version = "1.2.1"`
+  - `src-tauri/tauri.conf.json`: `"version": "1.2.1"`
+  - `knox.md`: `knox_version: "1.2.1"`
+  - `goal.md`: Knox v1.2.1 reference specification
+
+### Phase 4.6 — Verification & Validation [COMPLETED]
+- Full clean compilation: `cargo check --workspace` and `pnpm typecheck` pass with zero errors.
+- Test suite: `cargo test --workspace` passes all 122 tests.
+- Release installer: `pnpm build` successfully produces `Knox_1.2.1_x64-setup.exe` (5.46 MB).
+- Terminal verification: Background process executes cleanly without unhandled crashes.
+
+---
+
+## Milestone 5: Cloud Sync & Team Collaboration (Knox v2.0.0) [PLANNED]
+
+**Goal:** Extend Knox from single-developer local-first operations to multi-developer team collaboration and cloud synchronization.
+
+### Planned Capabilities
+- **Central Team Repository**: Optional cloud sync service allowing distributed developers and CI bots to share a synchronized knowledge graph.
+- **Multi-Developer Causal Graph Merging**: CRDT-inspired append-only edge reconciliation to merge branches and remote knowledge graphs without data loss.
+- **Git Author Identity Attribution**: Attribute human edits and AI agent actions to specific team members via verified Git author signatures and commit hashes.
+- **Pull Request Review Agent**: Automated agent that queries Knox context for changed files and generates contextual architectural reviews in GitHub/GitLab PRs.
+- **Team Decision Registry**: Cross-project query tool allowing developers to search organizational decisions and precedents across multiple repositories.
+
+---
+
+## Cumulative Dependency Graph
 
 ```mermaid
 flowchart TD
-    subgraph "Phase 0: Setup"
-        P0["Cargo.toml + dir skeleton"]
+    subgraph M1["Milestone 1: Core Engine & MCP Server (v1.0.0) [COMPLETED]"]
+        P0["Phase 0: Setup"] --> P1A["1A: Core Types"]
+        P1A --> P1B["1B: Storage Layer"]
+        P1B --> P2["Phase 2: Graph Layer"]
+        P1B --> P3["Phase 3: Ingestion"]
+        P2 & P3 --> P4["Phase 4: CLI Engine"]
+        P4 --> P5["Phase 5: MCP Server"]
+        P4 --> P6["Phase 6: Human Edit Scanner"]
+        P5 & P6 --> P7["Phase 7: Polish & E2E"]
+        P7 --> P8["Phase 8: Release v1.0.0"]
     end
 
-    subgraph "Phase 1: Foundation"
-        P1A["1A: Core Types\nids, error, types, config"]
-        P1B["1B: Storage\ndb, migrations, nodes,\nedges, sessions, queries"]
+    subgraph M2["Milestone 2: egui Prototype (v1.1.0) [RETIRED]"]
+        P4 --> EG["egui Desktop Prototype (src/gui/)"]
     end
 
-    subgraph "Phase 2: Graph"
-        P2["loader, traversal, cache"]
+    subgraph M3["Milestone 3: Tauri Desktop GUI (v1.2.0) [COMPLETED]"]
+        P7 --> T1["src-tauri Crate & Capabilities"]
+        T1 --> T2["React 19 + Tailwind v4 + OKLCH Tokens"]
+        T2 --> T3["React Flow 2D KG Canvas & 8 Views"]
+        T3 --> T4["Custom Frameless Titlebar & Tray"]
     end
 
-    subgraph "Phase 3: Ingest"
-        P3["mapper trait, action_group,\nsummary, antigravity mapper"]
+    subgraph M4["Milestone 4: Unified Binary & Distribution (v1.2.1) [COMPLETED]"]
+        T4 --> U1["Phase 4.1: Unified Hybrid Binary (knox.exe)"]
+        U1 --> U2["Phase 4.2: Windows NSIS Setup Wizard"]
+        U1 --> U3["Phase 4.3: In-App Onboarding Wizard"]
+        U1 --> U4["Phase 4.4: Synchronous Shell Wrapper (knox.cmd)"]
+        U1 --> U5["Phase 4.5: Repository Version Alignment (1.2.1)"]
+        U2 & U3 & U4 & U5 --> U6["Phase 4.6: Full Verification & Packaging"]
     end
 
-    subgraph "Phase 4: CLI"
-        P4A["4A: clap args"]
-        P4B["4B: init, ingest, query,\nstatus, scan, hook"]
-        P4C["4C: main.rs wiring"]
+    subgraph M5["Milestone 5: Cloud Sync & Team Collaboration (v2.0.0) [PLANNED]"]
+        U6 -.-> F1["Multi-Dev Knowledge Graph"]
+        U6 -.-> F2["Cloud Synchronization Service"]
+        U6 -.-> F3["Git Author Attribution & PR Agent"]
     end
-
-    subgraph "Phase 5: MCP"
-        P5A["5A: protocol, tools, session_mgr"]
-        P5B["5B: 9 handlers"]
-        P5C["5C: stdio server loop"]
-    end
-
-    subgraph "Phase 6: Human Edit"
-        P6["git scan + hook"]
-    end
-
-    subgraph "Phase 7: Polish"
-        P7["e2e tests, errors, logging, README"]
-    end
-
-    subgraph "Phase 8: Release"
-        P8["CI, release workflow, publish"]
-    end
-
-    P0 --> P1A
-    P1A --> P1B
-    P1B --> P2
-    P1B --> P3
-    P2 --> P4B
-    P3 --> P4B
-    P4A --> P4C
-    P4B --> P4C
-    P4C --> P5A
-    P5A --> P5B
-    P5B --> P5C
-    P4B --> P6
-    P5C --> P7
-    P6 --> P7
-    P7 --> P8
 ```
 
 ---
 
-## File Creation Order (Complete)
+## File Inventory by Milestone
 
-Every file Knox needs, in the exact order it should be created:
+### Milestone 1 — Core Rust Engine (v1.0.0) [59 Files]
+Foundational Rust architecture implementing Layers 0–5:
+- `Cargo.toml`, `.gitignore`, `LICENSE`, `README.md`
+- `src/core/` (`ids.rs`, `error.rs`, `types.rs`, `config.rs`, `mod.rs`)
+- `src/storage/` (`migrations.rs`, `db.rs`, `nodes.rs`, `edges.rs`, `sessions.rs`, `queries.rs`, `mod.rs`)
+- `src/graph/` (`loader.rs`, `traversal.rs`, `cache.rs`, `mod.rs`)
+- `src/ingest/` (`mapper.rs`, `action_group.rs`, `summary.rs`, `antigravity.rs`, `mod.rs`, `fixtures/`)
+- `src/commands/` (`init.rs`, `ingest.rs`, `query.rs`, `status.rs`, `scan.rs`, `hook.rs`, `mod.rs`)
+- `src/mcp/` (`protocol.rs`, `tools.rs`, `session_manager.rs`, `server.rs`, `mod.rs`, `handlers/*.rs`)
+- `src/cli/` (`args.rs`, `mod.rs`)
+- `tests/` (`test_storage.rs`, `test_graph.rs`, `test_ingest.rs`, `test_commands.rs`, `test_mcp.rs`, `test_e2e.rs`)
+- `.github/workflows/` (`ci.yml`, `release.yml`)
 
-| Order | File | Phase |
-|---|---|---|
-| 1 | `Cargo.toml` | 0 |
-| 2 | `.gitignore` | 0 |
-| 3 | `LICENSE` | 0 |
-| 4 | `src/main.rs` (stub) | 0 |
-| 5 | `src/core/mod.rs` | 0 |
-| 6 | `src/storage/mod.rs` | 0 |
-| 7 | `src/graph/mod.rs` | 0 |
-| 8 | `src/ingest/mod.rs` | 0 |
-| 9 | `src/commands/mod.rs` | 0 |
-| 10 | `src/mcp/mod.rs` | 0 |
-| 11 | `src/mcp/handlers/mod.rs` | 0 |
-| 12 | `src/cli/mod.rs` | 0 |
-| 13 | `src/core/ids.rs` | 1 |
-| 14 | `src/core/error.rs` | 1 |
-| 15 | `src/core/types.rs` | 1 |
-| 16 | `src/core/config.rs` | 1 |
-| 17 | `src/storage/migrations.rs` | 1 |
-| 18 | `src/storage/db.rs` | 1 |
-| 19 | `src/storage/nodes.rs` | 1 |
-| 20 | `src/storage/edges.rs` | 1 |
-| 21 | `src/storage/sessions.rs` | 1 |
-| 22 | `src/storage/queries.rs` | 1 |
-| 23 | `tests/test_storage.rs` | 1 |
-| 24 | `src/graph/loader.rs` | 2 |
-| 25 | `src/graph/traversal.rs` | 2 |
-| 26 | `src/graph/cache.rs` | 2 |
-| 27 | `tests/test_graph.rs` | 2 |
-| 28 | `src/ingest/mapper.rs` | 3 |
-| 29 | `src/ingest/action_group.rs` | 3 |
-| 30 | `src/ingest/summary.rs` | 3 |
-| 31 | `src/ingest/antigravity.rs` | 3 |
-| 32 | `fixtures/transcript_antigravity.jsonl` | 3 |
-| 33 | `tests/test_ingest.rs` | 3 |
-| 34 | `src/cli/args.rs` | 4 |
-| 35 | `src/commands/init.rs` | 4 |
-| 36 | `src/commands/ingest.rs` | 4 |
-| 37 | `src/commands/query.rs` | 4 |
-| 38 | `src/commands/status.rs` | 4 |
-| 39 | `src/commands/scan.rs` | 4 |
-| 40 | `src/commands/hook.rs` | 4 |
-| 41 | `tests/test_commands.rs` | 4 |
-| 42 | `src/mcp/protocol.rs` | 5 |
-| 43 | `src/mcp/tools.rs` | 5 |
-| 44 | `src/mcp/session_manager.rs` | 5 |
-| 45 | `src/mcp/handlers/start_session.rs` | 5 |
-| 46 | `src/mcp/handlers/end_session.rs` | 5 |
-| 47 | `src/mcp/handlers/record_action.rs` | 5 |
-| 48 | `src/mcp/handlers/record_decision.rs` | 5 |
-| 49 | `src/mcp/handlers/get_context.rs` | 5 |
-| 50 | `src/mcp/handlers/get_history.rs` | 5 |
-| 51 | `src/mcp/handlers/search.rs` | 5 |
-| 52 | `src/mcp/handlers/list_stale.rs` | 5 |
-| 53 | `src/mcp/handlers/scan_staged.rs` | 5 |
-| 54 | `src/mcp/server.rs` | 5 |
-| 55 | `tests/test_mcp.rs` | 5 |
-| 56 | `tests/test_e2e.rs` | 7 |
-| 57 | `README.md` | 7 |
-| 58 | `.github/workflows/ci.yml` | 8 |
-| 59 | `.github/workflows/release.yml` | 8 |
+### Milestone 3 — Tauri v2 Desktop GUI (v1.2.0) [58 Files]
+Modern desktop user experience (see detailed inventory in [`v1.2.0.md`](file:///d:/Knox/v1.2.0.md)):
+- `src-tauri/` (`Cargo.toml`, `build.rs`, `tauri.conf.json`, `capabilities/default.json`, `src/main.rs`, `src/lib.rs`, `src/commands/*.rs`, `icons/`)
+- `ui/` (`package.json`, `vite.config.ts`, `index.html`, `public/fonts/`, `src/App.tsx`, `src/globals.css`, `src/store/useKnoxStore.ts`, `src/services/api.ts`, `src/types/knox.ts`, `src/components/layout/`, `src/components/graph/`, `src/components/views/`, `src/components/ui/`, `src/hooks/`)
 
-**Total: 59 files. 9 phases. ~65 tasks.**
+### Milestone 4 — Unified Binary & Distribution (v1.2.1) [Key Files]
+- `knox.cmd` — Root synchronous terminal launcher for CMD and PowerShell.
+- `src-tauri/src/main.rs` — Unified hybrid binary entrypoint (`windows_subsystem`, dynamic `AttachConsole`, pipe detection, GUI/CLI dispatch).
+- `src-tauri/Cargo.toml` — Produces `[[bin]] name = "knox"` (eliminating `knox-desktop.exe`).
+- `src-tauri/tauri.conf.json` — NSIS bundle configuration (`installMode: "both"`, uninstaller).
+- `ui/src/components/OnboardingWizard.tsx` — 4-step first-boot onboarding wizard with 1-click MCP configs.
+- `ui/src/components/layout/Header.tsx` — Desktop header "Setup Guide" trigger button.
 
 ---
 
-## Verification Plan
+## Comprehensive Verification Plan
 
-### Automated Tests
-
-Run after each phase:
+### Automated Verification Commands
 
 ```bash
-# After Phase 1
-cargo test test_storage
+# 1. Rust workspace test suite (122 tests)
+cargo test --workspace
 
-# After Phase 2
-cargo test test_graph
+# 2. Frontend type validation
+pnpm typecheck
 
-# After Phase 3
-cargo test test_ingest
+# 3. Code formatting and linting
+cargo fmt --check
+pnpm lint   # cargo clippy --workspace --all-targets
 
-# After Phase 4
-cargo test test_commands
-cargo run -- init .
-cargo run -- status
+# 4. Production NSIS setup installer build
+pnpm build  # tauri build --bundles nsis -> target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe
 
-# After Phase 5
-cargo test test_mcp
-
-# After Phase 7
-cargo test  # all tests
+# 5. Standalone portable executable build
+pnpm build:portable  # tauri build --no-bundle -> target/release/knox.exe
 ```
 
-### Manual Verification
+### Milestone 4 Checkpoint Verification Matrix
 
-| Checkpoint | What to Verify |
-|---|---|
-| After Phase 4 | Run `knox init .` in a real project → `knox.md` appears with correct YAML config. Run `knox ingest <transcript>` → `knox status` shows correct counts. |
-| After Phase 5 | Configure `knox serve` as an MCP server in Antigravity/Cursor → verify tools appear in tool list → call `knox_start_session` → `knox_record_action` → `knox_get_context` → verify round-trip. |
-| After Phase 6 | In a git repo tracked by Knox: manually edit a file → `git add` → `knox scan` → verify "human_write" action appears in `knox status`. |
-| After Phase 8 | Download release binary on a clean machine → `knox init` → `knox serve` → connect IDE → full workflow works without Rust toolchain installed. |
-
----
-
-> [!TIP]
-> Use `/goal` when executing each phase — it will ensure thoroughness and not stop until all tasks and tests in that phase pass.
+| Checkpoint | Scope | Verified Behavior | Pass Criterion |
+|---|---|---|---|
+| **C1: GUI Launch** | Unified Binary | Double-clicking `target/release/knox.exe` or running `knox gui` | Boots desktop window with `#0d1117` background; **zero console window flash**. |
+| **C2: CLI Subcommand** | Unified Binary | Executing `knox.cmd status` or `knox.cmd query parser` | Win32 `AttachConsole` attaches to parent console; outputs formatted text synchronously. |
+| **C3: MCP stdio** | Unified Binary | Spawning `knox.cmd serve --stdio` via IDE agent | Detects `FILE_TYPE_PIPE`, keeps stdio clean; executes JSON-RPC 2.0 requests. |
+| **C4: Onboarding Wizard** | Desktop UI | First launch with empty `localStorage` | `OnboardingWizard` modal dialog opens automatically; displays DB stats and 1-click MCP snippets. |
+| **C5: Setup Guide Button**| Desktop UI | Clicking "Setup Guide" (`Sparkles` icon) in header | Reopens `OnboardingWizard` dialog on demand from any view. |
+| **C6: NSIS Installer** | Distribution | Executing `target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe` | Multi-page setup wizard with dual install scope (`AppData` vs `Program Files`) and shortcut creation. |
+| **C7: Uninstaller** | Distribution | Windows *Settings > Installed apps* | Knox registers publisher, version 1.2.1, and `uninstall.exe` for clean removal. |
+| **C8: Shell Wrapper** | Terminal Shell | Running `knox.cmd --version` in CMD and PowerShell | Returns `knox 1.2.1` synchronously and returns command prompt cleanly. |

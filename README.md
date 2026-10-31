@@ -14,8 +14,11 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 
 ## Key Features
 
-- **Persistent Knowledge Graph:** Backed by SQLite (WAL mode, foreign keys, FTS5 full-text search) with petgraph in-memory traversals.
-- **Native Desktop GUI & Installer Wizard:** Hardware-accelerated, pure Rust desktop application (`knox gui`) featuring a classic installer setup wizard, interactive 2D Knowledge Graph visualizer with force-directed physics, metrics dashboard, query console, and live transcript studio.
+- **Unified Hybrid Binary (`knox.exe`):** Single binary running under the Windows GUI subsystem (`windows_subsystem = "windows"`). Opens the desktop application with zero console flash when double-clicked, launched from shortcuts, or run without arguments; dynamically attaches to the parent console (`AttachConsole`) for CLI subcommands (`knox query`, `knox status`, `knox scan`); and preserves clean stdio pipes (`FILE_TYPE_PIPE`) when spawned by AI agents (`knox serve --stdio`).
+- **Native Desktop GUI (Tauri v2 + React 19):** Modern, dark-first desktop experience featuring an interactive 2D Knowledge Graph visualizer with force-directed and hierarchical layouts, metrics dashboard, FTS5 query console, live transcript ingestion studio, and Git human-edit scanner.
+- **Windows NSIS Setup Wizard & Dedicated Uninstaller:** Consumer-grade installer package (`Knox_1.2.1_x64-setup.exe`, 5.46 MB with LZMA compression). Offers dual install scope (per-user `%LOCALAPPDATA%\Programs\Knox` default requiring no elevation, or machine-wide `Program Files\Knox`), creates Start Menu and Desktop shortcuts, and registers `uninstall.exe` in Windows Settings > Installed apps.
+- **In-App Onboarding Wizard:** First-run interactive setup (`OnboardingWizard.tsx`) verifying SQLite database health, guiding keyboard shortcuts, and providing 1-click MCP configuration for Antigravity, Cursor, Claude Code, and Gemini CLI. Re-accessible anytime via the "Setup Guide" button in the desktop header.
+- **Synchronous Shell Wrapper (`knox.cmd`):** Ships with a native Windows CMD/PowerShell launcher to ensure prompt synchronization and clean return codes during terminal operations.
 - **Model Context Protocol (MCP) Server:** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing 9 rich tools for any MCP-compatible IDE or assistant.
 - **Transcript Ingestion:** Automatically transforms IDE conversation logs (e.g. Antigravity's `transcript.jsonl`) into high-signal knowledge graph entries without LLM dependencies.
 - **Human Edit Detection:** Detects developer edits made outside of AI sessions via Git staged changes (`git diff --cached`) and registers them in the knowledge graph.
@@ -26,63 +29,77 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 
 ## Architecture
 
-Knox is engineered with strict downward layer dependencies:
+Knox v1.2.1 is organized into three clean layers:
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│                 Layer 5: CLI & GUI                     │  src/main.rs, src/cli/, src/gui/
+│  Presentation: React 19 + Vite + Tailwind v4 + shadcn  │  ui/ (SPA, Zustand, React Flow)
 └───────────────────────────┬────────────────────────────┘
-                            │
+                            │ Tauri IPC (JSON-RPC)
 ┌───────────────────────────▼────────────────────────────┐
-│                  Layer 4: MCP Server                   │  src/mcp/
+│  Desktop Shell & Unified Binary (knox.exe / knox.cmd)  │  src-tauri/src/main.rs, lib.rs
+│  - Zero console flash GUI launch (#![windows_subsystem])│
+│  - Win32 Console Attach & Stdio Pipe Detection         │
 └───────────────────────────┬────────────────────────────┘
-                            │
+                            │ Rust API calls
 ┌───────────────────────────▼────────────────────────────┐
-│                  Layer 3: Commands                     │  src/commands/
-└─────────────┬────────────────────────────┬─────────────┘
-              │                            │
-┌─────────────▼───────────┐    ┌───────────▼─────────────┐
-│     Layer 2: Graph      │    │     Layer 2: Ingest     │  src/graph/, src/ingest/
-└─────────────┬───────────┘    └───────────┬─────────────┘
-              │                            │
-┌─────────────▼────────────────────────────▼─────────────┐
-│                  Layer 1: Storage                      │  src/storage/
-└───────────────────────────┬────────────────────────────┘
-                            │
-┌───────────────────────────▼────────────────────────────┐
-│                  Layer 0: Core Types                   │  src/core/
+│  Knox Domain Engine (Pure Rust Core Library)           │  src/
+│  - Layer 4: MCP stdio server (src/mcp/)                │
+│  - Layer 3: Commands orchestration (src/commands/)     │
+│  - Layer 2: Graph traversal & Ingest (graph/, ingest/) │
+│  - Layer 1: SQLite WAL & FTS5 (src/storage/)           │
+│  - Layer 0: Core types & config (src/core/)            │
 └────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Installation
+## Installation & Setup
 
-### Pre-compiled Release Binaries
+### 1. Windows Setup Wizard (Recommended for End Users)
 
-Download pre-built standalone binaries for Linux, macOS, and Windows from [GitHub Releases](https://github.com/Diva143V/Knox/releases). Each release includes SHA256 checksums and has the complete SQLite engine bundled with zero external runtime dependencies.
+Download `Knox_1.2.1_x64-setup.exe` (~5.46 MB) from [GitHub Releases](https://github.com/Diva143V/Knox/releases).
+- **Interactive Setup**: Guides through license agreement, installation directory, and shortcut creation.
+- **Dual Install Scope**: Installs by default to `%LOCALAPPDATA%\Programs\Knox` without requiring administrative privileges, with an optional machine-wide installation to `C:\Program Files\Knox`.
+- **Integrated Uninstaller**: Packages `uninstall.exe` and registers Knox in Windows *Settings > Installed apps* for clean removal.
 
-### From Crates.io
+### 2. Standalone Binary & Terminal Wrapper
 
-```bash
-cargo install knox
-```
+Download the standalone `knox.exe` (17.68 MB) and `knox.cmd` wrapper from GitHub Releases and place them in your `PATH`.
+- Run `knox` or `knox.exe` without arguments to launch the desktop application.
+- Run `knox <subcommand>` (e.g. `knox status`, `knox query`) or use `knox.cmd` for synchronous terminal command execution in Command Prompt and PowerShell.
 
-### From Source (Cargo)
+### 3. Building from Source
 
-Prerequisites: Rust 1.85+ (Edition 2024).
+Prerequisites: Rust 1.85+ (Edition 2024), Node.js 20+, and `pnpm`.
 
 ```bash
 git clone https://github.com/Diva143V/Knox.git
 cd Knox
-cargo install --path .
+
+# Install frontend dependencies
+pnpm install
+
+# Run desktop app in development mode (hot-reloading UI)
+pnpm tauri dev
+
+# Build the release NSIS installer wizard (target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe)
+pnpm build
+
+# Build portable standalone binary (target/release/knox.exe)
+pnpm build:portable
+
+# Run comprehensive workspace test suite
+pnpm test
 ```
 
 ---
 
 ## IDE & Agent MCP Configuration
 
-Connect Knox to any MCP-compatible IDE or coding agent by adding it to your MCP configuration:
+Connect Knox to any MCP-compatible IDE or coding agent. When spawned by an AI agent (`knox serve --stdio`), Knox detects inherited pipes (`FILE_TYPE_PIPE`) and bypasses console attachment, keeping standard I/O pristine for JSON-RPC 2.0 communication.
+
+> 💡 **Quick Tip:** All snippets below can be copied with 1 click directly inside the Knox Desktop application via the **In-App Onboarding Wizard** or the **Setup Guide** button in the header.
 
 ### Cursor (`~/.cursor/mcp.json` or `.cursor/mcp.json`)
 ```json
@@ -108,8 +125,25 @@ Connect Knox to any MCP-compatible IDE or coding agent by adding it to your MCP 
 }
 ```
 
-### Antigravity / Gemini Code Assist
-Add to your project's `.gemini/settings.json` or configure via `knox.md`:
+### Claude Code
+Add via Claude Code CLI:
+```bash
+claude mcp add knox -- knox serve --stdio
+```
+Or in your Claude Code config:
+```json
+{
+  "mcpServers": {
+    "knox": {
+      "command": "knox",
+      "args": ["serve", "--stdio"]
+    }
+  }
+}
+```
+
+### Antigravity / Gemini CLI
+Add to your workspace `.gemini/settings.json` or configure via `knox.md`:
 ```json
 {
   "mcpServers": {
@@ -145,7 +179,7 @@ knox ingest /path/to/transcript.jsonl
 
 ### 3. Start the MCP Server
 
-Launch Knox as a stdio MCP server for your IDE (Cursor, Claude Desktop, Antigravity):
+Launch Knox as a stdio MCP server for your IDE (Cursor, Claude Desktop, Antigravity, Claude Code):
 
 ```bash
 knox serve --stdio
@@ -174,38 +208,52 @@ Automatically record human edits whenever you run `git commit`:
 knox hook install
 ```
 
-### 6. Launch Desktop GUI & Setup Wizard
+### 6. Launch Desktop GUI & In-App Onboarding Wizard
 
-Launch the hardware-accelerated pure Rust desktop GUI cockpit:
+Launch the desktop application by double-clicking `knox.exe`, clicking the Windows Start Menu shortcut, or running from the terminal:
 
 ```bash
 knox gui
 ```
 
-The GUI includes:
-1. **Welcome & Diagnostics:** System health check, SQLite database status, and setup guide.
-2. **Workspace & Hook Wizard:** Directory picker, `knox.md` viewer, and one-click Git hook toggle.
-3. **Interactive Knowledge Graph Canvas:** 2D force-directed physics layout with pan, zoom, node drag, hover tooltips, and detailed metadata inspector drawer.
-4. **Metrics & Deep Statistics:** Action totals, session counts, actor distributions, and action type breakdowns.
-5. **Live Query Console:** Full-text search and filtering with interactive tabular action list.
-6. **Transcript Ingestion Studio:** Native file picker and live progress reporting for transcript imports.
-7. **Human Edit Scanner:** Instant scan of Git staged changes with diff stats and one-click graph sync.
-8. **MCP Server & IDE Configurator:** Live tool directory and ready-to-copy JSON snippets for Cursor, Claude Desktop, and Antigravity.
+*(Launching `knox` without arguments also opens the GUI with zero console window flash).*
+
+On first launch, Knox automatically presents the **In-App Onboarding Wizard** (`OnboardingWizard.tsx`):
+1. **Welcome & Architecture:** Core principles of persistent local graph memory and zero context loss.
+2. **Workspace & DB Validation:** Live status check for `~/.knox/knox.db` and active project `knox.md`.
+3. **1-Click AI Configuration:** Ready-to-copy JSON configuration snippets for Antigravity, Cursor, Claude Code, and Gemini CLI.
+4. **Keyboard Navigation:** Cheat sheet for `Ctrl+K` (Command Palette), `1-8` (View Switching), and `F5` (Refresh).
+
+*(The Setup Guide can be reopened at any time by clicking the **Setup Guide** button in the desktop title bar).*
+
+The desktop cockpit provides 8 specialized views:
+1. **Dashboard:** High-level metrics, recent actions, database diagnostics, and quick actions.
+2. **Knowledge Graph Canvas:** Interactive 2D graph with pan/zoom, node dragging, minimap, layout algorithms (Force, Hierarchical ELK, Dagre), and action detail inspector.
+3. **Query Console:** Full-text search (SQLite FTS5) with filters for actor, action type, date range, and current/superseded actions.
+4. **Deep Statistics:** Action totals, session counts, actor distributions, and 7-day activity trend charts.
+5. **Transcript Ingestion Studio:** Native file picker and drag-and-drop ingestion with live preview.
+6. **Human Edit Scanner:** Instant scan of Git staged changes (`git diff --cached`) with diff stats and one-click graph sync.
+7. **MCP Server & IDE Configurator:** Live tool directory and 1-click copyable configuration snippets.
+8. **Workspace & Hook Wizard:** Directory picker, `knox.md` viewer, and Git pre-commit hook toggle.
 
 ---
 
 ## CLI Reference
 
+Knox ships with a unified binary `knox.exe`. For Windows Command Prompt and PowerShell, use the included `knox.cmd` wrapper to ensure synchronous execution and clean prompt return.
+
 | Command | Description | Example |
 |---|---|---|
+| `knox gui` | Launches interactive desktop GUI with zero console window flash. | `knox gui` |
 | `knox init [PATH]` | Initializes workspace, creates `knox.md`, and sets up database. | `knox init .` |
 | `knox ingest <PATH>` | Imports a conversation transcript into the knowledge graph. | `knox ingest transcript.jsonl` |
 | `knox query <PATTERN>` | Queries context by file, keyword, tag, or actor prefix. | `knox query "src/lib.rs"` |
 | `knox status` | Displays aggregate status report and actor/action breakdowns. | `knox status --json` |
 | `knox scan [PROJECT]` | Scans Git staged changes for unrecorded human modifications. | `knox scan` |
-| `knox hook <ACTION>` | Installs or uninstalls the Git pre-commit hook. | `knox hook install` |
-| `knox gui [PATH]` | Launches interactive desktop GUI and installer wizard. | `knox gui` |
-| `knox serve` | Launches the MCP stdio JSON-RPC server. | `knox serve --stdio` |
+| `knox hook <ACTION>` | Installs or uninstalls the Git pre-commit hook (`install` \| `uninstall`). | `knox hook install` |
+| `knox serve` | Launches the MCP stdio JSON-RPC server (`--stdio`). | `knox serve --stdio` |
+| `knox --version` | Displays current version (`knox 1.2.1`). | `knox --version` |
+| `knox --help` | Displays command-line help and usage documentation. | `knox --help` |
 
 ---
 
@@ -273,9 +321,11 @@ Scans git staged modifications and records any untracked human edits.
 ## Contributing
 
 1. Clone the repository: `git clone https://github.com/Diva143V/Knox.git`
-2. Run test suite: `cargo test`
-3. Run linter: `cargo clippy --all-targets`
-4. Format check: `cargo fmt --check`
+2. Install dependencies: `pnpm install`
+3. Run workspace test suite: `pnpm test` (or `cargo test --workspace`)
+4. Typecheck frontend: `pnpm typecheck`
+5. Run Rust linter: `pnpm lint` (or `cargo clippy --workspace --all-targets`)
+6. Build release packages: `pnpm build` (NSIS wizard) or `pnpm build:portable` (standalone `knox.exe`)
 
 ---
 

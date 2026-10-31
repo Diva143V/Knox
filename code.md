@@ -1,4 +1,4 @@
-# Knox v1.2.0 — Code Production Guide
+# Knox v1.2.1 — Code Production Guide
 
 > **This document defines how Knox code must be written. It is the source of truth for module boundaries, IPC contracts, frontend conventions, and verification. Every AI agent and human contributor MUST read it before changing Knox.**
 
@@ -6,22 +6,26 @@
 
 ## Non-Negotiable Architecture
 
-Knox v1.2.0 is a consumer desktop application built from three deliberately separated parts:
+Knox v1.2.1 is a consumer desktop application and CLI toolchain built from three deliberately separated parts:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────┐
 │ ui/ — React 19 + Vite + Tailwind v4 + shadcn/ui                  │
 │ Owns presentation, interaction, client-side UI state, layout.    │
+│ Includes in-app OnboardingWizard and titlebar Header controls.   │
 └──────────────────────────┬───────────────────────────────────────┘
                            │ typed Tauri invoke only
 ┌──────────────────────────▼───────────────────────────────────────┐
-│ src-tauri/ — Tauri v2 application shell                          │
-│ Owns IPC boundary, desktop capabilities, process/window wiring.  │
+│ src-tauri/ — Tauri v2 application shell & Unified Binary         │
+│ Owns IPC boundary, desktop capabilities, process/window wiring,  │
+│ and unified hybrid binary entrypoint (src-tauri/src/main.rs).    │
+│ Compiles knox.exe (zero console flash GUI + console CLI attach). │
 └──────────────────────────┬───────────────────────────────────────┘
                            │ typed Rust calls only
 ┌──────────────────────────▼───────────────────────────────────────┐
-│ src/ — Knox Rust library and CLI                                 │
+│ src/ — Knox Rust domain library crate (src/lib.rs)               │
 │ Owns domain data, storage, graph, ingest, commands, and MCP.     │
+│ autobins = false; consumed by src-tauri via knox = { path = ".." }│
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -39,45 +43,46 @@ Layers 0–5 are stable domain code. Do not modify `src/core/`, `src/storage/`, 
 
 ```text
 Knox/
-├── Cargo.toml                    # Workspace root; `.` and `src-tauri` members
-├── src/                          # Knox library + slim CLI binary
-│   ├── lib.rs                    # Public Rust library modules; no gui module
-│   ├── main.rs                   # clap CLI dispatch only
+├── Cargo.toml                    # Workspace root; `.` and `src-tauri` members (autobins = false)
+├── knox.cmd                      # Windows synchronous terminal wrapper for knox.exe
+├── src/                          # Knox domain library crate (lib.rs)
+│   ├── lib.rs                    # Public Rust library modules (core, storage, graph, ingest, commands, mcp, cli)
 │   ├── core/                     # Layer 0: types, ids, config, errors
-│   ├── storage/                  # Layer 1: SQLite access and migrations
+│   ├── storage/                  # Layer 1: SQLite access, WAL, FTS5 migrations
 │   ├── graph/                    # Layer 2: read-only petgraph loading/traversal
-│   ├── ingest/                   # Layer 2: transcript mapping
+│   ├── ingest/                   # Layer 2: transcript mapping (Antigravity etc.)
 │   ├── commands/                 # Layer 3: domain operation orchestration
-│   ├── mcp/                      # Layer 4: MCP transport and handlers
-│   └── cli/                      # Layer 5: clap argument definitions
-├── src-tauri/                    # Tauri v2 desktop shell
-│   ├── Cargo.toml
-│   ├── build.rs
-│   ├── tauri.conf.json
-│   ├── capabilities/default.json
+│   ├── mcp/                      # Layer 4: MCP stdio transport and JSON-RPC handlers
+│   └── cli/                      # Layer 5: clap argument definitions and dispatch
+├── src-tauri/                    # Tauri v2 shell and unified executable crate
+│   ├── Cargo.toml                # Defines [[bin]] name = "knox" path = "src/main.rs"
+│   ├── build.rs                  # tauri_build::build()
+│   ├── tauri.conf.json           # v1.2.1 product config, NSIS bundle, installMode: "both"
+│   ├── capabilities/default.json # Scoped dialog, fs, and shell capabilities
 │   └── src/
-│       ├── main.rs               # Calls knox_desktop_lib::run()
-│       ├── lib.rs                # Builder, plugins, AppState, command registration
-│       └── commands/             # One typed IPC wrapper per domain
-├── ui/                           # Vite React frontend
+│       ├── main.rs               # Unified hybrid binary entrypoint (GUI launch + CLI console attach)
+│       ├── lib.rs                # AppBuilder, AppState, tray, window events, IPC handlers
+│       └── commands/             # Typed IPC wrappers (status, query, graph, ingest, etc.)
+├── ui/                           # Vite React 19 frontend
 │   ├── package.json
 │   ├── vite.config.ts
 │   ├── public/fonts/             # Bundled Inter and JetBrains Mono
 │   └── src/
-│       ├── main.tsx
-│       ├── App.tsx
-│       ├── globals.css           # Tailwind v4 and design tokens
-│       ├── services/api.ts       # Only frontend IPC boundary
-│       ├── types/knox.ts         # Rust DTO mirrors
-│       ├── store/useKnoxStore.ts # Zustand UI state
-│       ├── hooks/
+│       ├── main.tsx              # React DOM root
+│       ├── App.tsx               # AppShell, CustomTitlebar, Router, OnboardingWizard
+│       ├── globals.css           # Tailwind v4 OKLCH design tokens
+│       ├── services/api.ts       # Typed KnoxAPI invoke adapter
+│       ├── types/knox.ts         # Rust DTO mirror interfaces
+│       ├── store/useKnoxStore.ts # Zustand global state
+│       ├── hooks/                # Layout, keyboard, and shortcut hooks
 │       └── components/
-│           ├── layout/
-│           ├── graph/
-│           ├── views/
-│           └── ui/               # Vendored shadcn primitives/shared UI
+│           ├── layout/           # AppShell, CustomTitlebar, Header (Setup Guide), Sidebar
+│           ├── graph/            # Canvas, ActionNode, FileNode, CausalEdge, Inspector
+│           ├── views/            # Dashboard, Query, Stats, Ingest, Scan, Mcp, Workspace
+│           ├── OnboardingWizard.tsx # Multi-step first-run wizard with 1-click MCP configs
+│           └── ui/               # Vendored shadcn primitives and shared cards/badges
 ├── tests/                        # Rust cross-module integration tests
-└── fixtures/                     # Stable test inputs
+└── fixtures/                     # Test fixtures and transcripts
 ```
 
 ### Ownership and Dependency Rules
@@ -103,24 +108,42 @@ Additional rules:
 
 ---
 
-## Desktop Application Configuration
+## Desktop Application & Unified Binary Configuration
 
-The root Cargo manifest is a workspace with `members = [".", "src-tauri"]` and `resolver = "2"`. The root `knox` package exposes both a library (`src/lib.rs`) and the CLI binary (`src/main.rs`). The desktop crate consumes the root library via `knox = { path = ".." }`.
+The root Cargo manifest is a workspace with `members = [".", "src-tauri"]` and `resolver = "2"`. The root `knox` crate produces a pure library (`src/lib.rs`) with `autobins = false`. The desktop crate (`src-tauri/Cargo.toml`) consumes the root library via `knox = { path = ".." }` and compiles the single unified hybrid executable:
+
+```toml
+# src-tauri/Cargo.toml
+[package]
+name = "knox-desktop"
+version = "1.2.1"
+edition = "2024"
+
+[lib]
+name = "knox_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "knox"
+path = "src/main.rs"
+```
 
 ### Required Tauri Shell Configuration
 
-`src-tauri/tauri.conf.json` must describe a v2 application with:
+`src-tauri/tauri.conf.json` defines the Knox v1.2.1 application:
 
 | Setting | Required value or intent |
 |---|---|
-| Product | `Knox`, version `1.2.0`, identifier `dev.knox.desktop` |
+| Product | `Knox`, version `1.2.1`, identifier `dev.knox.desktop` |
 | Frontend | `../ui/dist` for release and `http://localhost:5173` for development |
 | Window | Default 1280×820; minimum 960×640; centered; background `#0d1117` |
 | Titlebar | Custom frameless titlebar (`decorations: false`) with a React `data-tauri-drag-region` |
-| Bundle | Active for all supported platform targets; icons from `src-tauri/icons/` |
-| Security | Do not broaden CSP or capabilities without a specific need and review |
+| Bundle | `targets: ["nsis"]`, icons from `src-tauri/icons/` |
+| NSIS Setup | `installMode: "both"` (per-user `%LOCALAPPDATA%\Programs\Knox` default, machine-wide `Program Files`), installer icon `icons/icon.ico` |
+| Uninstaller | Automatically generates `uninstall.exe` registered in Windows Settings > Installed apps |
+| Security | Minimal scoped permissions; dialog, fs, and shell scoped plugins |
 
-The system tray is part of the v1.2 desktop behavior: closing the window hides it to the tray while the MCP server can remain alive. Auto-updates are deferred; do not add an updater implementation as incidental work.
+The system tray is part of the desktop behavior: closing the window hides it to the tray while the MCP server can remain alive. Auto-updates are deferred; do not add an updater implementation as incidental work.
 
 ### Capabilities and Plugins
 
@@ -279,7 +302,7 @@ Rules:
 
 ### Required Desktop Command Surface
 
-The following is the supported IPC inventory. Keep each mapping one-to-one; do not create a broad “do anything” command.
+The following is the complete, verified IPC inventory registered in `src-tauri/src/lib.rs`:
 
 | Invoke name | Command module | Rust operation / purpose |
 |---|---|---|
@@ -289,14 +312,17 @@ The following is the supported IPC inventory. Keep each mapping one-to-one; do n
 | `get_graph_data` | `graph` | Load graph-safe data for the React Flow canvas |
 | `ingest_transcript` | `ingest` | `cmd_ingest` for a selected transcript path |
 | `init_project` | `workspace` | `cmd_init` for the chosen workspace |
-| `scan_staged` | `scan` | `cmd_scan` for staged human edits |
 | `install_hook` | `workspace` | Install the project hook through the command layer |
 | `uninstall_hook` | `workspace` | Remove the project hook through the command layer |
+| `get_knox_md` | `workspace` | Retrieve generated `knox.md` workspace instructions |
+| `get_hook_status` | `workspace` | Check active Git pre-commit hook installation status |
+| `scan_staged` | `scan` | `cmd_scan` for staged human edits |
 | `start_session` | `sessions` | Start a persisted session |
 | `end_session` | `sessions` | End a persisted session |
 | `get_sessions` | `sessions` | List open/recent sessions |
 | `get_config` | `config` | Return safe configuration required by the UI |
-| `open_file_dialog` | `dialog` | Native file selection only; never arbitrary file access |
+| `open_file_dialog` | `dialog` | Native file selection dialog (e.g. transcript picking) |
+| `open_folder_dialog`| `dialog` | Native directory selection dialog (workspace path picking) |
 
 If a requested UI control needs an operation absent from this table, first determine whether it can be derived from existing data. If not, add a narrowly named domain command, DTO, Tauri wrapper, frontend type, and API method together. Do not fake a working UI control or use a placeholder shell command.
 
@@ -304,12 +330,13 @@ If a requested UI control needs an operation absent from this table, first deter
 
 | File | Responsibility |
 |---|---|
-| `src-tauri/src/main.rs` | Minimal binary entry; calls `knox_desktop_lib::run()`. |
-| `src-tauri/src/lib.rs` | Constructs `AppState`, initializes plugins/tray/window lifecycle, and registers commands. |
-| `src-tauri/src/commands/mod.rs` | Declares command modules only. |
+| `src-tauri/src/main.rs` | **Unified Hybrid Binary Entrypoint (`knox.exe`)**. Under `#![windows_subsystem = "windows"]`, checks command line args: if 0 args or `"gui"`, launches the desktop window (`knox_desktop_lib::run()`) with zero console flash. If subcommands (`serve`, `query`, `init`, etc.), inspects stdout: if `FILE_TYPE_PIPE`, preserves pipes intact for agent JSON-RPC; if interactive terminal, calls `AttachConsole(ATTACH_PARENT_PROCESS)` and redirects CONOUT$/CONIN$, then dispatches CLI via `knox::cli::dispatch`. |
+| `src-tauri/src/lib.rs` | Constructs `AppState`, initializes SQLite DB (`KnoxDb::open`), configures system tray icon & menu, manages window close-to-tray lifecycle, and registers all 17 IPC commands. |
+| `src-tauri/src/commands/mod.rs` | Declares command modules (`status`, `query`, `graph`, `ingest`, `scan`, `sessions`, `workspace`, `config`, `dialog`). |
 | `src-tauri/src/commands/*.rs` | One serializable desktop adapter domain per file. |
 | `src-tauri/build.rs` | Only invokes `tauri_build::build()`. |
-| `src-tauri/capabilities/default.json` | Explicit permission declaration, not runtime logic. |
+| `src-tauri/capabilities/default.json` | Explicit capability permissions for dialog, fs, and shell plugins. |
+| `knox.cmd` | Root Windows shell script for synchronous command execution in CMD and PowerShell terminal sessions. |
 
 ---
 
@@ -331,10 +358,11 @@ Use React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui primitives, Zustand, 
 
 | Directory | Purpose |
 |---|---|
-| `components/layout/` | App shell, title/header, sidebar, hash router |
+| `components/layout/` | App shell, title/header (Setup Guide button), sidebar, hash router |
 | `components/views/` | Route-level dashboard, query, stats, ingest, scan, MCP, workspace views |
 | `components/graph/` | React Flow canvas, nodes, edges, inspector, graph-only controls |
 | `components/ui/` | Vendored shadcn primitives and reusable Knox UI such as badges, rows, KPI cards |
+| `components/` | Modal dialogs including `OnboardingWizard.tsx` |
 | `hooks/` | Data lifecycle, keyboard map, graph layout; no generic dumping ground |
 | `services/` | Typed IPC calls only |
 
@@ -446,6 +474,16 @@ Provide intentional empty states for every data view. Do not leave blank panels 
 - Use native semantic controls or accessible shadcn primitives. Tooltips alone never supply an accessible name.
 - Support keyboard navigation in tables, list rows, filters, dialogs, and graph selection.
 
+### In-App Onboarding Wizard & Setup Guide
+
+Knox v1.2.1 includes an embedded onboarding and quick-setup flow:
+- `components/OnboardingWizard.tsx`: Multi-step interactive modal dialog displayed automatically on initial launch (tracks completion via `localStorage.getItem("knox_onboarding_completed")`). Provides 4 steps:
+  1. Welcome & concept introduction (local-first SQLite graph, zero token waste).
+  2. Workspace & active SQLite database status verification (`~/.knox/knox.db` and `knox.md`).
+  3. 1-Click AI Agent MCP configuration with copyable JSON snippets for Antigravity, Cursor, Claude Code, and Gemini CLI.
+  4. Quick keyboard shortcuts reference (`Ctrl+K` for Command Palette, `1-8` for Views, `F5` for Refresh).
+- `components/layout/Header.tsx`: Contains the "Setup Guide" button (`<Sparkles className="w-3.5 h-3.5 text-primary" />`) in the desktop title bar, allowing users to re-open `OnboardingWizard` at any time via `setOnboardingOpen(true)` in the Zustand store.
+
 ---
 
 ## View-Specific Implementation Contracts
@@ -516,7 +554,7 @@ Build vertically in phases. Do not begin a phase that consumes an unstable lower
 | 6 | React Flow graph canvas and layouts | Nodes, edges, selection, and ELK layout work. |
 | 7 | Scan, MCP configuration, and Workspace/hook views | Commands return verified desktop results. |
 | 8 | Command palette, keyboard map, motion/empty/error polish | `Ctrl+K` and navigation shortcuts work globally. |
-| 9 | Icons, CI, release packaging, cross-platform validation | `pnpm tauri build` produces platform artifacts. |
+| 9 | Icons, CI, release packaging, cross-platform validation | `pnpm build` packages `target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe` and `pnpm build:portable` compiles unified `knox.exe`. |
 
 ### Expected Creation Sequence
 
@@ -542,10 +580,12 @@ Run the smallest relevant checks while developing, then run the broad checks app
 
 | Change | Minimum verification |
 |---|---|
-| Core/storage/graph/ingest/commands | `cargo test` |
+| Core/storage/graph/ingest/commands | `cargo test --workspace` (or `pnpm test`) |
 | Tauri command or shell | `cargo check -p knox-desktop` and relevant Rust tests |
-| Frontend TypeScript/UI | `pnpm --dir ui build` |
-| Full desktop integration | `pnpm tauri dev` for manual verification; release changes use `pnpm tauri build` |
+| Frontend TypeScript/UI | `pnpm --dir ui typecheck` and `pnpm --dir ui build` |
+| Full desktop integration | `pnpm tauri dev` for interactive dev; `pnpm build:portable` for standalone `knox.exe` |
+| Release packaging | `pnpm build` (runs `tauri build --bundles nsis`, producing `target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe`) |
+| Linting | `cargo clippy --workspace --all-targets` (or `pnpm lint`) |
 | Visual changes | Inspect all changed states: normal, hover, focus, loading, empty, error, and populated. |
 
 Testing rules:
@@ -569,7 +609,7 @@ Testing rules:
 | 6 | Graph | Pan/zoom, node click, inspector, edges, and auto-layout function. |
 | 7 | Operations | Scan and hook actions accurately report backend outcomes. |
 | 8 | Keyboard polish | Palette is keyboard navigable; all listed global shortcuts work. |
-| 9 | Packaging | Release build produces the intended installer/artifact for each target. |
+| 9 | Packaging | Release build produces the NSIS installer (`Knox_1.2.1_x64-setup.exe`) and standalone `knox.exe`. |
 
 Before a visual phase is complete, inspect normal, hover, focus-visible, disabled, loading, empty, error, and populated states. Confirm Inter is loaded instead of a system fallback, the command palette has its intended blur, and tables/lists can be navigated by keyboard.
 
