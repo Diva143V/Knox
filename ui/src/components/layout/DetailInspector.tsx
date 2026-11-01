@@ -12,8 +12,6 @@ import {
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { ActionDetail } from "@/components/graph/ActionDetail";
-import { ActionBadge } from "@/components/ui/ActionBadge";
-import { ActorBadge } from "@/components/ui/ActorBadge";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
@@ -99,13 +97,9 @@ export const DetailInspector: React.FC = () => {
             {selectedAction ? (
               <>
                 <PanelRightClose className="size-4 text-primary shrink-0" aria-hidden />
-                <div className="min-w-0">
-                  <div className="text-overline leading-none mb-1">Action Inspector</div>
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <ActorBadge actor={selectedAction.actor} />
-                    <ActionBadge type={selectedAction.action_type} />
-                  </div>
-                </div>
+                <span className="text-xs font-semibold text-foreground truncate">
+                  Action Inspector
+                </span>
               </>
             ) : selectedProject ? (
               <>
