@@ -13,17 +13,27 @@ import type {
 } from "@/types/knox";
 import { isValidTab, DEFAULT_USER_SETTINGS } from "@/types/knox";
 import type { ToastVariant } from "@/components/ui/Toast";
-import { applyTheme, getStoredTheme, type ThemeMode } from "@/lib/theme";
-
-const SETTINGS_STORAGE_KEY = "knox_user_settings_v1";
+import {
+  applyTheme,
+  getStoredThemePreference,
+  resolveTheme,
+  THEME_STORAGE_KEY,
+  SETTINGS_STORAGE_KEY,
+  type ThemePreference,
+  type ResolvedTheme,
+} from "@/lib/theme";
 
 const getSavedUserSettings = (): UserSettings => {
   try {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    let settings = DEFAULT_USER_SETTINGS;
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...DEFAULT_USER_SETTINGS, ...parsed };
+      settings = { ...DEFAULT_USER_SETTINGS, ...parsed };
     }
+    // Synchronize with authoritative theme preference
+    settings.theme = getStoredThemePreference();
+    return settings;
   } catch {
     // fallback
   }
@@ -37,7 +47,8 @@ const getInitialTab = (): ViewTab => {
       return hash;
     }
   }
-  return "dashboard";
+  const saved = getSavedUserSettings();
+  return isValidTab(saved.defaultStartupView) ? saved.defaultStartupView : "dashboard";
 };
 
 const isFirstRun = (): boolean => {
@@ -85,7 +96,7 @@ const getSavedActiveProject = (): string | null => {
   }
 };
 
-interface KnoxStore {
+export interface KnoxStore {
   activeTab: ViewTab;
   status: StatusReport | null;
   actions: KnoxAction[];
@@ -102,7 +113,8 @@ interface KnoxStore {
   isSettingsOpen: boolean;
   activeSettingsTab: SettingsTabId;
   config: KnoxConfig | null;
-  theme: ThemeMode;
+  theme: ThemePreference;
+  resolvedTheme: ResolvedTheme;
   userSettings: UserSettings;
 
   // Global KG vs Project Folder Scope
@@ -128,7 +140,7 @@ interface KnoxStore {
   closeTour: () => void;
   openSettings: (tab?: SettingsTabId) => void;
   closeSettings: () => void;
-  setTheme: (theme: ThemeMode) => void;
+  setTheme: (theme: ThemePreference) => void;
   updateUserSettings: (patch: Partial<UserSettings>) => void;
   resetUserSettings: () => void;
   updateConfig: (params: {
@@ -161,7 +173,8 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
     set({ isSettingsOpen: true, activeSettingsTab: tab ?? "general" }),
   closeSettings: () => set({ isSettingsOpen: false }),
   config: null,
-  theme: getStoredTheme(),
+  theme: getStoredThemePreference(),
+  resolvedTheme: resolveTheme(getStoredThemePreference()),
   userSettings: getSavedUserSettings(),
 
   updateUserSettings: (patch) => {
@@ -173,15 +186,8 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
       // ignore
     }
     if (patch.theme && patch.theme !== current.theme) {
-      if (patch.theme === "system") {
-        const isDark =
-          typeof window !== "undefined" &&
-          window.matchMedia("(prefers-color-scheme: dark)").matches;
-        applyTheme(isDark ? "dark" : "light");
-      } else {
-        applyTheme(patch.theme);
-      }
-      set({ theme: patch.theme === "light" ? "light" : "dark" });
+      get().setTheme(patch.theme);
+      return;
     }
     set({ userSettings: updated });
   },
@@ -189,11 +195,18 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   resetUserSettings: () => {
     try {
       localStorage.removeItem(SETTINGS_STORAGE_KEY);
+      localStorage.removeItem(THEME_STORAGE_KEY);
     } catch {
       // ignore
     }
-    applyTheme("dark");
-    set({ userSettings: DEFAULT_USER_SETTINGS, theme: "dark" });
+    const defaultPref = DEFAULT_USER_SETTINGS.theme;
+    const resolved = resolveTheme(defaultPref);
+    applyTheme(resolved);
+    set({
+      userSettings: DEFAULT_USER_SETTINGS,
+      theme: defaultPref,
+      resolvedTheme: resolved,
+    });
   },
 
   activeProjectScope: getSavedActiveProject(),
@@ -324,9 +337,30 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
     set((state) => ({ commandPaletteOpen: !state.commandPaletteOpen })),
   setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
   setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),
-  setTheme: (theme) => {
-    applyTheme(theme);
-    set({ theme });
+
+  setTheme: (themePreference: ThemePreference) => {
+    const resolved = resolveTheme(themePreference);
+    applyTheme(resolved);
+
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, themePreference);
+    } catch {
+      // ignore
+    }
+
+    const currentSettings = get().userSettings;
+    const updatedSettings: UserSettings = { ...currentSettings, theme: themePreference };
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(updatedSettings));
+    } catch {
+      // ignore
+    }
+
+    set({
+      theme: themePreference,
+      resolvedTheme: resolved,
+      userSettings: updatedSettings,
+    });
   },
 
   refreshData: async () => {
@@ -425,4 +459,3 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
     }
   },
 }));
-

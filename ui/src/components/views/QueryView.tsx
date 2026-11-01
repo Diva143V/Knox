@@ -127,6 +127,7 @@ export const QueryView: React.FC = () => {
     setSinceFilter("");
     setCurrentOnly(true);
     setLimit(50);
+    setActiveFacet("all");
     setResults(actions);
     setSelectedIndex(-1);
     setHasQueried(false);
@@ -135,23 +136,25 @@ export const QueryView: React.FC = () => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (displayedResults.length === 0) return;
+
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelectedIndex((prev) => {
-        const next = Math.min(prev + 1, results.length - 1);
-        if (results[next]) setSelectedAction(results[next]);
+        const next = prev < 0 ? 0 : Math.min(prev + 1, displayedResults.length - 1);
+        if (displayedResults[next]) setSelectedAction(displayedResults[next]);
         return next;
       });
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setSelectedIndex((prev) => {
-        const next = Math.max(prev - 1, 0);
-        if (results[next]) setSelectedAction(results[next]);
+        const next = prev < 0 ? displayedResults.length - 1 : Math.max(prev - 1, 0);
+        if (displayedResults[next]) setSelectedAction(displayedResults[next]);
         return next;
       });
-    } else if (e.key === "Enter" && selectedIndex >= 0 && results[selectedIndex]) {
+    } else if (e.key === "Enter" && selectedIndex >= 0 && displayedResults[selectedIndex]) {
       e.preventDefault();
-      setSelectedAction(results[selectedIndex]);
+      setSelectedAction(displayedResults[selectedIndex]);
     } else if (e.key === "Escape") {
       if (selectedAction) {
         setSelectedAction(null);
@@ -361,9 +364,14 @@ export const QueryView: React.FC = () => {
                   <span>
                     Showing{" "}
                     <span className="font-semibold text-foreground">
-                      {results.length}
+                      {displayedResults.length}
                     </span>{" "}
-                    actions
+                    {displayedResults.length === 1 ? "action" : "actions"}
+                    {displayedResults.length !== results.length && (
+                      <span className="text-muted-foreground text-xs ml-1 font-mono">
+                        (filtered from {results.length})
+                      </span>
+                    )}
                   </span>
                   {activeFilterCount > 0 && (
                     <span className="text-primary bg-primary-muted px-1.5 py-0.5 rounded-sm border border-primary/20">
@@ -406,12 +414,15 @@ export const QueryView: React.FC = () => {
 
         {/* Cognitive Memory Facet Chips */}
         <div className="px-4 py-2 border-b border-border bg-card/40 flex items-center gap-1.5 overflow-x-auto text-xs shrink-0 select-none">
-          <span className="text-3xs uppercase tracking-wider text-muted-foreground font-mono mr-1">
+          <span className="text-2xs uppercase tracking-wider text-muted-foreground font-mono mr-1">
             Focus:
           </span>
           <button
             type="button"
-            onClick={() => setActiveFacet("all")}
+            onClick={() => {
+              setActiveFacet("all");
+              setSelectedIndex(-1);
+            }}
             className={cn(
               "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer",
               activeFacet === "all"
@@ -423,12 +434,15 @@ export const QueryView: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => setActiveFacet("doubts")}
+            onClick={() => {
+              setActiveFacet("doubts");
+              setSelectedIndex(-1);
+            }}
             className={cn(
               "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
               activeFacet === "doubts"
                 ? "bg-amber-500 text-white border-amber-600 shadow-xs"
-                : "bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20"
+                : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20"
             )}
           >
             <HelpCircle className="size-3" />
@@ -436,12 +450,15 @@ export const QueryView: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => setActiveFacet("major")}
+            onClick={() => {
+              setActiveFacet("major");
+              setSelectedIndex(-1);
+            }}
             className={cn(
               "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
               activeFacet === "major"
                 ? "bg-warning text-black border-warning shadow-xs font-semibold"
-                : "bg-warning/10 text-warning border-warning/30 hover:bg-warning/20"
+                : "bg-warning/10 text-amber-800 dark:text-warning border-warning/30 hover:bg-warning/20"
             )}
           >
             <Sparkles className="size-3" />
@@ -449,11 +466,14 @@ export const QueryView: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => setActiveFacet("minor")}
+            onClick={() => {
+              setActiveFacet("minor");
+              setSelectedIndex(-1);
+            }}
             className={cn(
               "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
               activeFacet === "minor"
-                ? "bg-muted text-foreground border-primary/50 shadow-xs"
+                ? "bg-muted text-foreground border-primary/50 shadow-xs font-semibold"
                 : "bg-muted/60 text-muted-foreground border-border hover:text-foreground"
             )}
           >
@@ -462,12 +482,15 @@ export const QueryView: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => setActiveFacet("dialogue")}
+            onClick={() => {
+              setActiveFacet("dialogue");
+              setSelectedIndex(-1);
+            }}
             className={cn(
               "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
               activeFacet === "dialogue"
-                ? "bg-cyan-500 text-white border-cyan-600 shadow-xs"
-                : "bg-cyan-500/10 text-cyan-500 border-cyan-500/30 hover:bg-cyan-500/20"
+                ? "bg-cyan-600 text-white border-cyan-700 shadow-xs"
+                : "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20"
             )}
           >
             <MessageSquare className="size-3" />
@@ -532,6 +555,38 @@ export const QueryView: React.FC = () => {
                 }
               />
             </div>
+          ) : displayedResults.length === 0 ? (
+            <div className="p-6">
+              <EmptyState
+                compact
+                icon={<Filter />}
+                title={
+                  activeFacet === "doubts"
+                    ? "No open doubts"
+                    : activeFacet === "major"
+                    ? "No major decisions (ADRs)"
+                    : activeFacet === "minor"
+                    ? "No minor choices"
+                    : activeFacet === "dialogue"
+                    ? "No conversation actions"
+                    : "No matching actions"
+                }
+                description={`There are ${results.length} total actions in this query, but none match the "${activeFacet}" focus filter.`}
+                action={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setActiveFacet("all");
+                      setSelectedIndex(-1);
+                    }}
+                  >
+                    Show all {results.length} actions
+                  </Button>
+                }
+              />
+            </div>
           ) : (
             <div className="divide-y divide-border-subtle">
               {displayedResults.map((action, idx) => {
@@ -560,7 +615,7 @@ export const QueryView: React.FC = () => {
                       "focus-visible:outline-none focus-visible:bg-primary-muted",
                       isSelected
                         ? "bg-primary-muted border-primary"
-                        : "border-transparent hover:bg-card/80"
+                        : "border-transparent hover:bg-muted/50"
                     )}
                   >
                     <div className="space-y-1.5 min-w-0 flex-1">

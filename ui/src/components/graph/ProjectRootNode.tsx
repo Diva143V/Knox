@@ -37,13 +37,13 @@ export const ProjectRootNode = memo(({ data }: NodeProps) => {
         <Handle
           type="target"
           position={Position.Top}
-          className="!w-3 !h-3 !bg-sky-400 !border-2 !border-zinc-950 !rounded-full transition hover:!scale-125"
+          className="!w-3 !h-3 !bg-sky-500 !border-2 !border-background !rounded-full transition hover:!scale-125"
         />
       )}
 
       {/* Outer Glow */}
       <div
-        className={`absolute -inset-1 rounded-2xl blur-sm opacity-70 group-hover:opacity-100 transition duration-300 ${
+        className={`absolute -inset-1 rounded-2xl blur-sm opacity-40 dark:opacity-70 group-hover:opacity-75 dark:group-hover:opacity-100 transition duration-300 ${
           isGlobal
             ? "bg-gradient-to-r from-indigo-500/30 via-purple-500/20 to-indigo-500/30"
             : "bg-gradient-to-r from-sky-500/30 via-cyan-500/20 to-teal-500/30"
@@ -52,47 +52,47 @@ export const ProjectRootNode = memo(({ data }: NodeProps) => {
 
       {/* Main Card */}
       <div
-        className={`relative w-80 rounded-2xl border-2 bg-zinc-950/95 backdrop-blur-md shadow-2xl p-4 space-y-3 transition ${
+        className={`relative w-80 rounded-2xl border-2 bg-card/95 backdrop-blur-md shadow-xl p-4 space-y-3 transition ${
           isGlobal
-            ? "border-indigo-500/60 hover:border-indigo-400"
+            ? "border-indigo-500/50 hover:border-indigo-500 dark:border-indigo-500/60 dark:hover:border-indigo-400"
             : nodeData.isSelected
-            ? "border-sky-400 ring-2 ring-sky-400/50 shadow-sky-500/20 shadow-xl"
-            : "border-sky-500/60 hover:border-sky-400"
+            ? "border-sky-500 ring-2 ring-sky-400/50 shadow-sky-500/20 shadow-xl"
+            : "border-sky-500/50 hover:border-sky-500 dark:border-sky-500/60 dark:hover:border-sky-400"
         }`}
       >
         {/* Top Header */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <div
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center shadow-xs ${
+              className={`size-8 rounded-xl border flex items-center justify-center shrink-0 shadow-xs ${
                 isGlobal
-                  ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-400"
-                  : "bg-sky-500/20 border-sky-500/40 text-sky-400"
+                  ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-600 dark:text-indigo-400"
+                  : "bg-sky-500/15 border-sky-500/30 text-sky-600 dark:text-sky-400"
               }`}
             >
               {isGlobal ? (
-                <Globe className="w-4 h-4 text-indigo-400 animate-pulse" />
+                <Globe className="size-4 text-indigo-600 dark:text-indigo-400 animate-pulse" />
               ) : (
-                <FolderGit2 className="w-4 h-4 text-sky-400" />
+                <FolderGit2 className="size-4 text-sky-600 dark:text-sky-400" />
               )}
             </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-zinc-100 font-sans tracking-tight">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-bold text-foreground font-sans tracking-tight truncate max-w-[150px]">
                   {nodeData.name || (isGlobal ? "Global KG" : "Project Root")}
                 </span>
                 <span
-                  className={`text-[9px] font-mono px-1.5 py-0.2 rounded-full border uppercase font-semibold ${
+                  className={`text-2xs font-mono px-1.5 py-0.5 rounded-full border uppercase font-semibold shrink-0 ${
                     isGlobal
-                      ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
-                      : "bg-sky-500/20 text-sky-300 border-sky-500/30"
+                      ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30"
+                      : "bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30"
                   }`}
                 >
                   {isGlobal ? "Global KG" : "Project Branch"}
                 </span>
               </div>
               <p
-                className="text-[10px] font-mono text-zinc-400 truncate max-w-[190px]"
+                className="text-2xs font-mono text-muted-foreground truncate max-w-[190px]"
                 title={nodeData.path}
               >
                 {nodeData.path}
@@ -101,36 +101,36 @@ export const ProjectRootNode = memo(({ data }: NodeProps) => {
           </div>
 
           <Sparkles
-            className={`w-4 h-4 opacity-80 ${
-              isGlobal ? "text-indigo-400" : "text-sky-400"
+            className={`size-4 opacity-80 shrink-0 ${
+              isGlobal ? "text-indigo-600 dark:text-indigo-400" : "text-sky-600 dark:text-sky-400"
             }`}
           />
         </div>
 
         {/* Counters & Metadata Bar */}
-        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/80 text-[11px] font-mono">
-          <div className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-800 flex flex-col items-center justify-center">
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border text-2xs font-mono">
+          <div className="p-2 rounded-lg bg-muted/50 border border-border flex flex-col items-center justify-center">
             <span
               className={`text-xs font-bold ${
-                isGlobal ? "text-indigo-400" : "text-emerald-400"
+                isGlobal ? "text-indigo-600 dark:text-indigo-400" : "text-emerald-600 dark:text-emerald-400"
               }`}
             >
               {nodeData.actionCount}
             </span>
-            <span className="text-[9px] text-zinc-500 uppercase">
+            <span className="text-2xs text-muted-foreground uppercase">
               {isGlobal ? "Total Actions" : "Project Actions"}
             </span>
           </div>
 
-          <div className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-800 flex flex-col items-center justify-center">
+          <div className="p-2 rounded-lg bg-muted/50 border border-border flex flex-col items-center justify-center">
             <span
               className={`text-xs font-bold ${
-                isGlobal ? "text-purple-400" : "text-cyan-400"
+                isGlobal ? "text-purple-600 dark:text-purple-400" : "text-sky-600 dark:text-sky-400"
               }`}
             >
               {nodeData.fileCount}
             </span>
-            <span className="text-[9px] text-zinc-500 uppercase">
+            <span className="text-2xs text-muted-foreground uppercase">
               {isGlobal ? "Total Files" : "Project Files"}
             </span>
           </div>
@@ -141,8 +141,8 @@ export const ProjectRootNode = memo(({ data }: NodeProps) => {
       <Handle
         type="source"
         position={Position.Bottom}
-        className={`!w-3 !h-3 !border-2 !border-zinc-950 !rounded-full transition hover:!scale-125 ${
-          isGlobal ? "!bg-indigo-400" : "!bg-sky-400"
+        className={`!w-3 !h-3 !border-2 !border-background !rounded-full transition hover:!scale-125 ${
+          isGlobal ? "!bg-indigo-500" : "!bg-sky-500"
         }`}
       />
     </div>

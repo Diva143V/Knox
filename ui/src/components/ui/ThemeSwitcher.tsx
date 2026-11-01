@@ -1,17 +1,23 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { Moon, Sun, Check, ChevronDown } from "lucide-react";
+import { Moon, Sun, Laptop, Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useKnoxStore } from "@/store/useKnoxStore";
-import type { ThemeMode } from "@/lib/theme";
+import type { ThemePreference } from "@/lib/theme";
 
-const OPTIONS: { id: ThemeMode; label: string; Icon: typeof Sun }[] = [
-  { id: "light", label: "Light", Icon: Sun },
+const OPTIONS: {
+  id: ThemePreference;
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+}[] = [
   { id: "dark", label: "Dark", Icon: Moon },
+  { id: "light", label: "Light", Icon: Sun },
+  { id: "system", label: "System", Icon: Laptop },
 ];
 
-/** Compact titlebar appearance control — Light / Dark dropdown. */
+/** Compact titlebar appearance control — Dark / Light / System dropdown. */
 export const ThemeSwitcher: React.FC = () => {
   const theme = useKnoxStore((s) => s.theme);
+  const resolvedTheme = useKnoxStore((s) => s.resolvedTheme);
   const setTheme = useKnoxStore((s) => s.setTheme);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -33,14 +39,14 @@ export const ThemeSwitcher: React.FC = () => {
     };
   }, [open]);
 
-  const ActiveIcon = theme === "light" ? Sun : Moon;
+  const ActiveIcon = theme === "system" ? Laptop : resolvedTheme === "light" ? Sun : Moon;
 
   return (
     <div ref={rootRef} className="relative no-drag">
       <button
         type="button"
         className={cn(
-          "h-7 px-2 inline-flex items-center gap-1 rounded-md",
+          "h-7 px-2 inline-flex items-center gap-1.5 rounded-md",
           "text-muted-foreground hover:text-foreground hover:bg-muted",
           "transition-colors cursor-pointer",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
@@ -50,10 +56,11 @@ export const ThemeSwitcher: React.FC = () => {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={menuId}
-        title="Appearance"
+        title={`Appearance: ${theme} (${resolvedTheme})`}
         onClick={() => setOpen((v) => !v)}
       >
         <ActiveIcon className="size-3.5 shrink-0" aria-hidden />
+        <span className="text-2xs font-medium capitalize hidden sm:inline">{theme}</span>
         <ChevronDown
           className={cn("size-3 opacity-70 transition-transform", open && "rotate-180")}
           aria-hidden
@@ -66,7 +73,7 @@ export const ThemeSwitcher: React.FC = () => {
           role="menu"
           aria-label="Appearance"
           className={cn(
-            "absolute right-0 top-full mt-1 z-[60] min-w-[8.5rem]",
+            "absolute right-0 top-full mt-1 z-[60] min-w-[9rem]",
             "rounded-md border border-border bg-popover shadow-md py-1",
             "motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 motion-safe:duration-100"
           )}
@@ -83,7 +90,7 @@ export const ThemeSwitcher: React.FC = () => {
                   "w-full flex items-center gap-2 px-2.5 py-1.5 text-sm text-left",
                   "hover:bg-muted cursor-pointer transition-colors",
                   "focus-visible:outline-none focus-visible:bg-muted",
-                  selected ? "text-foreground" : "text-muted-foreground"
+                  selected ? "text-foreground font-medium" : "text-muted-foreground"
                 )}
                 onClick={() => {
                   setTheme(id);
