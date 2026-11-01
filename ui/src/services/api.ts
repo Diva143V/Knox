@@ -8,6 +8,8 @@ import type {
   QueryResult,
   ScanReport,
   IngestReport,
+  IngestPreview,
+  DetectedTranscript,
   KnoxConfig,
   Session,
   Project,
@@ -92,9 +94,99 @@ export const KnoxAPI = {
 
   async ingestTranscript(path: string): Promise<IngestReport> {
     if (!isTauri) {
-      return { actions_imported: 7, files_touched: 3, sessions_created: 1 };
+      return {
+        actions_imported: 7,
+        files_touched: 3,
+        sessions_created: 1,
+        duplicates_skipped: 0,
+        tool_detected: "antigravity",
+      };
     }
     return invoke<IngestReport>("ingest_transcript", { path });
+  },
+
+  async ingestRawTranscript(
+    content: string,
+    actorOverride?: string
+  ): Promise<IngestReport> {
+    if (!isTauri) {
+      return {
+        actions_imported: 4,
+        files_touched: 2,
+        sessions_created: 1,
+        duplicates_skipped: 0,
+        tool_detected: actorOverride || "generic",
+      };
+    }
+    return invoke<IngestReport>("ingest_raw_transcript", {
+      content,
+      actorOverride: actorOverride || null,
+      actor_override: actorOverride || null,
+    });
+  },
+
+  async previewTranscript(params: {
+    path?: string;
+    content?: string;
+  }): Promise<IngestPreview> {
+    if (!isTauri) {
+      return {
+        tool_detected: params.path?.includes("claude") ? "claude" : "antigravity",
+        total_actions: 5,
+        plans_count: 2,
+        writes_count: 2,
+        debugs_count: 1,
+        decisions_count: 0,
+        files_touched: ["src/lib.rs", "src/main.rs"],
+        duplicates_count: 0,
+        sample_actions: [],
+      };
+    }
+    return invoke<IngestPreview>("preview_transcript", {
+      path: params.path || null,
+      content: params.content || null,
+    });
+  },
+
+  async ingestGitHistory(
+    projectPath: string,
+    maxCommits?: number
+  ): Promise<IngestReport> {
+    if (!isTauri) {
+      return {
+        actions_imported: 15,
+        files_touched: 8,
+        sessions_created: 1,
+        duplicates_skipped: 0,
+        tool_detected: "git",
+      };
+    }
+    return invoke<IngestReport>("ingest_git_history", {
+      projectPath,
+      project_path: projectPath,
+      maxCommits: maxCommits ?? 50,
+      max_commits: maxCommits ?? 50,
+    });
+  },
+
+  async detectLocalTranscripts(
+    projectPath?: string
+  ): Promise<DetectedTranscript[]> {
+    if (!isTauri) {
+      return [
+        {
+          path: "fixtures/transcript_antigravity.jsonl",
+          source: "Antigravity",
+          size_bytes: 4200,
+          last_modified: new Date().toISOString(),
+          estimated_actions: 6,
+        },
+      ];
+    }
+    return invoke<DetectedTranscript[]>("detect_local_transcripts", {
+      projectPath: projectPath || null,
+      project_path: projectPath || null,
+    });
   },
 
   async initProject(path: string): Promise<string> {

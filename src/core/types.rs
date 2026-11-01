@@ -236,6 +236,50 @@ pub struct IngestReport {
     pub files_touched: usize,
     /// Number of sessions created or identified.
     pub sessions_created: usize,
+    /// Number of duplicate actions skipped during ingestion.
+    #[serde(default)]
+    pub duplicates_skipped: usize,
+    /// Name of the detected tool/agent format that was ingested.
+    #[serde(default)]
+    pub tool_detected: String,
+}
+
+/// Dry-run preview summary of a transcript before committing to the database.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct IngestPreview {
+    /// Identifier or name of the detected tool (e.g. "antigravity", "claude", "cursor", "git").
+    pub tool_detected: String,
+    /// Total number of actions parsed from the transcript.
+    pub total_actions: usize,
+    /// Total number of plan actions.
+    pub plans_count: usize,
+    /// Total number of file write modifications.
+    pub writes_count: usize,
+    /// Total number of debug/verification executions.
+    pub debugs_count: usize,
+    /// Total number of architectural decisions.
+    pub decisions_count: usize,
+    /// List of unique files referenced across all parsed actions.
+    pub files_touched: Vec<String>,
+    /// Number of actions that already exist in the knowledge graph.
+    pub duplicates_count: usize,
+    /// Sample preview actions (first N actions for visual staging).
+    pub sample_actions: Vec<KnoxAction>,
+}
+
+/// Information about a detected local agent transcript file.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetectedTranscript {
+    /// File path to the detected transcript.
+    pub path: String,
+    /// Source or tool type (e.g. "Antigravity", "Claude Code", "Cursor", "Git History").
+    pub source: String,
+    /// File size in bytes (or 0 for synthetic sources like Git history).
+    pub size_bytes: u64,
+    /// Last modified ISO timestamp.
+    pub last_modified: String,
+    /// Estimated number of actions or commits available.
+    pub estimated_actions: usize,
 }
 
 /// Aggregate status report for the Knox knowledge graph.

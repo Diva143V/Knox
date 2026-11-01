@@ -68,6 +68,28 @@ export interface IngestReport {
   actions_imported: number;
   files_touched: number;
   sessions_created: number;
+  duplicates_skipped?: number;
+  tool_detected?: string;
+}
+
+export interface IngestPreview {
+  tool_detected: string;
+  total_actions: number;
+  plans_count: number;
+  writes_count: number;
+  debugs_count: number;
+  decisions_count: number;
+  files_touched: string[];
+  duplicates_count: number;
+  sample_actions: KnoxAction[];
+}
+
+export interface DetectedTranscript {
+  path: string;
+  source: string;
+  size_bytes: number;
+  last_modified: string;
+  estimated_actions: number;
 }
 
 export interface KnoxConfig {

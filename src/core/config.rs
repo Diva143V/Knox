@@ -87,7 +87,7 @@ pub fn expand_tilde<P: AsRef<Path>>(path: P) -> PathBuf {
 }
 
 /// Returns the user's home directory across Windows, macOS, and Linux.
-fn home_dir() -> Option<PathBuf> {
+pub fn home_dir() -> Option<PathBuf> {
     env::var("USERPROFILE")
         .or_else(|_| env::var("HOME"))
         .or_else(|_| {
