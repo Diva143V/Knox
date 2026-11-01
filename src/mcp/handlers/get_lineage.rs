@@ -44,9 +44,7 @@ pub fn handle_get_lineage(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             .results
             .first()
             .map(|a| a.id.clone())
-            .ok_or_else(|| {
-                KnoxError::InvalidInput(format!("No actions found for file: {fp}"))
-            })?
+            .ok_or_else(|| KnoxError::InvalidInput(format!("No actions found for file: {fp}")))?
     } else {
         return Err(KnoxError::InvalidInput(
             "Either action_id or file_path must be specified".to_string(),
@@ -57,7 +55,11 @@ pub fn handle_get_lineage(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let graph = load_subgraph(db, std::slice::from_ref(&target_id), max_depth)?;
     let chain = causal_chain(&graph, &target_id);
 
-    let format_mode = input.format.as_deref().unwrap_or("markdown").to_ascii_lowercase();
+    let format_mode = input
+        .format
+        .as_deref()
+        .unwrap_or("markdown")
+        .to_ascii_lowercase();
     let label = input
         .file_path
         .as_deref()
@@ -85,8 +87,8 @@ pub fn handle_get_lineage(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::core::types::KnoxAction;
+    use chrono::Utc;
 
     #[test]
     fn test_handle_get_lineage() {

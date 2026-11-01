@@ -83,17 +83,23 @@ pub fn classify_human_input(content: &str) -> HumanInputKind {
 
     // Check question starters: "can i ...", "what ...", "why ...", "how ...", "is it ...", "should we ..."
     let question_starters = [
-        "what", "why", "how", "where", "when", "which", "who", "whom",
-        "should", "would", "is", "are", "was", "were",
+        "what", "why", "how", "where", "when", "which", "who", "whom", "should", "would", "is",
+        "are", "was", "were",
     ];
     if let Some(&first) = words.first() {
         if question_starters.contains(&first) {
             return HumanInputKind::Doubt;
         }
-        if (first == "can" || first == "could") && words.get(1).is_some_and(|w| matches!(*w, "i" | "we")) {
+        if (first == "can" || first == "could")
+            && words.get(1).is_some_and(|w| matches!(*w, "i" | "we"))
+        {
             return HumanInputKind::Doubt;
         }
-        if (first == "do" || first == "does" || first == "did") && words.get(1).is_some_and(|w| matches!(*w, "we" | "i" | "you" | "they" | "it")) {
+        if (first == "do" || first == "does" || first == "did")
+            && words
+                .get(1)
+                .is_some_and(|w| matches!(*w, "we" | "i" | "you" | "they" | "it"))
+        {
             return HumanInputKind::Doubt;
         }
     }
@@ -122,9 +128,27 @@ pub fn classify_human_input(content: &str) -> HumanInputKind {
 
     // Conversational acknowledgments, greetings, or short confirmations
     let conversational_words = [
-        "ok", "okay", "yes", "no", "sure", "thanks", "thank", "sounds",
-        "apply", "proceed", "continue", "done", "hello", "hi", "hey",
-        "yep", "nope", "acknowledged", "cool", "great", "nice",
+        "ok",
+        "okay",
+        "yes",
+        "no",
+        "sure",
+        "thanks",
+        "thank",
+        "sounds",
+        "apply",
+        "proceed",
+        "continue",
+        "done",
+        "hello",
+        "hi",
+        "hey",
+        "yep",
+        "nope",
+        "acknowledged",
+        "cool",
+        "great",
+        "nice",
     ];
     if words.len() <= 3 && words.iter().any(|w| conversational_words.contains(w)) {
         return HumanInputKind::Dialogue;
@@ -453,7 +477,9 @@ mod tests {
             HumanInputKind::Plan
         );
         assert_eq!(
-            classify_human_input("<USER_REQUEST>\nFix connection timeout in db.rs\n</USER_REQUEST>"),
+            classify_human_input(
+                "<USER_REQUEST>\nFix connection timeout in db.rs\n</USER_REQUEST>"
+            ),
             HumanInputKind::Plan
         );
     }
@@ -462,6 +488,9 @@ mod tests {
     fn test_classify_human_input_dialogue() {
         assert_eq!(classify_human_input("ok"), HumanInputKind::Dialogue);
         assert_eq!(classify_human_input("apply"), HumanInputKind::Dialogue);
-        assert_eq!(classify_human_input("thanks a lot"), HumanInputKind::Dialogue);
+        assert_eq!(
+            classify_human_input("thanks a lot"),
+            HumanInputKind::Dialogue
+        );
     }
 }

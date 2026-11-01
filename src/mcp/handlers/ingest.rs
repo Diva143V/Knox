@@ -26,7 +26,8 @@ pub fn handle_ingest(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 
     if input.file_path.is_none() && input.raw_transcript.is_none() {
         return Err(KnoxError::InvalidInput(
-            "At least one of 'file_path' or 'raw_transcript' must be provided to knox_ingest".to_string(),
+            "At least one of 'file_path' or 'raw_transcript' must be provided to knox_ingest"
+                .to_string(),
         ));
     }
 

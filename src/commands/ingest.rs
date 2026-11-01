@@ -32,7 +32,7 @@ pub fn cmd_ingest(transcript_path: &Path, db: &KnoxDb) -> KnoxResult<IngestRepor
 
     let existing_projects = crate::storage::list_projects(db).unwrap_or_default();
     let inferred_project = infer_project_path(transcript_path, &actions, &existing_projects);
-    
+
     persist_actions_with_session(actions, tool_detected, inferred_project.as_deref(), db)
 }
 
@@ -92,7 +92,9 @@ pub fn cmd_preview(
     } else if let Some(c) = content {
         ingest_bytes_with_tool(c.as_bytes())?
     } else {
-        return Err(KnoxError::ParseError("Neither path nor content provided for preview".to_string()));
+        return Err(KnoxError::ParseError(
+            "Neither path nor content provided for preview".to_string(),
+        ));
     };
 
     let conn = db.conn();
@@ -288,10 +290,16 @@ fn infer_project_path(
 pub fn format_ingest_report(report: &IngestReport) -> String {
     let mut msg = format!(
         "Ingested {} actions across {} touched files ({} session created, format: {})",
-        report.actions_imported, report.files_touched, report.sessions_created, report.tool_detected
+        report.actions_imported,
+        report.files_touched,
+        report.sessions_created,
+        report.tool_detected
     );
     if report.duplicates_skipped > 0 {
-        msg.push_str(&format!(", skipped {} duplicate(s)", report.duplicates_skipped));
+        msg.push_str(&format!(
+            ", skipped {} duplicate(s)",
+            report.duplicates_skipped
+        ));
     }
     msg
 }

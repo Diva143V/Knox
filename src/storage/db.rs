@@ -67,7 +67,9 @@ impl KnoxDb {
 
     /// Runs a SQLite integrity check and returns "ok" or failure diagnostics.
     pub fn integrity_check(&self) -> KnoxResult<String> {
-        let result: String = self.conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+        let result: String = self
+            .conn
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
         Ok(result)
     }
 

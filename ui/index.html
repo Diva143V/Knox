@@ -8,22 +8,41 @@
     <!-- FOUC guard: apply stored theme before CSS/JS modules load -->
     <script>
       (function () {
-        var theme = "dark";
+        var preference = "dark";
         try {
           var stored = localStorage.getItem("knox_theme");
-          if (stored === "light" || stored === "dark") theme = stored;
+          if (stored === "light" || stored === "dark" || stored === "system") {
+            preference = stored;
+          } else {
+            var rawSettings = localStorage.getItem("knox_user_settings_v1");
+            if (rawSettings) {
+              var parsed = JSON.parse(rawSettings);
+              if (parsed && (parsed.theme === "light" || parsed.theme === "dark" || parsed.theme === "system")) {
+                preference = parsed.theme;
+              }
+            }
+          }
         } catch (e) {}
+
+        var resolved = preference;
+        if (preference === "system") {
+          var isDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+          resolved = isDark ? "dark" : "light";
+        }
+
         var root = document.documentElement;
-        root.setAttribute("data-theme", theme);
-        root.style.colorScheme = theme;
-        root.classList.add(theme);
-        var bg = theme === "light" ? "#F5F7FA" : "#0d1117";
-        var fg = theme === "light" ? "#18212B" : "#f8fafc";
+        root.setAttribute("data-theme", resolved);
+        root.style.colorScheme = resolved;
+        root.classList.add(resolved);
+        var bg = resolved === "light" ? "#F5F7FA" : "#0d1117";
+        var fg = resolved === "light" ? "#18212B" : "#f8fafc";
         root.style.backgroundColor = bg;
         root.style.color = fg;
         document.addEventListener("DOMContentLoaded", function () {
-          document.body.style.backgroundColor = bg;
-          document.body.style.color = fg;
+          if (document.body) {
+            document.body.style.backgroundColor = bg;
+            document.body.style.color = fg;
+          }
         });
       })();
     </script>

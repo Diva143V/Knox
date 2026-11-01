@@ -61,7 +61,10 @@ pub async fn ingest_git_history(
     let path_buf = PathBuf::from(project_path);
 
     if !path_buf.exists() {
-        return Err(format!("Project directory does not exist: {}", path_buf.display()));
+        return Err(format!(
+            "Project directory does not exist: {}",
+            path_buf.display()
+        ));
     }
 
     cmd_ingest_git(&path_buf, max_commits.unwrap_or(50), &db).map_err(|e| e.to_string())

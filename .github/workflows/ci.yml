@@ -61,20 +61,17 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_cli: knox-linux-amd64
-            artifact_desktop: knox-desktop-linux-amd64
-            binary_cli: target/release/knox
-            binary_desktop: target/release/knox-desktop
+            artifact_binary: knox-linux-amd64
+            binary_path: target/release/knox
+            bundle_args: --no-bundle
           - os: macos-latest
-            artifact_cli: knox-macos-amd64
-            artifact_desktop: knox-desktop-macos-amd64
-            binary_cli: target/release/knox
-            binary_desktop: target/release/knox-desktop
+            artifact_binary: knox-macos-amd64
+            binary_path: target/release/knox
+            bundle_args: --no-bundle
           - os: windows-latest
-            artifact_cli: knox-windows-amd64
-            artifact_desktop: knox-desktop-windows-amd64
-            binary_cli: target/release/knox.exe
-            binary_desktop: target/release/knox-desktop.exe
+            artifact_binary: knox-windows-amd64
+            binary_path: target/release/knox.exe
+            bundle_args: --bundles nsis
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -114,22 +111,36 @@ jobs:
       - name: Run full workspace test suite
         run: cargo test --workspace --verbose
 
-      - name: Build release CLI binary
-        run: cargo build --package knox --release
+      - name: Build release binary and bundles
+        run: pnpm tauri build ${{ matrix.bundle_args }}
 
-      - name: Build release Desktop binary
-        run: pnpm tauri build --no-bundle
+      - name: Verify build outputs exist
+        shell: bash
+        run: |
+          if [ ! -f "${{ matrix.binary_path }}" ]; then
+            echo "Error: Release binary not found at ${{ matrix.binary_path }}"
+            exit 1
+          fi
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            ls target/release/bundle/nsis/*.exe >/dev/null 2>&1 || {
+              echo "Error: Windows NSIS installer not found in target/release/bundle/nsis/"
+              exit 1
+            }
+          fi
 
-      - name: Upload compiled CLI binary
+      - name: Upload compiled binary
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_cli }}
-          path: ${{ matrix.binary_cli }}
+          name: ${{ matrix.artifact_binary }}
+          path: ${{ matrix.binary_path }}
+          if-no-files-found: error
           retention-days: 14
 
-      - name: Upload compiled Desktop binary
+      - name: Upload Windows NSIS installer
+        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_desktop }}
-          path: ${{ matrix.binary_desktop }}
+          name: knox-installer-windows-amd64
+          path: target/release/bundle/nsis/*.exe
+          if-no-files-found: error
           retention-days: 14

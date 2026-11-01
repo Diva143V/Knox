@@ -336,7 +336,7 @@ export const SettingsModal: React.FC = () => {
                     <div>
                       <label className="text-xs font-medium text-foreground block">Color Theme</label>
                       <span className="text-xs text-muted-foreground">
-                        Select between Cyberpunk Dark, Clean Light, or match OS theme
+                        Select between Graphite Vault (Dark), Graphite Light, or match OS theme
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">

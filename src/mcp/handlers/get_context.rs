@@ -79,7 +79,11 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     };
 
     let result = crate::storage::queries::query_actions(db, &filter)?;
-    let format_mode = input.format.as_deref().unwrap_or("markdown").to_ascii_lowercase();
+    let format_mode = input
+        .format
+        .as_deref()
+        .unwrap_or("markdown")
+        .to_ascii_lowercase();
 
     if format_mode == "json" {
         serde_json::to_value(&result).map_err(KnoxError::Json)

@@ -24,10 +24,14 @@ pub fn handle_resolve_doubt(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .map_err(|e| KnoxError::InvalidInput(format!("Invalid resolve_doubt params: {e}")))?;
 
     if input.doubt_id.trim().is_empty() {
-        return Err(KnoxError::InvalidInput("doubt_id must not be empty".to_string()));
+        return Err(KnoxError::InvalidInput(
+            "doubt_id must not be empty".to_string(),
+        ));
     }
     if input.resolution_note.trim().is_empty() {
-        return Err(KnoxError::InvalidInput("resolution_note must not be empty".to_string()));
+        return Err(KnoxError::InvalidInput(
+            "resolution_note must not be empty".to_string(),
+        ));
     }
 
     let doubt_id = ActionId::from(input.doubt_id.trim());
@@ -80,8 +84,9 @@ mod tests {
         assert_eq!(action.is_resolved, Some(true));
         assert_eq!(
             action.resolution_note.as_deref(),
-            Some("Mutex is chosen because sqlite3 handles locking internally and writes are very fast.")
+            Some(
+                "Mutex is chosen because sqlite3 handles locking internally and writes are very fast."
+            )
         );
     }
 }
-

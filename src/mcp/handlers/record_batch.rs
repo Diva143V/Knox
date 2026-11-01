@@ -68,7 +68,9 @@ pub fn handle_record_batch(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .map_err(|e| KnoxError::InvalidInput(format!("Invalid record_batch params: {e}")))?;
 
     if input.actor.trim().is_empty() {
-        return Err(KnoxError::InvalidInput("actor must not be empty".to_string()));
+        return Err(KnoxError::InvalidInput(
+            "actor must not be empty".to_string(),
+        ));
     }
     if input.actions.is_empty() {
         return Err(KnoxError::InvalidInput(
@@ -99,7 +101,10 @@ pub fn handle_record_batch(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         }
 
         let mut parent_id = item.parent_action_id.map(ActionId::from);
-        let should_link = item.link_to_previous.or(input.link_to_previous).unwrap_or(false);
+        let should_link = item
+            .link_to_previous
+            .or(input.link_to_previous)
+            .unwrap_or(false);
         if should_link && parent_id.is_none() {
             parent_id = last_action_id.clone();
         }

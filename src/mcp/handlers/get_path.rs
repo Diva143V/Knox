@@ -74,9 +74,7 @@ pub fn handle_get_path(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             .results
             .first()
             .map(|a| a.id.clone())
-            .ok_or_else(|| {
-                KnoxError::InvalidInput(format!("No actions found for to_file: {fp}"))
-            })?
+            .ok_or_else(|| KnoxError::InvalidInput(format!("No actions found for to_file: {fp}")))?
     } else {
         return Err(KnoxError::InvalidInput(
             "Either to_action_id or to_file must be specified".to_string(),
@@ -88,7 +86,11 @@ pub fn handle_get_path(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let graph = load_subgraph(db, &[from_id.clone(), to_id.clone()], max_depth)?;
     let path_opt = path_between(&graph, &from_id, &to_id);
 
-    let format_mode = input.format.as_deref().unwrap_or("markdown").to_ascii_lowercase();
+    let format_mode = input
+        .format
+        .as_deref()
+        .unwrap_or("markdown")
+        .to_ascii_lowercase();
 
     match path_opt {
         Some(path) => {
@@ -125,7 +127,9 @@ pub fn handle_get_path(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             }
         }
         None => {
-            let msg = format!("No directed causal path found between `{from_id}` and `{to_id}` within {max_depth} hops.");
+            let msg = format!(
+                "No directed causal path found between `{from_id}` and `{to_id}` within {max_depth} hops."
+            );
             if format_mode == "json" {
                 Ok(json!({
                     "connected": false,
@@ -147,8 +151,8 @@ pub fn handle_get_path(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::core::types::KnoxAction;
+    use chrono::Utc;
 
     #[test]
     fn test_handle_get_path_connected() {

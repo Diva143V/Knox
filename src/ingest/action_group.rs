@@ -8,9 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::summary::{
-    DebugExecution, FileModification, HumanInputKind, classify_human_input,
-    parse_debug_execution, parse_file_modification, summarize_debug,
-    summarize_decide, summarize_plan, summarize_write,
+    DebugExecution, FileModification, HumanInputKind, classify_human_input, parse_debug_execution,
+    parse_file_modification, summarize_debug, summarize_decide, summarize_plan, summarize_write,
 };
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::ids::{ActionId, SessionId};
@@ -162,11 +161,7 @@ impl ActionGrouper {
                 Some(true),
                 vec!["conversation".to_string()],
             ),
-            HumanInputKind::Plan => (
-                "plan".to_string(),
-                Some(true),
-                vec!["plan".to_string()],
-            ),
+            HumanInputKind::Plan => ("plan".to_string(), Some(true), vec!["plan".to_string()]),
         };
 
         let human_plan = KnoxAction {

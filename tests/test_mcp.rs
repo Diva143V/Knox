@@ -205,8 +205,15 @@ fn test_mcp_doubt_lifecycle_and_resolution() {
         }),
         &db,
     );
-    assert!(doubt_res.error.is_none(), "record_doubt failed: {:?}", doubt_res.error);
-    let doubt_id = doubt_res.result.unwrap()["id"].as_str().unwrap().to_string();
+    assert!(
+        doubt_res.error.is_none(),
+        "record_doubt failed: {:?}",
+        doubt_res.error
+    );
+    let doubt_id = doubt_res.result.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let action_id = ActionId::from(doubt_id.clone());
     let doubt_action = knox::storage::nodes::get_action(&db, &action_id)
@@ -228,7 +235,10 @@ fn test_mcp_doubt_lifecycle_and_resolution() {
         &db,
     );
     assert!(decide_res.error.is_none());
-    let decide_id = decide_res.result.unwrap()["id"].as_str().unwrap().to_string();
+    let decide_id = decide_res.result.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // 3. Resolve the doubt linking to the decision
     let resolve_res = dispatch(
@@ -240,7 +250,11 @@ fn test_mcp_doubt_lifecycle_and_resolution() {
         }),
         &db,
     );
-    assert!(resolve_res.error.is_none(), "resolve_doubt failed: {:?}", resolve_res.error);
+    assert!(
+        resolve_res.error.is_none(),
+        "resolve_doubt failed: {:?}",
+        resolve_res.error
+    );
 
     let updated_doubt = knox::storage::nodes::get_action(&db, &action_id)
         .unwrap()
@@ -424,7 +438,11 @@ fn test_mcp_record_batch_and_graph_tools() {
         &db,
     );
 
-    assert!(batch_res.error.is_none(), "batch error: {:?}", batch_res.error);
+    assert!(
+        batch_res.error.is_none(),
+        "batch error: {:?}",
+        batch_res.error
+    );
     let batch_val = batch_res.result.unwrap();
     assert_eq!(batch_val["recorded_count"], 3);
     let action_ids = batch_val["action_ids"].as_array().unwrap();
@@ -444,10 +462,17 @@ fn test_mcp_record_batch_and_graph_tools() {
         }),
         &db,
     );
-    assert!(lineage_res.error.is_none(), "lineage error: {:?}", lineage_res.error);
+    assert!(
+        lineage_res.error.is_none(),
+        "lineage error: {:?}",
+        lineage_res.error
+    );
     let lineage_val = lineage_res.result.unwrap();
     let chain = lineage_val["lineage"].as_array().unwrap();
-    assert!(chain.len() >= 2, "chain should contain ancestors, got: {chain:?}");
+    assert!(
+        chain.len() >= 2,
+        "chain should contain ancestors, got: {chain:?}"
+    );
 
     // 3. Test knox_get_impact from step 1 (should find descendants step 2 and 3)
     let impact_res = dispatch(
@@ -458,7 +483,11 @@ fn test_mcp_record_batch_and_graph_tools() {
         }),
         &db,
     );
-    assert!(impact_res.error.is_none(), "impact error: {:?}", impact_res.error);
+    assert!(
+        impact_res.error.is_none(),
+        "impact error: {:?}",
+        impact_res.error
+    );
     let impact_val = impact_res.result.unwrap();
     let impacted = impact_val["impacted"].as_array().unwrap();
     assert!(!impacted.is_empty(), "impact should not be empty");
@@ -485,7 +514,11 @@ fn test_mcp_record_batch_and_graph_tools() {
         }),
         &db,
     );
-    assert!(file_impact.error.is_none(), "file_impact error: {:?}", file_impact.error);
+    assert!(
+        file_impact.error.is_none(),
+        "file_impact error: {:?}",
+        file_impact.error
+    );
     assert_eq!(file_impact.result.unwrap()["impacted_actions_count"], 2);
 
     // 6. Test knox_get_path by from_file and to_file
@@ -497,7 +530,11 @@ fn test_mcp_record_batch_and_graph_tools() {
         }),
         &db,
     );
-    assert!(file_path_res.error.is_none(), "file_path_res error: {:?}", file_path_res.error);
+    assert!(
+        file_path_res.error.is_none(),
+        "file_path_res error: {:?}",
+        file_path_res.error
+    );
     assert_eq!(file_path_res.result.unwrap()["connected"], true);
 }
 
@@ -527,7 +564,11 @@ fn test_mcp_check_guardrails() {
         }),
         &db,
     );
-    assert!(guard_res.error.is_none(), "guardrails error: {:?}", guard_res.error);
+    assert!(
+        guard_res.error.is_none(),
+        "guardrails error: {:?}",
+        guard_res.error
+    );
     let guard_val = guard_res.result.unwrap();
     assert_eq!(guard_val["pass"], true);
     assert_eq!(guard_val["decision_count"], 1);
@@ -547,7 +588,12 @@ fn test_mcp_check_guardrails() {
     let viol_val = viol_res.result.unwrap();
     assert_eq!(viol_val["pass"], false);
     assert_eq!(viol_val["violations_count"], 1);
-    assert!(viol_val["markdown"].as_str().unwrap().contains("Architectural Violations Detected"));
+    assert!(
+        viol_val["markdown"]
+            .as_str()
+            .unwrap()
+            .contains("Architectural Violations Detected")
+    );
 }
 
 #[test]
@@ -557,9 +603,20 @@ fn test_mcp_resources_and_prompts() {
     // 1. Resources list
     let res_list = dispatch("resources/list", json!({}), &db);
     assert!(res_list.error.is_none());
-    let resources = res_list.result.unwrap()["resources"].as_array().unwrap().clone();
-    assert!(resources.iter().any(|r| r["uri"] == "knox://project/overview"));
-    assert!(resources.iter().any(|r| r["uri"] == "knox://decisions/active"));
+    let resources = res_list.result.unwrap()["resources"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(
+        resources
+            .iter()
+            .any(|r| r["uri"] == "knox://project/overview")
+    );
+    assert!(
+        resources
+            .iter()
+            .any(|r| r["uri"] == "knox://decisions/active")
+    );
 
     // 2. Resources read
     let res_read = dispatch(
@@ -568,25 +625,35 @@ fn test_mcp_resources_and_prompts() {
         &db,
     );
     assert!(res_read.error.is_none());
-    let contents = res_read.result.unwrap()["contents"].as_array().unwrap().clone();
+    let contents = res_read.result.unwrap()["contents"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert_eq!(contents.len(), 1);
-    assert!(contents[0]["text"].as_str().unwrap().contains("Knox Knowledge Graph Overview"));
+    assert!(
+        contents[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Knox Knowledge Graph Overview")
+    );
 
     // 3. Prompts list
     let prompt_list = dispatch("prompts/list", json!({}), &db);
     assert!(prompt_list.error.is_none());
-    let prompts = prompt_list.result.unwrap()["prompts"].as_array().unwrap().clone();
+    let prompts = prompt_list.result.unwrap()["prompts"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert!(prompts.iter().any(|p| p["name"] == "architectural-audit"));
     assert!(prompts.iter().any(|p| p["name"] == "session-handover"));
 
     // 4. Prompts get
-    let prompt_get = dispatch(
-        "prompts/get",
-        json!({"name": "architectural-audit"}),
-        &db,
-    );
+    let prompt_get = dispatch("prompts/get", json!({"name": "architectural-audit"}), &db);
     assert!(prompt_get.error.is_none());
-    let messages = prompt_get.result.unwrap()["messages"].as_array().unwrap().clone();
+    let messages = prompt_get.result.unwrap()["messages"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert!(!messages.is_empty());
 }
 
@@ -627,7 +694,11 @@ Implement the clean removal of egui dependencies from Cargo.toml
     let doubt_res = knox::storage::queries::query_actions(&db, &doubt_filter).unwrap();
     assert_eq!(doubt_res.total_count, 1);
     assert_eq!(doubt_res.results[0].is_resolved, Some(false));
-    assert!(doubt_res.results[0].summary.contains("Can I delete the old egui GUI"));
+    assert!(
+        doubt_res.results[0]
+            .summary
+            .contains("Can I delete the old egui GUI")
+    );
 
     // Verify Decision was captured
     let decide_filter = QueryFilter {
@@ -636,7 +707,11 @@ Implement the clean removal of egui dependencies from Cargo.toml
     };
     let decide_res = knox::storage::queries::query_actions(&db, &decide_filter).unwrap();
     assert_eq!(decide_res.total_count, 1);
-    assert!(decide_res.results[0].summary.contains("Decided to remove egui"));
+    assert!(
+        decide_res.results[0]
+            .summary
+            .contains("Decided to remove egui")
+    );
 
     // Verify Plan was captured
     let plan_filter = QueryFilter {
@@ -645,5 +720,9 @@ Implement the clean removal of egui dependencies from Cargo.toml
     };
     let plan_res = knox::storage::queries::query_actions(&db, &plan_filter).unwrap();
     assert_eq!(plan_res.total_count, 1);
-    assert!(plan_res.results[0].summary.contains("Implement the clean removal of egui"));
+    assert!(
+        plan_res.results[0]
+            .summary
+            .contains("Implement the clean removal of egui")
+    );
 }

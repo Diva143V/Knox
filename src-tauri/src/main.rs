@@ -7,17 +7,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use clap::Parser;
-use knox::cli::{dispatch, print_welcome_guide, Commands, KnoxCli};
+use knox::cli::{Commands, KnoxCli, dispatch, print_welcome_guide};
 use knox::core::config::KnoxConfig;
 
 #[cfg(windows)]
 fn attach_console_if_needed() {
     use std::fs::OpenOptions;
     use std::os::windows::io::IntoRawHandle;
-    use windows_sys::Win32::Storage::FileSystem::{GetFileType, FILE_TYPE_PIPE};
+    use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_PIPE, GetFileType};
     use windows_sys::Win32::System::Console::{
-        AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE,
-        STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
+        STD_OUTPUT_HANDLE, SetStdHandle,
     };
 
     unsafe {

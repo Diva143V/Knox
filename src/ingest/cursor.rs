@@ -35,8 +35,9 @@ impl TranscriptMapper for CursorMapper {
     }
 
     fn map(&self, raw: &[u8]) -> KnoxResult<Vec<KnoxAction>> {
-        let text = std::str::from_utf8(raw)
-            .map_err(|e| KnoxError::ParseError(format!("Invalid UTF-8 in Cursor transcript: {e}")))?;
+        let text = std::str::from_utf8(raw).map_err(|e| {
+            KnoxError::ParseError(format!("Invalid UTF-8 in Cursor transcript: {e}"))
+        })?;
 
         let mut grouper = ActionGrouper::new(self.tool_name());
         let mut all_actions = Vec::new();
@@ -44,7 +45,11 @@ impl TranscriptMapper for CursorMapper {
         if let Ok(root) = serde_json::from_str::<Value>(text.trim()) {
             let messages = if let Some(arr) = root.get("messages").and_then(|m| m.as_array()) {
                 arr.as_slice()
-            } else if let Some(comp) = root.get("composerData").and_then(|c| c.get("messages")).and_then(|m| m.as_array()) {
+            } else if let Some(comp) = root
+                .get("composerData")
+                .and_then(|c| c.get("messages"))
+                .and_then(|m| m.as_array())
+            {
                 comp.as_slice()
             } else if let Some(arr) = root.as_array() {
                 arr.as_slice()
@@ -88,8 +93,7 @@ fn extract_steps_from_cursor_message(msg: &Value, idx: i64) -> Vec<TranscriptSte
             if let Some(s) = t.as_str() {
                 Some(s.to_string())
             } else if let Some(n) = t.as_i64() {
-                chrono::DateTime::from_timestamp_millis(n)
-                    .map(|dt| dt.to_rfc3339())
+                chrono::DateTime::from_timestamp_millis(n).map(|dt| dt.to_rfc3339())
             } else {
                 None
             }
@@ -173,9 +177,17 @@ fn extract_steps_from_cursor_message(msg: &Value, idx: i64) -> Vec<TranscriptSte
             step_type: Some("PLANNER_RESPONSE".to_string()),
             status: Some("DONE".to_string()),
             created_at: Some(timestamp),
-            content: if content.is_empty() { None } else { Some(content.to_string()) },
+            content: if content.is_empty() {
+                None
+            } else {
+                Some(content.to_string())
+            },
             thinking: None,
-            tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+            tool_calls: if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls)
+            },
         });
     }
 

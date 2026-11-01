@@ -883,7 +883,10 @@ mod tests {
                     "parameters": tool.input_schema,
                 });
                 let file_path = dest.join(format!("{}.json", tool.name));
-                let _ = std::fs::write(file_path, serde_json::to_string_pretty(&schema_obj).unwrap());
+                let _ = std::fs::write(
+                    file_path,
+                    serde_json::to_string_pretty(&schema_obj).unwrap(),
+                );
             }
             let instructions = r#"# Knox MCP Best Practices for AI Agents
 

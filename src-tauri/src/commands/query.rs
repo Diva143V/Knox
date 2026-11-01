@@ -60,9 +60,9 @@ fn apply_in_memory_filters(
     if let Some(sig) = significance {
         let trimmed_sig = sig.trim().to_lowercase();
         if !trimmed_sig.is_empty() {
-            result
-                .results
-                .retain(|a| a.significance.as_deref().unwrap_or("major").to_lowercase() == trimmed_sig);
+            result.results.retain(|a| {
+                a.significance.as_deref().unwrap_or("major").to_lowercase() == trimmed_sig
+            });
         }
     }
 

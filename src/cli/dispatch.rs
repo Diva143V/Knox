@@ -159,4 +159,3 @@ pub fn print_welcome_guide(config: &KnoxConfig) -> anyhow::Result<()> {
 
     Ok(())
 }
-

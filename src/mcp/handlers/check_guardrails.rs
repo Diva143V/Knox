@@ -107,7 +107,11 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
     let pass = violations.is_empty() && (!strict || stale_decisions.is_empty());
     let decision_count = active_decisions.len();
 
-    let format_mode = input.format.as_deref().unwrap_or("markdown").to_ascii_lowercase();
+    let format_mode = input
+        .format
+        .as_deref()
+        .unwrap_or("markdown")
+        .to_ascii_lowercase();
 
     if format_mode == "json" {
         Ok(json!({
@@ -149,8 +153,8 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::core::ids::ActionId;
+    use chrono::Utc;
 
     #[test]
     fn test_handle_check_guardrails() {
@@ -177,7 +181,13 @@ mod tests {
         .unwrap();
 
         assert_eq!(res.get("active_constraints_count").unwrap(), 1);
-        assert!(res.get("markdown").unwrap().as_str().unwrap().contains("rusqlite"));
+        assert!(
+            res.get("markdown")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .contains("rusqlite")
+        );
     }
 
     #[test]
@@ -210,7 +220,12 @@ mod tests {
         assert_eq!(res.get("pass").unwrap(), false);
         assert_eq!(res.get("violations_count").unwrap(), 1);
         let violations = res.get("violations").unwrap().as_array().unwrap();
-        assert!(violations[0].as_str().unwrap().contains("libsqlite3-sys dynamic linking"));
+        assert!(
+            violations[0]
+                .as_str()
+                .unwrap()
+                .contains("libsqlite3-sys dynamic linking")
+        );
     }
 
     #[test]
