@@ -9,6 +9,7 @@ import { DetailInspector } from "@/components/layout/DetailInspector";
 import { CommandPalette } from "@/components/CommandPalette";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { OnboardingTourModal } from "@/components/OnboardingTourModal";
+import { SettingsModal } from "@/components/modals/SettingsModal";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Toast } from "@/components/ui/Toast";
 
@@ -43,6 +44,7 @@ export const AppShell: React.FC = () => {
       <CommandPalette />
       <OnboardingWizard />
       <OnboardingTourModal />
+      <SettingsModal />
 
       {toast && (
         <Toast

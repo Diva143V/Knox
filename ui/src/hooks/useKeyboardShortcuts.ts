@@ -24,7 +24,24 @@ export const useKeyboardShortcuts = () => {
         target.isContentEditable
       ) {
         if (e.key === "Escape") {
+        const { isSettingsOpen, closeSettings } = useKnoxStore.getState();
+        if (isSettingsOpen) {
+          closeSettings();
+          return;
+        }
           target.blur();
+        }
+        return;
+      }
+
+      // Ctrl+, or Cmd+,: Toggle Overall Settings
+      if ((e.ctrlKey || e.metaKey) && (e.key === "," || e.key === "<")) {
+        e.preventDefault();
+        const { isSettingsOpen, openSettings, closeSettings } = useKnoxStore.getState();
+        if (isSettingsOpen) {
+          closeSettings();
+        } else {
+          openSettings();
         }
         return;
       }
@@ -38,6 +55,11 @@ export const useKeyboardShortcuts = () => {
 
       // Escape: Dismiss selection or palette
       if (e.key === "Escape") {
+        const { isSettingsOpen, closeSettings } = useKnoxStore.getState();
+        if (isSettingsOpen) {
+          closeSettings();
+          return;
+        }
         if (commandPaletteOpen) {
           setCommandPaletteOpen(false);
           return;

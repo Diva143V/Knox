@@ -52,6 +52,7 @@ export const CommandPalette: React.FC = () => {
     refreshData,
     showToast,
     openTour,
+    openSettings,
   } = useKnoxStore();
 
   const [search, setSearch] = useState("");
@@ -266,6 +267,44 @@ export const CommandPalette: React.FC = () => {
                 </div>
                 <kbd className="font-mono text-xs px-1.5 py-0.5 rounded-sm bg-background border border-border text-muted-foreground">
                   Tour
+                </kbd>
+              </Command.Item>
+
+              <Command.Item
+                value="Settings: Open Overall Settings"
+                onSelect={() => {
+                  setCommandPaletteOpen(false);
+                  openSettings("general");
+                }}
+                className={itemClass}
+              >
+                <div className="flex items-center gap-2.5">
+                  <SlidersHorizontal className="size-4 text-primary" aria-hidden />
+                  <span className="font-medium text-foreground">
+                    Settings: Open Overall Settings
+                  </span>
+                </div>
+                <kbd className="font-mono text-xs px-1.5 py-0.5 rounded-sm bg-background border border-border text-muted-foreground">
+                  Ctrl+,
+                </kbd>
+              </Command.Item>
+
+              <Command.Item
+                value="Settings: Storage & Database Maintenance"
+                onSelect={() => {
+                  setCommandPaletteOpen(false);
+                  openSettings("storage");
+                }}
+                className={itemClass}
+              >
+                <div className="flex items-center gap-2.5">
+                  <SlidersHorizontal className="size-4 text-primary" aria-hidden />
+                  <span className="font-medium text-foreground">
+                    Settings: Storage & Database Maintenance
+                  </span>
+                </div>
+                <kbd className="font-mono text-xs px-1.5 py-0.5 rounded-sm bg-background border border-border text-muted-foreground">
+                  DB
                 </kbd>
               </Command.Item>
             </Command.Group>

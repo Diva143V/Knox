@@ -16,6 +16,7 @@ import {
   BookOpen,
   Compass,
   PlusCircle,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { VIEW_BY_ID, type NavItemDef } from "@/lib/navigation";
@@ -42,6 +43,7 @@ export const Header: React.FC = () => {
     refreshData,
     setOnboardingOpen,
     openTour,
+    openSettings,
     activeProjectScope,
   } = useKnoxStore();
   const current = VIEW_BY_ID[activeTab] ?? VIEW_BY_ID.dashboard;
@@ -152,6 +154,18 @@ export const Header: React.FC = () => {
         >
           <BookOpen className="size-3.5 text-primary" />
           <span className="hidden sm:inline">Setup</span>
+        </Button>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => openSettings()}
+          title="Open Overall Settings (Ctrl+,)"
+          aria-label="Open overall settings"
+        >
+          <SlidersHorizontal className="size-3.5 text-primary" />
+          <span className="hidden sm:inline">Settings</span>
         </Button>
 
         <Button

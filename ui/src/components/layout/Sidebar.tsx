@@ -11,6 +11,7 @@ import {
   Database,
   RefreshCw,
   Compass,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { cn } from "@/lib/cn";
@@ -29,8 +30,15 @@ const ICONS: Record<NavItemDef["icon"], React.ReactNode> = {
 };
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, status, isLoading, refreshData, openTour } =
-    useKnoxStore();
+  const {
+    activeTab,
+    setActiveTab,
+    status,
+    isLoading,
+    refreshData,
+    openTour,
+    openSettings,
+  } = useKnoxStore();
 
   return (
     <aside
@@ -154,6 +162,20 @@ export const Sidebar: React.FC = () => {
         >
           <Compass className="size-3.5 text-primary shrink-0" />
           <span className="hidden lg:inline truncate">Getting Started Tour</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => openSettings()}
+          className="w-full flex items-center justify-center lg:justify-start gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+          title="Overall Settings (Ctrl+,)"
+          aria-label="Open overall settings"
+        >
+          <SlidersHorizontal className="size-3.5 text-primary shrink-0" />
+          <span className="hidden lg:inline truncate flex-1 text-left">Settings</span>
+          <kbd className="hidden lg:inline font-mono text-3xs text-muted-foreground/60 px-1 py-0.5 rounded-xs bg-muted/60 border border-border/50">
+            Ctrl+,
+          </kbd>
         </button>
       </div>
     </aside>
