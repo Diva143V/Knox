@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --dir ui dev",
-    "prebuild": "powershell -Command \"Get-Process knox-desktop,knox -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; exit 0\"",
+    "prebuild": "powershell -Command \"Get-Process knox-desktop,knox -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; if (Test-Path target\\release\\knox.exe.old) { Remove-Item -Force target\\release\\knox.exe.old -ErrorAction SilentlyContinue }; if (Test-Path target\\release\\knox.exe) { Move-Item -Path target\\release\\knox.exe -Destination target\\release\\knox.exe.old -Force -ErrorAction SilentlyContinue }; exit 0\"",
+    "prebuild:portable": "pnpm prebuild",
     "build:ui": "pnpm --dir ui build",
     "build:portable": "tauri build --no-bundle",
     "build": "tauri build --bundles nsis",
