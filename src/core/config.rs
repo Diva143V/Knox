@@ -2,8 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+use crate::core::error::KnoxResult;
 
 /// Default session idle timeout before automatic closure (30 minutes).
 pub const DEFAULT_SESSION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -13,6 +16,9 @@ pub const DEFAULT_KNOX_DIR: &str = ".knox";
 
 /// Default SQLite database filename.
 pub const DEFAULT_DB_FILENAME: &str = "knox.db";
+
+/// Default configuration filename.
+pub const DEFAULT_CONFIG_FILENAME: &str = "config.json";
 
 /// Central configuration for Knox operations and storage.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,10 +32,14 @@ pub struct KnoxConfig {
 }
 
 impl KnoxConfig {
-    /// Creates a configuration by inspecting `KNOX_*` environment variables,
+    /// Creates a configuration by inspecting `config.json` first, then `KNOX_*` environment variables,
     /// falling back to standard defaults for any unset values.
     pub fn from_env() -> Self {
-        let mut config = Self::default();
+        let config_path = env::var("KNOX_CONFIG_PATH")
+            .map(expand_tilde)
+            .unwrap_or_else(|_| default_config_file_path());
+
+        let mut config = Self::load_from_file(&config_path).unwrap_or_default();
 
         if let Ok(path_str) = env::var("KNOX_KG_PATH").or_else(|_| env::var("KNOX_DB_PATH")) {
             if !path_str.trim().is_empty() {
@@ -50,6 +60,32 @@ impl KnoxConfig {
 
         config
     }
+
+    /// Loads configuration from a JSON file on disk, if present.
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> KnoxResult<Self> {
+        let p = path.as_ref();
+        let content = fs::read_to_string(p)?;
+        let config: Self = serde_json::from_str(&content)?;
+        Ok(config)
+    }
+
+    /// Saves current configuration to the specified JSON file path, creating directories as needed.
+    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> KnoxResult<()> {
+        let p = path.as_ref();
+        if let Some(parent) = p.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(p, json)?;
+        Ok(())
+    }
+
+    /// Saves current configuration to the default config path (`~/.knox/config.json`).
+    pub fn save_default(&self) -> KnoxResult<()> {
+        self.save_to_file(default_config_file_path())
+    }
 }
 
 impl Default for KnoxConfig {
@@ -63,11 +99,20 @@ impl Default for KnoxConfig {
 }
 
 /// Computes the default global SQLite database path (`~/.knox/knox.db`).
-fn default_global_db_path() -> PathBuf {
+pub fn default_global_db_path() -> PathBuf {
     if let Some(home) = home_dir() {
         home.join(DEFAULT_KNOX_DIR).join(DEFAULT_DB_FILENAME)
     } else {
         PathBuf::from(DEFAULT_KNOX_DIR).join(DEFAULT_DB_FILENAME)
+    }
+}
+
+/// Computes the default configuration file path (`~/.knox/config.json`).
+pub fn default_config_file_path() -> PathBuf {
+    if let Some(home) = home_dir() {
+        home.join(DEFAULT_KNOX_DIR).join(DEFAULT_CONFIG_FILENAME)
+    } else {
+        PathBuf::from(DEFAULT_KNOX_DIR).join(DEFAULT_CONFIG_FILENAME)
     }
 }
 
@@ -134,5 +179,23 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: KnoxConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(config, deserialized);
+    }
+
+    #[test]
+    fn test_config_file_save_and_load() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("sub").join("test_config.json");
+
+        let config = KnoxConfig {
+            kg_path: PathBuf::from("/custom/knox.db"),
+            session_timeout: Duration::from_secs(7200),
+            global_mode: false,
+        };
+
+        config.save_to_file(&file_path).unwrap();
+        assert!(file_path.exists());
+
+        let loaded = KnoxConfig::load_from_file(&file_path).unwrap();
+        assert_eq!(config, loaded);
     }
 }

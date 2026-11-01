@@ -1,11 +1,25 @@
 //! SQLite database connection management for Knox.
 
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
 use super::migrations;
 use crate::core::error::KnoxResult;
+
+/// Comprehensive telemetry and disk usage statistics for the Knox SQLite database.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StorageStats {
+    pub db_size_bytes: u64,
+    pub wal_size_bytes: u64,
+    pub page_count: i64,
+    pub page_size: i64,
+    pub total_actions: usize,
+    pub total_sessions: usize,
+    pub total_relations: usize,
+    pub schema_version: i32,
+}
 
 /// The central SQLite database handle for Knox.
 /// This is the only struct in the codebase that encapsulates the underlying database connection.
@@ -51,6 +65,91 @@ impl KnoxDb {
         migrations::run_migrations(&self.conn)
     }
 
+    /// Runs a SQLite integrity check and returns "ok" or failure diagnostics.
+    pub fn integrity_check(&self) -> KnoxResult<String> {
+        let result: String = self.conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+        Ok(result)
+    }
+
+    /// Reclaims unused database pages and defragments storage via SQLite VACUUM.
+    pub fn vacuum(&self) -> KnoxResult<()> {
+        self.conn.execute("VACUUM", [])?;
+        Ok(())
+    }
+
+    /// Rebuilds database indexes via SQLite REINDEX.
+    pub fn reindex(&self) -> KnoxResult<()> {
+        self.conn.execute("REINDEX", [])?;
+        Ok(())
+    }
+
+    /// Gathers live storage telemetry, schema version, and node counts.
+    pub fn get_storage_stats(&self, db_path: Option<&Path>) -> KnoxResult<StorageStats> {
+        let page_count: i64 = self
+            .conn
+            .query_row("PRAGMA page_count", [], |r| r.get(0))
+            .unwrap_or(0);
+        let page_size: i64 = self
+            .conn
+            .query_row("PRAGMA page_size", [], |r| r.get(0))
+            .unwrap_or(4096);
+        let total_actions: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM actions", [], |r| r.get::<_, i64>(0))
+            .map(|c| c as usize)
+            .unwrap_or(0);
+        let total_sessions: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get::<_, i64>(0))
+            .map(|c| c as usize)
+            .unwrap_or(0);
+        let total_relations: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM action_relations", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map(|c| c as usize)
+            .unwrap_or(0);
+
+        let schema_version: i32 = self
+            .conn
+            .query_row(
+                "SELECT value FROM knox_meta WHERE key = 'schema_version'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+
+        let (db_size_bytes, wal_size_bytes) = if let Some(path) = db_path {
+            let db_len = fs::metadata(path)
+                .map(|m| m.len())
+                .unwrap_or_else(|_| (page_count * page_size) as u64);
+            let mut wal_path = path.to_path_buf();
+            let orig_file_name = wal_path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("knox.db");
+            wal_path.set_file_name(format!("{orig_file_name}-wal"));
+            let wal_len = fs::metadata(wal_path).map(|m| m.len()).unwrap_or(0);
+            (db_len, wal_len)
+        } else {
+            ((page_count * page_size) as u64, 0)
+        };
+
+        Ok(StorageStats {
+            db_size_bytes,
+            wal_size_bytes,
+            page_count,
+            page_size,
+            total_actions,
+            total_sessions,
+            total_relations,
+            schema_version,
+        })
+    }
+
     /// Provides access to the underlying connection for internal storage modules.
     pub(crate) fn conn(&self) -> &Connection {
         &self.conn
@@ -76,5 +175,20 @@ mod tests {
 
         let count = rows.count();
         assert!(count >= 3);
+    }
+
+    #[test]
+    fn test_maintenance_and_stats() {
+        let db = KnoxDb::open_memory().unwrap();
+        let check = db.integrity_check().unwrap();
+        assert_eq!(check.to_lowercase(), "ok");
+
+        db.vacuum().unwrap();
+        db.reindex().unwrap();
+
+        let stats = db.get_storage_stats(None).unwrap();
+        assert_eq!(stats.total_actions, 0);
+        assert_eq!(stats.total_sessions, 0);
+        assert!(stats.schema_version >= 3);
     }
 }
