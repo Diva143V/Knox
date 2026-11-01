@@ -45,3 +45,11 @@ review/
 # Documentation and design screenshots
 docs/*
 !docs/*.md
+
+# Audit and UI/UX reports
+AUDIT.md
+docs/AUDIT.md
+docs/FINAL_UI_UX_REDESIGN_REPORT.md
+docs/UI_UX_AUDIT_REPORT.md
+docs/UI_UX_REDESIGN_BRIEF.md
+docs/PHASE_0_REPORT.md
