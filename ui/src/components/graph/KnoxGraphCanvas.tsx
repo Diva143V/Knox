@@ -43,6 +43,10 @@ import {
   Orbit,
   Atom,
   Flame,
+  Map as MapIcon,
+  X,
+  ChevronDown,
+  LayoutGrid,
 } from "lucide-react";
 import type { KnoxAction, Project } from "@/types/knox";
 
@@ -129,8 +133,69 @@ export const KnoxGraphCanvas: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [searchHighlight, setSearchHighlight] = useState<string>("");
   const [showFileNodes, setShowFileNodes] = useState<boolean>(true);
-  const [showLegend, setShowLegend] = useState<boolean>(true);
+  const [showLegend, setShowLegend] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("knox_graph_show_legend");
+      if (saved !== null) return saved === "true";
+    } catch {}
+    return true;
+  });
+  const [showMinimap, setShowMinimap] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("knox_graph_show_minimap");
+      if (saved !== null) return saved === "true";
+    } catch {}
+    return true;
+  });
+  const handleToggleLegend = () => {
+    setShowLegend((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("knox_graph_show_legend", String(next));
+      } catch {}
+      return next;
+    });
+  };
+  const handleToggleMinimap = () => {
+    setShowMinimap((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("knox_graph_show_minimap", String(next));
+      } catch {}
+      return next;
+    });
+  };
   const rfRef = useRef<ReactFlowInstance | null>(null);
+  const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(false);
+  const [isLayoutOpen, setIsLayoutOpen] = useState<boolean>(false);
+  const toolbarContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        (isFiltersOpen || isLayoutOpen) &&
+        toolbarContainerRef.current &&
+        !toolbarContainerRef.current.contains(e.target as globalThis.Node)
+      ) {
+        setIsFiltersOpen(false);
+        setIsLayoutOpen(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && (isFiltersOpen || isLayoutOpen)) {
+        setIsFiltersOpen(false);
+        setIsLayoutOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFiltersOpen, isLayoutOpen]);
 
   type ViewMode = "cards" | "cosmos";
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -644,241 +709,466 @@ export const KnoxGraphCanvas: React.FC = () => {
 
   return (
     <div className="relative w-full h-full flex overflow-hidden select-none bg-background">
-      {/* Filter toolbar */}
+      {/* Top Collapsible Floating Toolbars */}
       <div
-        className={cn(
-          "absolute top-3 left-3 z-20 flex flex-wrap items-center gap-2",
-          "max-w-[min(100%-1.5rem,42rem)] bg-card border border-border px-2.5 py-1.5 rounded-md shadow-sm"
-        )}
-        role="toolbar"
-        aria-label="Graph filters"
+        ref={toolbarContainerRef}
+        className="absolute top-3 left-3 z-30 flex flex-col items-start gap-2 pointer-events-none max-w-[calc(100vw-1.5rem)]"
       >
-        <div className="flex items-center gap-1.5 text-sm text-muted-foreground shrink-0">
-          <Filter className="size-3.5 text-primary" aria-hidden />
-          <span className="font-medium text-foreground">Graph</span>
-          {activeFilterCount > 0 && (
-            <span className="font-mono text-xs text-primary bg-primary-muted px-1 rounded-sm">
-              {activeFilterCount}
-            </span>
-          )}
-        </div>
-
-        <div className="relative">
-          <Search
-            className="size-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none"
-            aria-hidden
-          />
-          <Input
-            type="text"
-            value={searchHighlight}
-            onChange={(e) => setSearchHighlight(e.target.value)}
-            placeholder="Highlight…"
-            aria-label="Highlight matching nodes"
-            className="pl-6 h-7 w-28 text-sm"
-          />
-        </div>
-
-        <select
-          value={actorFilter}
-          onChange={(e) => setActorFilter(e.target.value)}
-          className={selectClass}
-          aria-label="Filter by actor"
+        {/* Compact Master Toggle Bar */}
+        <div
+          className="pointer-events-auto flex items-center gap-1.5 bg-card/95 backdrop-blur-md border border-border p-1 rounded-md shadow-md"
+          role="toolbar"
+          aria-label="Knowledge Graph Toolbars"
         >
-          <option value="all">All Actors</option>
-          {availableActors.map((actor) => (
-            <option key={actor} value={actor}>
-              {actor}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className={selectClass}
-          aria-label="Filter by type"
-        >
-          <option value="all">All Types</option>
-          {availableTypes.map((type) => (
-            <option key={type} value={type}>
-              {type}
-            </option>
-          ))}
-        </select>
-
-        <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer hover:text-foreground">
-          <input
-            type="checkbox"
-            checked={currentOnly}
-            onChange={(e) => setCurrentOnly(e.target.checked)}
-            className="rounded border-border accent-primary cursor-pointer"
-          />
-          <span>Current</span>
-        </label>
-
-        <label className="flex items-center gap-1 text-sm text-muted-foreground cursor-pointer hover:text-foreground border-l border-border pl-2">
-          <input
-            type="checkbox"
-            checked={showFileNodes}
-            onChange={(e) => setShowFileNodes(e.target.checked)}
-            className="rounded border-border accent-primary cursor-pointer"
-          />
-          <FileCode className="size-3 text-plan" aria-hidden />
-          <span>Files</span>
-        </label>
-      </div>
-
-      {/* Layout + view toolbar */}
-      <div
-        className={cn(
-          "absolute top-3 right-3 z-20 flex flex-wrap items-center gap-1",
-          "bg-card border border-border p-1 rounded-md shadow-sm"
-        )}
-        role="toolbar"
-        aria-label="Layout and view controls"
-      >
-        {/* View Mode Toggle: Cards vs Cosmos */}
-        <div className="flex items-center bg-muted/60 p-0.5 rounded-sm border border-border mr-0.5">
+          {/* Filters Toggle Button */}
           <button
             type="button"
-            onClick={() => handleToggleViewMode("cards")}
+            onClick={() => setIsFiltersOpen((v) => !v)}
+            aria-expanded={isFiltersOpen}
+            aria-controls="graph-filters-panel"
             className={cn(
-              "flex items-center gap-1 px-2 py-0.5 rounded-xs text-xs font-medium transition-colors cursor-pointer",
-              viewMode === "cards"
-                ? "bg-card text-foreground shadow-xs font-semibold"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-            title="Card nodes view"
-          >
-            <LayoutDashboard className="size-3 text-primary" />
-            <span className="hidden sm:inline">Cards</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleToggleViewMode("cosmos")}
-            className={cn(
-              "flex items-center gap-1 px-2 py-0.5 rounded-xs text-xs font-medium transition-colors cursor-pointer",
-              viewMode === "cosmos"
-                ? "bg-primary text-primary-foreground shadow-xs font-semibold"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-            title="Cosmos knowledge graph orb view"
-          >
-            <Orbit className="size-3" />
-            <span className="hidden sm:inline">Cosmos</span>
-          </button>
-        </div>
-
-        {/* Live Physics Toggle */}
-        <button
-          type="button"
-          onClick={handleTogglePhysics}
-          aria-pressed={livePhysics}
-          className={cn(
-            "flex items-center gap-1 px-2 py-1 rounded-sm text-xs font-medium transition-all cursor-pointer mr-0.5",
-            livePhysics
-              ? "bg-warning/20 text-warning border border-warning/40 shadow-[0_0_10px_rgba(245,158,11,0.2)] font-semibold"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted"
-          )}
-          title={livePhysics ? "Pause live physics simulation" : "Start live dynamic physics simulation"}
-        >
-          <Atom className={cn("size-3.5", livePhysics && isPhysicsRunning && "animate-spin text-warning")} />
-          <span className="hidden sm:inline">Physics</span>
-        </button>
-
-        {livePhysics && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7 text-warning hover:text-warning hover:bg-warning/10"
-            onClick={() => reheat(0.55)}
-            title="Shake / Reheat live physics motion"
-            aria-label="Shake simulation"
-          >
-            <Flame className="size-3.5" />
-          </Button>
-        )}
-
-        <div className="w-px h-4 bg-border mx-0.5" aria-hidden />
-
-        {LAYOUTS.map((layout) => (
-          <button
-            key={layout.id}
-            type="button"
-            onClick={() => setLayoutEngine(layout.id)}
-            title={layout.title}
-            aria-pressed={layoutEngine === layout.id}
-            className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded-sm text-xs font-medium transition-colors cursor-pointer",
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-medium transition-all cursor-pointer select-none",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
-              layoutEngine === layout.id
-                ? "bg-primary-muted text-primary"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              isFiltersOpen
+                ? "bg-primary text-primary-foreground font-semibold shadow-xs"
+                : "text-foreground hover:bg-muted"
             )}
+            title={isFiltersOpen ? "Collapse filters panel (Esc)" : "Expand filters panel"}
           >
-            {layout.icon}
-            <span className="hidden sm:inline">{layout.label}</span>
+            <Filter className={cn("size-3.5", isFiltersOpen ? "text-primary-foreground" : "text-primary")} />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span
+                className={cn(
+                  "font-mono text-2xs px-1 py-0.2 rounded-xs font-semibold",
+                  isFiltersOpen
+                    ? "bg-primary-foreground/20 text-primary-foreground"
+                    : "bg-primary-muted text-primary"
+                )}
+              >
+                {activeFilterCount}
+              </span>
+            )}
+            <ChevronDown
+              className={cn(
+                "size-3 opacity-70 transition-transform duration-200",
+                isFiltersOpen && "rotate-180"
+              )}
+            />
           </button>
-        ))}
 
-        <div className="w-px h-4 bg-border mx-0.5" aria-hidden />
+          <div className="w-px h-4 bg-border" aria-hidden />
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={handleFitView}
-          title="Fit to view"
-          aria-label="Fit graph to view"
-        >
-          <Maximize2 className="size-3.5" />
-        </Button>
+          {/* Layout Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setIsLayoutOpen((v) => !v)}
+            aria-expanded={isLayoutOpen}
+            aria-controls="graph-layout-panel"
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-medium transition-all cursor-pointer select-none",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+              isLayoutOpen
+                ? "bg-primary text-primary-foreground font-semibold shadow-xs"
+                : "text-foreground hover:bg-muted"
+            )}
+            title={isLayoutOpen ? "Collapse layout panel (Esc)" : "Expand layout panel"}
+          >
+            <LayoutGrid className={cn("size-3.5", isLayoutOpen ? "text-primary-foreground" : "text-primary")} />
+            <span>Layout</span>
+            <span
+              className={cn(
+                "font-mono text-2xs px-1.5 py-0.2 rounded-xs font-semibold uppercase",
+                isLayoutOpen
+                  ? "bg-primary-foreground/20 text-primary-foreground"
+                  : "bg-muted text-muted-foreground"
+              )}
+            >
+              {layoutEngine === "hierarchical" ? "ELK" : layoutEngine}
+            </span>
+            <ChevronDown
+              className={cn(
+                "size-3 opacity-70 transition-transform duration-200",
+                isLayoutOpen && "rotate-180"
+              )}
+            />
+          </button>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={handleRelayout}
-          title="Re-run layout"
-          aria-label="Re-run layout"
-          disabled={isLayouting || nodes.length === 0}
-        >
-          <RotateCcw
-            className={cn("size-3.5", isLayouting && "animate-spin text-primary")}
-          />
-        </Button>
+          {(isLayouting || isLoading) && (
+            <RefreshCw
+              className="size-3 text-primary animate-spin ml-1 mr-0.5"
+              aria-label="Layout in progress"
+            />
+          )}
+        </div>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={() => setShowLegend((v) => !v)}
-          title="Toggle legend"
-          aria-label="Toggle legend"
-          aria-pressed={showLegend}
-        >
-          <Eye className="size-3.5" />
-        </Button>
+        {/* Floating Panels (Independent & Non-overlapping) */}
+        {(isFiltersOpen || isLayoutOpen) && (
+          <div className="flex flex-col md:flex-row items-start gap-2.5 max-w-[calc(100vw-1.5rem)] motion-safe:animate-in motion-safe:fade-in-50 motion-safe:duration-150">
+            {/* 1. Graph Filters Panel */}
+            {isFiltersOpen && (
+              <div
+                id="graph-filters-panel"
+                className="pointer-events-auto bg-card/95 backdrop-blur-md border border-border rounded-md p-3 shadow-xl flex flex-col gap-2.5 w-72 sm:w-80 max-w-full"
+                role="region"
+                aria-label="Filter controls"
+              >
+                {/* Panel Header */}
+                <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                  <div className="flex items-center gap-1.5">
+                    <Filter className="size-3.5 text-primary" />
+                    <span className="text-xs font-semibold text-foreground">Graph Filters</span>
+                    {activeFilterCount > 0 && (
+                      <span className="font-mono text-2xs text-primary bg-primary-muted px-1.5 py-0.2 rounded-sm font-semibold">
+                        {activeFilterCount} active
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {activeFilterCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleResetFilters}
+                        className="text-2xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer px-1 py-0.5"
+                      >
+                        Reset
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsFiltersOpen(false)}
+                      className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
+                      title="Close panel"
+                      aria-label="Close filters panel"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                </div>
 
-        {(isLayouting || isLoading) && (
-          <RefreshCw
-            className="size-3.5 text-primary animate-spin mx-1"
-            aria-label="Layout in progress"
-          />
+                {/* Highlight Field */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-2xs text-muted-foreground font-medium uppercase tracking-wider">
+                    Search Highlight
+                  </label>
+                  <div className="relative">
+                    <Search
+                      className="size-3 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                      aria-hidden
+                    />
+                    <Input
+                      type="text"
+                      value={searchHighlight}
+                      onChange={(e) => setSearchHighlight(e.target.value)}
+                      placeholder="Highlight matching nodes…"
+                      aria-label="Highlight matching nodes"
+                      className="pl-7 h-7.5 text-xs w-full"
+                    />
+                  </div>
+                </div>
+
+                {/* Dropdowns Grid */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-2xs text-muted-foreground font-medium uppercase tracking-wider">
+                      Actor
+                    </label>
+                    <select
+                      value={actorFilter}
+                      onChange={(e) => setActorFilter(e.target.value)}
+                      className={cn(selectClass, "w-full truncate text-xs h-7.5")}
+                      aria-label="Filter by actor"
+                    >
+                      <option value="all">All Actors</option>
+                      {availableActors.map((actor) => (
+                        <option key={actor} value={actor}>
+                          {actor}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-2xs text-muted-foreground font-medium uppercase tracking-wider">
+                      Type
+                    </label>
+                    <select
+                      value={typeFilter}
+                      onChange={(e) => setTypeFilter(e.target.value)}
+                      className={cn(selectClass, "w-full truncate text-xs h-7.5")}
+                      aria-label="Filter by type"
+                    >
+                      <option value="all">All Types</option>
+                      {availableTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Checkbox Toggles */}
+                <div className="flex items-center justify-between pt-1 border-t border-border/60">
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={currentOnly}
+                      onChange={(e) => setCurrentOnly(e.target.checked)}
+                      className="rounded border-border accent-primary cursor-pointer size-3.5"
+                    />
+                    <span>Current Branch</span>
+                  </label>
+
+                  <label className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showFileNodes}
+                      onChange={(e) => setShowFileNodes(e.target.checked)}
+                      className="rounded border-border accent-primary cursor-pointer size-3.5"
+                    />
+                    <FileCode className="size-3 text-plan" aria-hidden />
+                    <span>File Nodes</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* 2. Graph Layout Panel */}
+            {isLayoutOpen && (
+              <div
+                id="graph-layout-panel"
+                className="pointer-events-auto bg-card/95 backdrop-blur-md border border-border rounded-md p-3 shadow-xl flex flex-col gap-3 w-80 sm:w-88 max-w-full"
+                role="region"
+                aria-label="Layout and view controls"
+              >
+                {/* Panel Header */}
+                <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                  <div className="flex items-center gap-1.5">
+                    <LayoutGrid className="size-3.5 text-primary" />
+                    <span className="text-xs font-semibold text-foreground">Graph Layout & Display</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsLayoutOpen(false)}
+                    className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
+                    title="Close panel"
+                    aria-label="Close layout panel"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+
+                {/* View Mode Toggle: Cards vs Cosmos */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-2xs text-muted-foreground font-medium uppercase tracking-wider">
+                    Node View Mode
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5 bg-muted/60 p-1 rounded-sm border border-border">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleViewMode("cards")}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 py-1 px-2 rounded-xs text-xs font-medium transition-colors cursor-pointer",
+                        viewMode === "cards"
+                          ? "bg-card text-foreground shadow-xs font-semibold"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      title="Structured card nodes view"
+                      aria-pressed={viewMode === "cards"}
+                    >
+                      <LayoutDashboard className="size-3.5 text-primary" />
+                      <span>Cards</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleViewMode("cosmos")}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 py-1 px-2 rounded-xs text-xs font-medium transition-colors cursor-pointer",
+                        viewMode === "cosmos"
+                          ? "bg-primary text-primary-foreground shadow-xs font-semibold"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      title="Cosmos knowledge graph orb view"
+                      aria-pressed={viewMode === "cosmos"}
+                    >
+                      <Orbit className="size-3.5" />
+                      <span>Cosmos</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Layout Engines */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-2xs text-muted-foreground font-medium uppercase tracking-wider">
+                    Layout Engine
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {LAYOUTS.map((layout) => (
+                      <button
+                        key={layout.id}
+                        type="button"
+                        onClick={() => setLayoutEngine(layout.id)}
+                        title={layout.title}
+                        aria-pressed={layoutEngine === layout.id}
+                        className={cn(
+                          "flex items-center gap-2 px-2.5 py-1.5 rounded-sm text-xs font-medium transition-colors cursor-pointer border text-left",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+                          layoutEngine === layout.id
+                            ? "bg-primary-muted border-primary/40 text-primary font-semibold shadow-2xs"
+                            : "bg-muted/30 border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                        )}
+                      >
+                        {layout.icon}
+                        <div className="flex flex-col min-w-0">
+                          <span className="truncate">{layout.label}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Physics Simulation */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-2xs text-muted-foreground font-medium uppercase tracking-wider">
+                    Live Physics
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleTogglePhysics}
+                      aria-pressed={livePhysics}
+                      className={cn(
+                        "flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-sm text-xs font-medium transition-all cursor-pointer border",
+                        livePhysics
+                          ? "bg-warning/20 text-warning border-warning/40 shadow-[0_0_10px_rgba(245,158,11,0.2)] font-semibold"
+                          : "bg-muted/30 border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                      )}
+                      title={livePhysics ? "Pause physics simulation" : "Start live dynamic physics simulation"}
+                    >
+                      <Atom className={cn("size-3.5", livePhysics && isPhysicsRunning && "animate-spin text-warning")} />
+                      <span>{livePhysics ? "Physics Active" : "Enable Physics"}</span>
+                    </button>
+
+                    {livePhysics && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2.5 text-warning hover:text-warning hover:bg-warning/10 border border-warning/30"
+                        onClick={() => reheat(0.55)}
+                        title="Shake / Reheat live physics motion"
+                        aria-label="Shake simulation"
+                      >
+                        <Flame className="size-3.5 mr-1" />
+                        <span>Reheat</span>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Utilities & Actions */}
+                <div className="flex flex-col gap-1.5 pt-1 border-t border-border">
+                  <span className="text-2xs text-muted-foreground font-medium uppercase tracking-wider">
+                    Actions & Overlays
+                  </span>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 flex flex-col items-center justify-center p-1 gap-0.5 text-2xs cursor-pointer"
+                      onClick={handleFitView}
+                      title="Fit to view"
+                      aria-label="Fit graph to view"
+                    >
+                      <Maximize2 className="size-3.5" />
+                      <span>Fit</span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 flex flex-col items-center justify-center p-1 gap-0.5 text-2xs cursor-pointer"
+                      onClick={handleRelayout}
+                      title="Re-run layout"
+                      aria-label="Re-run layout"
+                      disabled={isLayouting || nodes.length === 0}
+                    >
+                      <RotateCcw
+                        className={cn("size-3.5", isLayouting && "animate-spin text-primary")}
+                      />
+                      <span>Relayout</span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        "h-8 flex flex-col items-center justify-center p-1 gap-0.5 text-2xs cursor-pointer",
+                        showLegend && "bg-primary-muted border-primary/40 text-primary font-semibold"
+                      )}
+                      onClick={handleToggleLegend}
+                      title={showLegend ? "Hide legend" : "Show legend"}
+                      aria-label={showLegend ? "Hide legend" : "Show legend"}
+                      aria-pressed={showLegend}
+                    >
+                      <Eye className="size-3.5" />
+                      <span>Legend</span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        "h-8 flex flex-col items-center justify-center p-1 gap-0.5 text-2xs cursor-pointer",
+                        showMinimap && "bg-primary-muted border-primary/40 text-primary font-semibold"
+                      )}
+                      onClick={handleToggleMinimap}
+                      title={showMinimap ? "Hide minimap" : "Show minimap"}
+                      aria-label={showMinimap ? "Hide minimap" : "Show minimap"}
+                      aria-pressed={showMinimap}
+                    >
+                      <MapIcon className="size-3.5" />
+                      <span>Minimap</span>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
       {/* Legend */}
       {showLegend && actions.length > 0 && (
         <div
-          className="absolute bottom-14 left-3 z-20 bg-card border border-border rounded-md px-3 py-2 shadow-sm text-xs space-y-1.5 max-w-[220px]"
+          className={cn(
+            "absolute bottom-[108px] left-3 z-20",
+            "bg-card/95 backdrop-blur-xs border border-border rounded-md px-3 py-2 shadow-sm text-xs space-y-1.5",
+            "max-w-[220px] max-h-[min(260px,calc(100vh-280px))] overflow-y-auto",
+            "motion-safe:animate-in motion-safe:fade-in-50 motion-safe:duration-150"
+          )}
+          role="region"
           aria-label="Graph legend"
         >
-          <div className="text-overline mb-1">Legend</div>
+          <div className="flex items-center justify-between gap-1 mb-1">
+            <span className="text-overline">Legend</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-4.5 text-muted-foreground hover:text-foreground -mr-1"
+              onClick={handleToggleLegend}
+              title="Close legend"
+              aria-label="Close legend"
+            >
+              <X className="size-3" />
+            </Button>
+          </div>
           <div className="flex items-center gap-2 text-muted-foreground">
             <span className="size-2.5 rounded-sm border border-success/50 bg-card shrink-0" />
             <span>
@@ -1007,22 +1297,28 @@ export const KnoxGraphCanvas: React.FC = () => {
           <Controls
             position="bottom-left"
             showInteractive={false}
-            className="!shadow-sm"
+            className="!shadow-sm !m-0 !bottom-3 !left-3"
           />
-          <MiniMap
-            position="bottom-right"
-            nodeColor={(n) =>
-              n.type === "circleNode"
-                ? "var(--warning)"
-                : n.type === "actionNode"
-                ? "var(--primary)"
-                : "var(--plan)"
-            }
-            maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
-            className="!shadow-sm"
-            pannable
-            zoomable
-          />
+          {showMinimap && (
+            <MiniMap
+              position="bottom-right"
+              nodeColor={(n) =>
+                n.type === "circleNode"
+                  ? "var(--warning)"
+                  : n.type === "actionNode"
+                  ? "var(--primary)"
+                  : "var(--plan)"
+              }
+              maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
+              className="!shadow-sm !m-0 !bottom-3 !right-3"
+              style={{
+                width: "min(180px, 30vw)",
+                height: "min(120px, 20vh)",
+              }}
+              pannable
+              zoomable
+            />
+          )}
         </ReactFlow>
       </div>
     </div>

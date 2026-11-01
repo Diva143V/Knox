@@ -267,16 +267,24 @@ pre,
   width: 28px !important;
   height: 28px !important;
 }
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
 .react-flow__controls-button:hover {
   background: var(--muted) !important;
   fill: var(--foreground) !important;
+}
+.react-flow__controls-button:focus-visible {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: -2px !important;
 }
 .react-flow__minimap {
   border: 1px solid var(--border) !important;
   border-radius: var(--radius-md) !important;
   overflow: hidden !important;
   background-color: var(--card) !important;
-  backdrop-filter: none !important;
+  backdrop-filter: blur(4px) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 .react-flow__edge.selected .react-flow__edge-path {
   stroke-width: 2.25;
