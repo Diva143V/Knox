@@ -19,6 +19,7 @@ pub mod resources;
 pub mod scan_staged;
 pub mod search;
 pub mod start_session;
+pub mod update_action;
 
 pub use check_guardrails::handle_check_guardrails;
 pub use end_session::handle_end_session;
@@ -39,6 +40,7 @@ pub use resources::{handle_resources_list, handle_resources_read};
 pub use scan_staged::handle_scan_staged;
 pub use search::handle_search;
 pub use start_session::handle_start_session;
+pub use update_action::handle_update_action;
 
 use serde_json::{Value, json};
 
@@ -105,6 +107,7 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         "knox_record_doubt" => handle_record_doubt(db, params),
         "knox_resolve_doubt" => handle_resolve_doubt(db, params),
         "knox_record_batch" => handle_record_batch(db, params),
+        "knox_update_action" => handle_update_action(db, params),
         "knox_get_context" => handle_get_context(db, params),
         "knox_get_history" => handle_get_history(db, params),
         "knox_get_lineage" => handle_get_lineage(db, params),
@@ -215,7 +218,7 @@ mod tests {
         assert!(res.error.is_none());
         let result = res.result.unwrap();
         let tools = result.get("tools").unwrap().as_array().unwrap();
-        assert_eq!(tools.len(), 17);
+        assert_eq!(tools.len(), 18);
     }
 
     #[test]

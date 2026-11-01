@@ -24,3 +24,13 @@ pub async fn get_graph_data(
     let result = query_actions(&db, &filter).map_err(|e| e.to_string())?;
     Ok(result.results)
 }
+
+/// Updates an existing graph action or decision node.
+#[tauri::command]
+pub async fn update_action(
+    state: State<'_, AppState>,
+    params: knox::core::types::UpdateActionParams,
+) -> Result<KnoxAction, String> {
+    let db = state.db.lock().await;
+    knox::storage::nodes::update_action(&db, &params).map_err(|e| e.to_string())
+}

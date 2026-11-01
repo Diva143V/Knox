@@ -28,6 +28,7 @@ import {
   Link2,
   CornerDownRight,
   Layers,
+  Edit3,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 
@@ -61,8 +62,14 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
   onSelectAction,
   className = "",
 }) => {
-  const { actions, showToast, setSelectedAction, getProjectForAction, refreshData } =
-    useKnoxStore();
+  const {
+    actions,
+    showToast,
+    setSelectedAction,
+    getProjectForAction,
+    refreshData,
+    openEditNode,
+  } = useKnoxStore();
   const [copiedId, setCopiedId] = useState(false);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
@@ -229,6 +236,16 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => openEditNode(action)}
+            className="h-6 px-2 text-[11px] gap-1 text-foreground"
+            title="Edit node summary, relations, tags, and files"
+          >
+            <Edit3 className="size-3 text-primary" />
+            Edit
+          </Button>
           {isDoubtType && (
             action.is_resolved ? (
               <span className="text-xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-success/15 text-success border border-success/30 shrink-0 flex items-center gap-1">

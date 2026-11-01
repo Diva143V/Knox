@@ -22,6 +22,7 @@ export interface CircleNodeData {
   actionCount?: number;
   fileCount?: number;
   isHighlighted?: boolean;
+  isDimmed?: boolean;
   selected?: boolean;
   [key: string]: unknown;
 }
@@ -149,7 +150,8 @@ export const CircleNode = memo(({ data }: { data: CircleNodeData }) => {
       onClick={handleClick}
       className={cn(
         "relative flex flex-col items-center justify-center group cursor-pointer select-none",
-        "focus-visible:outline-none"
+        "focus-visible:outline-none",
+        data.isDimmed && !isSelected && !isHighlighted && "opacity-25 transition-opacity duration-300"
       )}
       style={{ width: diameter + 40, minHeight: diameter + 32 }}
       role="button"

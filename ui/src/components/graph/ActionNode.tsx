@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn";
 export interface ActionNodeData {
   action: KnoxAction;
   isHighlighted?: boolean;
+  isDimmed?: boolean;
   [key: string]: unknown;
 }
 
@@ -100,7 +101,8 @@ export const ActionNode = memo(({ data }: { data: ActionNodeData }) => {
         accent.border,
         accent.hover,
         selected && `ring-2 ${accent.ring} border-transparent`,
-        isHighlighted && !selected && "ring-2 ring-primary border-primary/60",
+        isHighlighted && !selected && "ring-2 ring-primary border-primary/60 scale-[1.02]",
+        data.isDimmed && !selected && !isHighlighted && "opacity-25 transition-opacity duration-300",
         !action.is_current && "opacity-70"
       )}
     >

@@ -6,7 +6,9 @@ use rusqlite::params;
 use super::db::KnoxDb;
 use crate::core::error::KnoxResult;
 use crate::core::ids::{ActionId, ProjectId, SessionId};
-use crate::core::types::{ActionRelation, KnoxAction, Project, RelationType};
+use crate::core::types::{
+    ActionRelation, KnoxAction, Project, RelationType, UpdateActionParams,
+};
 
 pub use super::queries::query_actions;
 
@@ -395,6 +397,171 @@ pub fn resolve_doubt(
     Ok(())
 }
 
+/// Updates an existing `KnoxAction` and its associated files, tags, symbols, and relations.
+pub fn update_action(db: &KnoxDb, params: &UpdateActionParams) -> KnoxResult<KnoxAction> {
+    let existing = match get_action(db, &params.id)? {
+        Some(a) => a,
+        None => return Err(crate::core::error::KnoxError::ActionNotFound(params.id.to_string())),
+    };
+
+    let summary = params.summary.as_deref().unwrap_or(existing.summary.as_str());
+    let action_type = params.action_type.as_deref().unwrap_or(existing.action_type.as_str());
+    let actor = params.actor.as_deref().unwrap_or(existing.actor.as_str());
+    let rationale = params.rationale.as_deref().or(existing.rationale.as_deref());
+    let context_summary = params
+        .context_summary
+        .as_deref()
+        .or(existing.context_summary.as_deref());
+    let significance = params
+        .significance
+        .as_deref()
+        .or(existing.significance.as_deref())
+        .unwrap_or("major");
+
+    let is_resolved_bool = params.is_resolved.or(existing.is_resolved).unwrap_or(true);
+    let is_resolved_int = if is_resolved_bool { 1 } else { 0 };
+
+    let resolution_note = params
+        .resolution_note
+        .as_deref()
+        .or(existing.resolution_note.as_deref());
+
+    let parent_action_id_str = match &params.parent_action_id {
+        Some(Some(parent_id)) => Some(parent_id.as_str().to_string()),
+        Some(None) => None,
+        None => existing.parent_action_id.as_ref().map(|p| p.as_str().to_string()),
+    };
+
+    let rejected_alts = params
+        .rejected_alternatives
+        .as_ref()
+        .unwrap_or(&existing.rejected_alternatives);
+    let rejected_alt_json = if rejected_alts.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(rejected_alts).unwrap_or_default())
+    };
+
+    let conn = db.conn();
+
+    // 1. Update primary actions row
+    conn.execute(
+        "UPDATE actions SET
+            summary = ?1,
+            action_type = ?2,
+            actor = ?3,
+            rationale = ?4,
+            context_summary = ?5,
+            significance = ?6,
+            is_resolved = ?7,
+            resolution_note = ?8,
+            parent_action_id = ?9,
+            rejected_alternatives = ?10
+         WHERE id = ?11",
+        params![
+            summary,
+            action_type,
+            actor,
+            rationale,
+            context_summary,
+            significance,
+            is_resolved_int,
+            resolution_note,
+            parent_action_id_str,
+            rejected_alt_json,
+            params.id.as_str(),
+        ],
+    )?;
+
+    // 2. Update files if provided
+    if let Some(ref new_files) = params.files {
+        conn.execute(
+            "DELETE FROM action_files WHERE action_id = ?1",
+            params![params.id.as_str()],
+        )?;
+        let mut stmt_files = conn.prepare_cached(
+            "INSERT OR IGNORE INTO action_files (action_id, file_path) VALUES (?1, ?2)",
+        )?;
+        for file in new_files {
+            stmt_files.execute(params![params.id.as_str(), file.as_str()])?;
+        }
+    }
+
+    // 3. Update tags if provided
+    if let Some(ref new_tags) = params.tags {
+        conn.execute(
+            "DELETE FROM action_tags WHERE action_id = ?1",
+            params![params.id.as_str()],
+        )?;
+        let mut stmt_tags = conn.prepare_cached(
+            "INSERT OR IGNORE INTO action_tags (action_id, tag) VALUES (?1, ?2)",
+        )?;
+        for tag in new_tags {
+            stmt_tags.execute(params![params.id.as_str(), tag.as_str()])?;
+        }
+    }
+
+    // 4. Update symbols if provided
+    if let Some(ref new_symbols) = params.symbols {
+        conn.execute(
+            "DELETE FROM action_symbols WHERE action_id = ?1",
+            params![params.id.as_str()],
+        )?;
+        let mut stmt_sym = conn.prepare_cached(
+            "INSERT OR IGNORE INTO action_symbols (action_id, symbol) VALUES (?1, ?2)",
+        )?;
+        for sym in new_symbols {
+            stmt_sym.execute(params![params.id.as_str(), sym.as_str()])?;
+        }
+    }
+
+    // 5. Update relations (replace all) if provided
+    if let Some(ref new_relations) = params.relations {
+        conn.execute(
+            "DELETE FROM action_relations WHERE from_action_id = ?1",
+            params![params.id.as_str()],
+        )?;
+        let mut stmt_rel = conn.prepare_cached(
+            "INSERT OR IGNORE INTO action_relations (from_action_id, to_action_id, relation_type) VALUES (?1, ?2, ?3)",
+        )?;
+        for rel in new_relations {
+            stmt_rel.execute(params![
+                params.id.as_str(),
+                rel.target_id.as_str(),
+                rel.relation_type.to_string(),
+            ])?;
+        }
+    }
+
+    // 6. Add specific relations if provided
+    if let Some(ref add_rels) = params.add_relations {
+        let mut stmt_rel = conn.prepare_cached(
+            "INSERT OR REPLACE INTO action_relations (from_action_id, to_action_id, relation_type) VALUES (?1, ?2, ?3)",
+        )?;
+        for rel in add_rels {
+            stmt_rel.execute(params![
+                params.id.as_str(),
+                rel.target_id.as_str(),
+                rel.relation_type.to_string(),
+            ])?;
+        }
+    }
+
+    // 7. Remove specific relations if provided
+    if let Some(ref rem_rels) = params.remove_relations {
+        let mut stmt_rem = conn.prepare_cached(
+            "DELETE FROM action_relations WHERE from_action_id = ?1 AND to_action_id = ?2",
+        )?;
+        for target_id in rem_rels {
+            stmt_rem.execute(params![params.id.as_str(), target_id.as_str()])?;
+        }
+    }
+
+    get_action(db, &params.id)?.ok_or_else(|| {
+        crate::core::error::KnoxError::ActionNotFound(params.id.to_string())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,5 +668,75 @@ mod tests {
         assert_eq!(list[0].path, r"D:\Knox"); // verbatim prefix stripped
         assert_eq!(list[1].name, "hongli");
         assert_eq!(list[1].path, r"D:\hongli");
+    }
+
+    #[test]
+    fn test_update_action_flow() {
+        let db = KnoxDb::open_memory().unwrap();
+        let target = KnoxAction {
+            id: ActionId::new(),
+            actor: "cursor".to_string(),
+            action_type: "plan".to_string(),
+            summary: "Initial architectural plan".to_string(),
+            files: vec!["plan.md".to_string()],
+            tags: vec!["v1".to_string()],
+            timestamp: Utc::now(),
+            is_current: true,
+            ..Default::default()
+        };
+        insert_action(&db, &target).unwrap();
+
+        let action = KnoxAction {
+            id: ActionId::new(),
+            actor: "gemini".to_string(),
+            action_type: "write".to_string(),
+            summary: "Original summary".to_string(),
+            files: vec!["src/old.rs".to_string()],
+            tags: vec!["old".to_string()],
+            timestamp: Utc::now(),
+            is_current: true,
+            ..Default::default()
+        };
+        let action_id = insert_action(&db, &action).unwrap();
+
+        // Update action
+        let updated = update_action(
+            &db,
+            &UpdateActionParams {
+                id: action_id.clone(),
+                summary: Some("Updated summary with new features".to_string()),
+                action_type: Some("decide".to_string()),
+                rationale: Some("Design was simplified".to_string()),
+                files: Some(vec!["src/new.rs".to_string(), "src/lib.rs".to_string()]),
+                tags: Some(vec!["refactor".to_string(), "core".to_string()]),
+                add_relations: Some(vec![ActionRelation {
+                    target_id: target.id.clone(),
+                    relation_type: RelationType::Implements,
+                }]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(updated.summary, "Updated summary with new features");
+        assert_eq!(updated.action_type, "decide");
+        assert_eq!(updated.rationale.as_deref(), Some("Design was simplified"));
+        assert_eq!(updated.files, vec!["src/lib.rs", "src/new.rs"]);
+        assert_eq!(updated.tags, vec!["core", "refactor"]);
+        assert_eq!(updated.relations.len(), 1);
+        assert_eq!(updated.relations[0].target_id, target.id);
+        assert_eq!(updated.relations[0].relation_type, RelationType::Implements);
+
+        // Remove relation
+        let updated2 = update_action(
+            &db,
+            &UpdateActionParams {
+                id: action_id,
+                remove_relations: Some(vec![target.id.to_string()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(updated2.relations.len(), 0);
     }
 }

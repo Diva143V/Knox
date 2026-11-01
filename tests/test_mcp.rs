@@ -165,7 +165,7 @@ fn test_mcp_search_and_tools_call_standard() {
     let list_res = dispatch("tools/list", json!({}), &db);
     assert_eq!(
         list_res.result.unwrap()["tools"].as_array().unwrap().len(),
-        17
+        18
     );
 
     let session_id = mcp_start(&db, "gemini");

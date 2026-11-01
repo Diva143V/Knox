@@ -101,6 +101,8 @@ interface KnoxStore {
   isTourOpen: boolean;
   isSettingsOpen: boolean;
   activeSettingsTab: SettingsTabId;
+  isEditNodeOpen: boolean;
+  editingAction: KnoxAction | null;
   config: KnoxConfig | null;
   theme: ThemeMode;
   userSettings: UserSettings;
@@ -128,6 +130,10 @@ interface KnoxStore {
   closeTour: () => void;
   openSettings: (tab?: SettingsTabId) => void;
   closeSettings: () => void;
+  openEditNode: (action: KnoxAction) => void;
+  closeEditNode: () => void;
+  updateActionInStore: (action: KnoxAction) => void;
+  refreshDataQuietly: () => Promise<void>;
   setTheme: (theme: ThemeMode) => void;
   updateUserSettings: (patch: Partial<UserSettings>) => void;
   resetUserSettings: () => void;
@@ -155,6 +161,16 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   isTourOpen: isTourFirstRun(),
   isSettingsOpen: false,
   activeSettingsTab: "general",
+  isEditNodeOpen: false,
+  editingAction: null,
+  openEditNode: (action) => set({ isEditNodeOpen: true, editingAction: action }),
+  closeEditNode: () => set({ isEditNodeOpen: false, editingAction: null }),
+  updateActionInStore: (action) =>
+    set((state) => ({
+      actions: state.actions.map((a) => (a.id === action.id ? action : a)),
+      selectedAction:
+        state.selectedAction?.id === action.id ? action : state.selectedAction,
+    })),
   openTour: () => set({ isTourOpen: true }),
   closeTour: () => set({ isTourOpen: false }),
   openSettings: (tab) =>
@@ -410,6 +426,73 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
       console.error("Failed to refresh Knox state:", err);
       set({ isLoading: false });
       get().showToast(String(err), true);
+    }
+  },
+
+  refreshDataQuietly: async () => {
+    try {
+      const scope = get().activeProjectScope;
+      const [status, queryRes, rawProjects] = await Promise.all([
+        KnoxAPI.getStatus(),
+        KnoxAPI.queryActions({ limit: 1000 }),
+        KnoxAPI.getProjects().catch(() => []),
+      ]);
+
+      const allActions = queryRes.results || [];
+      const isTemporary = (p: Project) => {
+        const norm = p.path.toLowerCase().replace(/\\/g, "/");
+        return (
+          norm.includes("/temp/") ||
+          norm.includes("/tmp/") ||
+          norm.includes("/tests/") ||
+          p.name.toLowerCase().includes("temp") ||
+          p.name.toLowerCase().includes("verification")
+        );
+      };
+      const validProjects = (rawProjects || []).filter((p) => !isTemporary(p));
+      const trackedProjects =
+        validProjects.length > 0
+          ? validProjects
+          : [
+              {
+                id: "default-knox",
+                name: "Knox",
+                path: "D:\\Knox",
+                created_at: new Date().toISOString(),
+              },
+            ];
+
+      let actions = allActions;
+      if (scope) {
+        const normScope = scope.toLowerCase().replace(/\\/g, "/");
+        const folderName = normScope.split("/").filter(Boolean).pop() || normScope;
+        actions = allActions.filter((a) => {
+          const hasMatchingFile =
+            a.files &&
+            a.files.some((f) => {
+              const normF = f.toLowerCase().replace(/\\/g, "/");
+              return normF.startsWith(normScope) || normF.includes(folderName);
+            });
+          const matchesTag =
+            a.tags && a.tags.some((t) => t.toLowerCase().includes(folderName));
+          const matchesSummary = a.summary.toLowerCase().includes(folderName);
+          return hasMatchingFile || matchesTag || matchesSummary;
+        });
+      }
+
+      const currentSelected = get().selectedAction;
+      const updatedSelected = currentSelected
+        ? actions.find((a) => a.id === currentSelected.id) || currentSelected
+        : null;
+
+      set({
+        status,
+        actions,
+        projects: trackedProjects,
+        selectedAction: updatedSelected,
+      });
+    } catch (err) {
+      console.debug("Quiet refresh skipped or failed:", err);
     }
   },
 

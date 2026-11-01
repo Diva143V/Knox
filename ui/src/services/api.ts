@@ -16,6 +16,7 @@ import type {
   Project,
   DetectedMcpApp,
   McpScanLog,
+  UpdateActionPayload,
 } from "@/types/knox";
 
 const isTauri =
@@ -102,6 +103,31 @@ export const KnoxAPI = {
       currentOnly: current,
       current_only: current,
       limit: limit ?? 200,
+    });
+  },
+
+  async updateAction(params: UpdateActionPayload): Promise<KnoxAction> {
+    if (!isTauri) {
+      const idx = mockActions.findIndex((a) => a.id === params.id);
+      if (idx !== -1) {
+        mockActions[idx] = {
+          ...mockActions[idx],
+          ...params,
+          relations: params.relations ?? mockActions[idx].relations,
+        };
+        return mockActions[idx];
+      }
+      throw new Error("Action not found in mock");
+    }
+    return invoke<KnoxAction>("update_action", { params });
+  },
+
+  async listenDbChanged(callback: () => void): Promise<() => void> {
+    if (!isTauri) {
+      return () => {};
+    }
+    return listen("knox://db-changed", () => {
+      callback();
     });
   },
 

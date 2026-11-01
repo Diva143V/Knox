@@ -141,6 +141,61 @@ impl Default for KnoxAction {
     }
 }
 
+/// Parameters for updating an existing `KnoxAction` in the knowledge graph.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct UpdateActionParams {
+    /// Unique identifier of the action node to update.
+    pub id: ActionId,
+    /// Updated concise summary.
+    #[serde(default)]
+    pub summary: Option<String>,
+    /// Updated categorical action type.
+    #[serde(default)]
+    pub action_type: Option<String>,
+    /// Updated actor attribution.
+    #[serde(default)]
+    pub actor: Option<String>,
+    /// Updated relative files touched or referenced.
+    #[serde(default)]
+    pub files: Option<Vec<String>>,
+    /// Updated semantic tags.
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    /// Updated code symbols.
+    #[serde(default)]
+    pub symbols: Option<Vec<String>>,
+    /// Updated architectural rationale.
+    #[serde(default)]
+    pub rationale: Option<String>,
+    /// Updated context summary.
+    #[serde(default)]
+    pub context_summary: Option<String>,
+    /// Updated rejected alternatives.
+    #[serde(default)]
+    pub rejected_alternatives: Option<Vec<String>>,
+    /// Updated significance level ("major" | "minor").
+    #[serde(default)]
+    pub significance: Option<String>,
+    /// Updated resolution status for doubts.
+    #[serde(default)]
+    pub is_resolved: Option<bool>,
+    /// Updated resolution note.
+    #[serde(default)]
+    pub resolution_note: Option<String>,
+    /// Updated direct parent action id (pass Some(None) to clear parent).
+    #[serde(default)]
+    pub parent_action_id: Option<Option<ActionId>>,
+    /// Replaces all semantic relations if provided.
+    #[serde(default)]
+    pub relations: Option<Vec<ActionRelation>>,
+    /// Adds specific semantic relations without replacing existing ones.
+    #[serde(default)]
+    pub add_relations: Option<Vec<ActionRelation>>,
+    /// Removes specific target action relations if provided.
+    #[serde(default)]
+    pub remove_relations: Option<Vec<String>>,
+}
+
 /// Directed edge connecting nodes in the in-memory graph.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct KnoxEdge {

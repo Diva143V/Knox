@@ -4,8 +4,8 @@ use serde_json::json;
 
 use super::protocol::ToolDescription;
 
-/// All supported Knox MCP tool names (17 tools).
-pub const TOOL_NAMES: [&str; 17] = [
+/// All supported Knox MCP tool names (18 tools).
+pub const TOOL_NAMES: [&str; 18] = [
     "knox_start_session",
     "knox_end_session",
     "knox_record_action",
@@ -13,6 +13,7 @@ pub const TOOL_NAMES: [&str; 17] = [
     "knox_record_doubt",
     "knox_resolve_doubt",
     "knox_record_batch",
+    "knox_update_action",
     "knox_get_context",
     "knox_get_history",
     "knox_get_lineage",
@@ -25,7 +26,7 @@ pub const TOOL_NAMES: [&str; 17] = [
     "knox_ingest",
 ];
 
-/// Returns the complete list of all 17 Knox tool definitions.
+/// Returns the complete list of all 18 Knox tool definitions.
 pub fn all_tools() -> Vec<ToolDescription> {
     vec![
         tool_start_session(),
@@ -35,6 +36,7 @@ pub fn all_tools() -> Vec<ToolDescription> {
         tool_record_doubt(),
         tool_resolve_doubt(),
         tool_record_batch(),
+        tool_update_action(),
         tool_get_context(),
         tool_get_history(),
         tool_get_lineage(),
@@ -326,6 +328,121 @@ fn tool_record_batch() -> ToolDescription {
                 }
             },
             "required": ["actor", "actions"]
+        }),
+    )
+}
+
+fn tool_update_action() -> ToolDescription {
+    ToolDescription::new(
+        "knox_update_action",
+        "Modifies an existing action or decision node in the Knox knowledge graph. Enables agents to update summaries, rationale, files, tags, symbols, resolution notes, and add or remove semantic relationships.",
+        json!({
+            "type": "object",
+            "properties": {
+                "action_id": {
+                    "type": "string",
+                    "description": "The unique ID of the action or decision to update (required)"
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Updated human-readable summary of the action"
+                },
+                "action_type": {
+                    "type": "string",
+                    "description": "Updated semantic action type (e.g. write, debug, read, review, plan, change, decide, doubt)"
+                },
+                "actor": {
+                    "type": "string",
+                    "description": "Updated software or agent name"
+                },
+                "files": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Full replacement list of affected or referenced file paths"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Full replacement list of indexing tags"
+                },
+                "symbols": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Full replacement list of touched code symbols (structs, functions, traits, modules)"
+                },
+                "rationale": {
+                    "type": "string",
+                    "description": "Updated architectural justification or technical reasoning"
+                },
+                "context_summary": {
+                    "type": "string",
+                    "description": "Updated high-level task context summary"
+                },
+                "rejected_alternatives": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Updated list of alternative approaches considered and rejected"
+                },
+                "significance": {
+                    "type": "string",
+                    "enum": ["major", "minor"],
+                    "description": "Updated significance level: 'major' (ADR, architectural decision) or 'minor' (implementation detail)"
+                },
+                "is_resolved": {
+                    "type": "boolean",
+                    "description": "Updated resolution status (e.g. resolving a doubt or question)"
+                },
+                "resolution_note": {
+                    "type": "string",
+                    "description": "Updated resolution explanation note"
+                },
+                "parent_action_id": {
+                    "type": "string",
+                    "description": "Updated causal parent action ID"
+                },
+                "clear_parent": {
+                    "type": "boolean",
+                    "description": "Set to true to explicitly detach from parent action"
+                },
+                "relations": {
+                    "type": "array",
+                    "description": "Full replacement list of explicit semantic relationships (target_id + relation_type)",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "target_id": { "type": "string", "description": "Target action ID" },
+                            "relation_type": {
+                                "type": "string",
+                                "enum": ["depends_on", "implements", "verifies", "reverts", "relates_to", "resolves"],
+                                "description": "Semantic type of the relation"
+                            }
+                        },
+                        "required": ["target_id"]
+                    }
+                },
+                "add_relations": {
+                    "type": "array",
+                    "description": "Incremental relations to add without replacing existing ones",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "target_id": { "type": "string", "description": "Target action ID" },
+                            "relation_type": {
+                                "type": "string",
+                                "enum": ["depends_on", "implements", "verifies", "reverts", "relates_to", "resolves"],
+                                "description": "Semantic type of the relation"
+                            }
+                        },
+                        "required": ["target_id"]
+                    }
+                },
+                "remove_relations": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Target action IDs to remove from outgoing relations"
+                }
+            },
+            "required": ["action_id"]
         }),
     )
 }
@@ -706,7 +823,7 @@ mod tests {
     #[test]
     fn test_all_tools_count_and_names() {
         let tools = all_tools();
-        assert_eq!(tools.len(), 17);
+        assert_eq!(tools.len(), 18);
         for expected_name in TOOL_NAMES {
             assert!(
                 tools.iter().any(|t| t.name == expected_name),

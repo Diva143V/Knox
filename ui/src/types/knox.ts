@@ -273,3 +273,23 @@ export interface McpPrompt {
   description: string;
   arguments?: McpPromptArgument[];
 }
+
+export interface UpdateActionPayload {
+  id: string;
+  summary?: string;
+  action_type?: string;
+  actor?: string;
+  files?: string[];
+  tags?: string[];
+  symbols?: string[];
+  rationale?: string | null;
+  context_summary?: string | null;
+  rejected_alternatives?: string[];
+  significance?: string;
+  is_resolved?: boolean;
+  resolution_note?: string | null;
+  parent_action_id?: string | null;
+  relations?: ActionRelation[];
+  add_relations?: ActionRelation[];
+  remove_relations?: string[];
+}

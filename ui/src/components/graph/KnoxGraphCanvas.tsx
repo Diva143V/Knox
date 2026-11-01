@@ -25,6 +25,8 @@ import { useLivePhysics } from "@/hooks/useLivePhysics";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ActionBadge } from "@/components/ui/ActionBadge";
+import { ActorBadge } from "@/components/ui/ActorBadge";
 import { cn } from "@/lib/cn";
 import {
   Filter,
@@ -43,6 +45,9 @@ import {
   Orbit,
   Atom,
   Flame,
+  X,
+  Tag,
+  Zap,
 } from "lucide-react";
 import type { KnoxAction, Project } from "@/types/knox";
 
@@ -128,6 +133,10 @@ export const KnoxGraphCanvas: React.FC = () => {
   const [actorFilter, setActorFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [searchHighlight, setSearchHighlight] = useState<string>("");
+  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState<boolean>(false);
+  const [activeResultIndex, setActiveResultIndex] = useState<number>(-1);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
+  const hasInitialFitView = useRef<boolean>(false);
   const [showFileNodes, setShowFileNodes] = useState<boolean>(true);
   const [showLegend, setShowLegend] = useState<boolean>(true);
   const rfRef = useRef<ReactFlowInstance | null>(null);
@@ -209,6 +218,98 @@ export const KnoxGraphCanvas: React.FC = () => {
     });
     return Array.from(set).sort();
   }, [actions]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(e.target as unknown as globalThis.Node)
+      ) {
+        setIsSearchDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const searchMatches = useMemo(() => {
+    const q = searchHighlight.trim().toLowerCase();
+    if (!q) return [];
+    return actions
+      .map((action) => {
+        let score = 0;
+        let matchField: "summary" | "symbol" | "file" | "tag" | "actor" | "type" | "rationale" = "summary";
+        let matchDetail = "";
+
+        if (action.summary.toLowerCase().includes(q)) {
+          score += 10;
+          matchField = "summary";
+        }
+        if (action.symbols?.some((s) => s.toLowerCase().includes(q))) {
+          score += 8;
+          if (score <= 10) matchField = "symbol";
+          matchDetail = action.symbols.find((s) => s.toLowerCase().includes(q)) || "";
+        }
+        if (action.files?.some((f) => f.toLowerCase().includes(q))) {
+          score += 6;
+          if (score <= 10) matchField = "file";
+          matchDetail = action.files.find((f) => f.toLowerCase().includes(q)) || "";
+        }
+        if (action.tags?.some((t) => t.toLowerCase().includes(q))) {
+          score += 4;
+          if (score <= 10) matchField = "tag";
+          matchDetail = action.tags.find((t) => t.toLowerCase().includes(q)) || "";
+        }
+        if (action.actor.toLowerCase().includes(q)) {
+          score += 3;
+          if (score <= 10) matchField = "actor";
+        }
+        if (action.action_type.toLowerCase().includes(q)) {
+          score += 2;
+          if (score <= 10) matchField = "type";
+        }
+        if (action.rationale?.toLowerCase().includes(q)) {
+          score += 1;
+          if (score <= 10) matchField = "rationale";
+        }
+
+        return { action, score, matchField, matchDetail };
+      })
+      .filter((m) => m.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8);
+  }, [actions, searchHighlight]);
+
+  const handleSelectSearchResult = useCallback(
+    (action: KnoxAction) => {
+      if (actorFilter !== "all" && action.actor.toLowerCase() !== actorFilter.toLowerCase()) {
+        setActorFilter("all");
+      }
+      if (typeFilter !== "all" && action.action_type.toLowerCase() !== typeFilter.toLowerCase()) {
+        setTypeFilter("all");
+      }
+      if (currentOnly && !action.is_current) {
+        setCurrentOnly(false);
+      }
+
+      setSelectedAction(action);
+      setIsSearchDropdownOpen(false);
+
+      requestAnimationFrame(() => {
+        const targetNode = rfRef.current?.getNode(action.id);
+        if (targetNode) {
+          const width = targetNode.measured?.width ?? 240;
+          const height = targetNode.measured?.height ?? 120;
+          rfRef.current?.setCenter(
+            targetNode.position.x + width / 2,
+            targetNode.position.y + height / 2,
+            { zoom: 1.35, duration: 600 }
+          );
+        }
+      });
+    },
+    [actorFilter, typeFilter, currentOnly, setCurrentOnly, setSelectedAction]
+  );
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
@@ -469,8 +570,17 @@ export const KnoxGraphCanvas: React.FC = () => {
             lowerSearch.length > 0 &&
             (action.summary.toLowerCase().includes(lowerSearch) ||
               action.actor.toLowerCase().includes(lowerSearch) ||
+              action.action_type.toLowerCase().includes(lowerSearch) ||
               (action.files &&
-                action.files.some((f) => f.toLowerCase().includes(lowerSearch))));
+                action.files.some((f) => f.toLowerCase().includes(lowerSearch))) ||
+              (action.tags &&
+                action.tags.some((t) => t.toLowerCase().includes(lowerSearch))) ||
+              (action.symbols &&
+                action.symbols.some((s) => s.toLowerCase().includes(lowerSearch))) ||
+              (action.rationale &&
+                action.rationale.toLowerCase().includes(lowerSearch)));
+
+          const isDimmed = lowerSearch.length > 0 && !isHighlighted;
 
           if (viewMode === "cosmos") {
             rawNodes.push({
@@ -484,6 +594,7 @@ export const KnoxGraphCanvas: React.FC = () => {
                 action,
                 selected: selectedAction?.id === action.id,
                 isHighlighted,
+                isDimmed,
               },
             });
           } else {
@@ -495,6 +606,7 @@ export const KnoxGraphCanvas: React.FC = () => {
                 action,
                 selected: selectedAction?.id === action.id,
                 isHighlighted,
+                isDimmed,
               },
             });
           }
@@ -556,11 +668,14 @@ export const KnoxGraphCanvas: React.FC = () => {
       if (!isCancelled) {
         setNodes(positioned);
         setEdges(rawEdges);
-        requestAnimationFrame(() => {
-          if (!isCancelled) {
-            rfRef.current?.fitView({ padding: 0.18, duration: 200 });
-          }
-        });
+        if (!hasInitialFitView.current) {
+          requestAnimationFrame(() => {
+            if (!isCancelled) {
+              rfRef.current?.fitView({ padding: 0.18, duration: 250 });
+              hasInitialFitView.current = true;
+            }
+          });
+        }
       }
     };
 
@@ -663,19 +778,123 @@ export const KnoxGraphCanvas: React.FC = () => {
           )}
         </div>
 
-        <div className="relative">
+        <div ref={searchContainerRef} className="relative">
           <Search
-            className="size-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none"
+            className="size-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
             aria-hidden
           />
           <Input
             type="text"
             value={searchHighlight}
-            onChange={(e) => setSearchHighlight(e.target.value)}
-            placeholder="Highlight…"
-            aria-label="Highlight matching nodes"
-            className="pl-6 h-7 w-28 text-sm"
+            onChange={(e) => {
+              setSearchHighlight(e.target.value);
+              setIsSearchDropdownOpen(true);
+              setActiveResultIndex(0);
+            }}
+            onFocus={() => {
+              if (searchHighlight.trim().length > 0) {
+                setIsSearchDropdownOpen(true);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setIsSearchDropdownOpen(true);
+                setActiveResultIndex((prev) =>
+                  prev < searchMatches.length - 1 ? prev + 1 : 0
+                );
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setIsSearchDropdownOpen(true);
+                setActiveResultIndex((prev) =>
+                  prev > 0 ? prev - 1 : searchMatches.length - 1
+                );
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                if (searchMatches.length > 0) {
+                  const target =
+                    activeResultIndex >= 0 && activeResultIndex < searchMatches.length
+                      ? searchMatches[activeResultIndex].action
+                      : searchMatches[0].action;
+                  handleSelectSearchResult(target);
+                }
+              } else if (e.key === "Escape") {
+                setIsSearchDropdownOpen(false);
+              }
+            }}
+            placeholder="Search nodes, files, symbols…"
+            aria-label="Search and select matching nodes"
+            className="pl-8 pr-7 h-7 w-44 sm:w-64 text-xs font-mono transition-all duration-200 focus:w-64 sm:focus:w-80"
           />
+          {searchHighlight && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchHighlight("");
+                setIsSearchDropdownOpen(false);
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer p-0.5 rounded-sm hover:bg-muted transition-colors"
+              title="Clear search"
+            >
+              <X className="size-3" />
+            </button>
+          )}
+
+          {/* Interactive Search Results Dropdown */}
+          {isSearchDropdownOpen && searchMatches.length > 0 && (
+            <div className="absolute top-full left-0 mt-1.5 w-80 sm:w-96 max-h-80 overflow-y-auto bg-card/95 border border-border/80 rounded-lg shadow-2xl backdrop-blur-md z-50 py-1 divide-y divide-border/40 animate-in fade-in zoom-in-95 duration-150">
+              <div className="px-2.5 py-1 text-[11px] font-mono text-muted-foreground flex items-center justify-between">
+                <span>Matching Nodes ({searchMatches.length})</span>
+                <span className="text-[10px]">Use ↑↓ to navigate • Enter to jump</span>
+              </div>
+              <div className="py-0.5">
+                {searchMatches.map((match, idx) => {
+                  const isSelected = idx === activeResultIndex;
+                  return (
+                    <button
+                      key={match.action.id}
+                      type="button"
+                      onMouseEnter={() => setActiveResultIndex(idx)}
+                      onClick={() => handleSelectSearchResult(match.action)}
+                      className={cn(
+                        "w-full text-left px-3 py-2 flex flex-col gap-1 transition-colors cursor-pointer group",
+                        isSelected
+                          ? "bg-primary/10 text-foreground"
+                          : "hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <ActionBadge
+                          type={match.action.action_type}
+                          className="text-[10px] px-1 py-0"
+                        />
+                        <ActorBadge
+                          actor={match.action.actor}
+                          className="text-[10px] px-1 py-0"
+                        />
+                        {match.action.significance === "major" && (
+                          <span className="text-[9px] font-mono uppercase bg-warning/15 text-warning px-1 rounded-xs border border-warning/30">
+                            ADR
+                          </span>
+                        )}
+                        {match.matchField !== "summary" && match.matchDetail && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-background/80 text-primary border border-border px-1.5 py-0.5 rounded-xs ml-auto truncate max-w-[140px]">
+                            {match.matchField === "file" && <FileCode className="size-2.5 shrink-0" />}
+                            {match.matchField === "symbol" && <Zap className="size-2.5 shrink-0" />}
+                            {match.matchField === "tag" && <Tag className="size-2.5 shrink-0" />}
+                            <span className="truncate">{match.matchDetail}</span>
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs line-clamp-2 font-medium text-foreground group-hover:text-primary transition-colors">
+                        {match.action.summary}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <select

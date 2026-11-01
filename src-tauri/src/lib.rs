@@ -6,7 +6,7 @@ use knox::core::config::KnoxConfig;
 use knox::storage::db::KnoxDb;
 use std::sync::Arc;
 use tauri::{
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -90,6 +90,44 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let _ = window.set_focus();
     }
 
+    // Spawn background real-time database watcher to synchronize GUI with agent writes
+    let handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        let mut last_mtime: Option<std::time::SystemTime> = None;
+        let mut last_wal_mtime: Option<std::time::SystemTime> = None;
+        let mut last_wal_len: u64 = 0;
+
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+
+            let target_path = if let Some(state) = handle.try_state::<AppState>() {
+                let conf = state.config.lock().await;
+                conf.kg_path.clone()
+            } else {
+                break;
+            };
+
+            let wal_path = std::path::PathBuf::from(format!("{}-wal", target_path.display()));
+
+            let cur_mtime = std::fs::metadata(&target_path).and_then(|m| m.modified()).ok();
+            let wal_meta = std::fs::metadata(&wal_path).ok();
+            let cur_wal_mtime = wal_meta.as_ref().and_then(|m| m.modified().ok());
+            let cur_wal_len = wal_meta.as_ref().map(|m| m.len()).unwrap_or(0);
+
+            let changed = matches!((last_mtime, cur_mtime), (Some(prev), Some(cur)) if cur > prev)
+                || matches!((last_wal_mtime, cur_wal_mtime), (Some(prev), Some(cur)) if cur > prev)
+                || (last_wal_len != cur_wal_len && cur_wal_len > 0);
+
+            if last_mtime.is_some() && changed {
+                let _ = handle.emit("knox://db-changed", ());
+            }
+
+            last_mtime = cur_mtime;
+            last_wal_mtime = cur_wal_mtime;
+            last_wal_len = cur_wal_len;
+        }
+    });
+
     Ok(())
 }
 
@@ -126,6 +164,7 @@ pub fn run() {
             commands::query::query_actions,
             commands::query::get_action,
             commands::graph::get_graph_data,
+            commands::graph::update_action,
             commands::ingest::ingest_transcript,
             commands::ingest::ingest_raw_transcript,
             commands::ingest::preview_transcript,
