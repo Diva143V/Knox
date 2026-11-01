@@ -6,9 +6,7 @@ use rusqlite::params;
 use super::db::KnoxDb;
 use crate::core::error::KnoxResult;
 use crate::core::ids::{ActionId, ProjectId, SessionId};
-use crate::core::types::{
-    ActionRelation, KnoxAction, Project, RelationType, UpdateActionParams,
-};
+use crate::core::types::{ActionRelation, KnoxAction, Project, RelationType, UpdateActionParams};
 
 pub use super::queries::query_actions;
 
@@ -402,13 +400,26 @@ pub fn resolve_doubt(
 pub fn update_action(db: &KnoxDb, params: &UpdateActionParams) -> KnoxResult<KnoxAction> {
     let existing = match get_action(db, &params.id)? {
         Some(a) => a,
-        None => return Err(crate::core::error::KnoxError::ActionNotFound(params.id.to_string())),
+        None => {
+            return Err(crate::core::error::KnoxError::ActionNotFound(
+                params.id.to_string(),
+            ));
+        }
     };
 
-    let summary = params.summary.as_deref().unwrap_or(existing.summary.as_str());
-    let action_type = params.action_type.as_deref().unwrap_or(existing.action_type.as_str());
+    let summary = params
+        .summary
+        .as_deref()
+        .unwrap_or(existing.summary.as_str());
+    let action_type = params
+        .action_type
+        .as_deref()
+        .unwrap_or(existing.action_type.as_str());
     let actor = params.actor.as_deref().unwrap_or(existing.actor.as_str());
-    let rationale = params.rationale.as_deref().or(existing.rationale.as_deref());
+    let rationale = params
+        .rationale
+        .as_deref()
+        .or(existing.rationale.as_deref());
     let context_summary = params
         .context_summary
         .as_deref()
@@ -430,7 +441,10 @@ pub fn update_action(db: &KnoxDb, params: &UpdateActionParams) -> KnoxResult<Kno
     let parent_action_id_str = match &params.parent_action_id {
         Some(Some(parent_id)) => Some(parent_id.as_str().to_string()),
         Some(None) => None,
-        None => existing.parent_action_id.as_ref().map(|p| p.as_str().to_string()),
+        None => existing
+            .parent_action_id
+            .as_ref()
+            .map(|p| p.as_str().to_string()),
     };
 
     let rejected_alts = params
@@ -494,9 +508,8 @@ pub fn update_action(db: &KnoxDb, params: &UpdateActionParams) -> KnoxResult<Kno
             "DELETE FROM action_tags WHERE action_id = ?1",
             params![params.id.as_str()],
         )?;
-        let mut stmt_tags = conn.prepare_cached(
-            "INSERT OR IGNORE INTO action_tags (action_id, tag) VALUES (?1, ?2)",
-        )?;
+        let mut stmt_tags = conn
+            .prepare_cached("INSERT OR IGNORE INTO action_tags (action_id, tag) VALUES (?1, ?2)")?;
         for tag in new_tags {
             stmt_tags.execute(params![params.id.as_str(), tag.as_str()])?;
         }
@@ -558,9 +571,8 @@ pub fn update_action(db: &KnoxDb, params: &UpdateActionParams) -> KnoxResult<Kno
         }
     }
 
-    get_action(db, &params.id)?.ok_or_else(|| {
-        crate::core::error::KnoxError::ActionNotFound(params.id.to_string())
-    })
+    get_action(db, &params.id)?
+        .ok_or_else(|| crate::core::error::KnoxError::ActionNotFound(params.id.to_string()))
 }
 
 #[cfg(test)]

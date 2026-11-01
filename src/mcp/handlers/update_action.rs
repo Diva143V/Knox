@@ -74,7 +74,9 @@ pub fn handle_update_action(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .map_err(|e| KnoxError::InvalidInput(format!("Invalid knox_update_action params: {e}")))?;
 
     if input.action_id.trim().is_empty() {
-        return Err(KnoxError::InvalidInput("action_id must not be empty".to_string()));
+        return Err(KnoxError::InvalidInput(
+            "action_id must not be empty".to_string(),
+        ));
     }
 
     let parent_action_id = if input.clear_parent.unwrap_or(false) {
@@ -115,17 +117,28 @@ pub fn handle_update_action(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     // Construct high-signal markdown digest for AI agents
     let mut md = format!("### ✏️ Updated Action: `{}`\n\n", updated.id);
     md.push_str(&format!("- **Summary**: {}\n", updated.summary));
-    md.push_str(&format!("- **Type**: `{}` | **Actor**: `{}`", updated.action_type, updated.actor));
+    md.push_str(&format!(
+        "- **Type**: `{}` | **Actor**: `{}`",
+        updated.action_type, updated.actor
+    ));
     if let Some(ref sig) = updated.significance {
         md.push_str(&format!(" | **Significance**: `{sig}`"));
     }
     md.push('\n');
 
     if !updated.files.is_empty() {
-        md.push_str(&format!("- **Files** ({}): {}\n", updated.files.len(), updated.files.join(", ")));
+        md.push_str(&format!(
+            "- **Files** ({}): {}\n",
+            updated.files.len(),
+            updated.files.join(", ")
+        ));
     }
     if !updated.symbols.is_empty() {
-        md.push_str(&format!("- **Symbols** ({}): `{}`\n", updated.symbols.len(), updated.symbols.join("`, `")));
+        md.push_str(&format!(
+            "- **Symbols** ({}): `{}`\n",
+            updated.symbols.len(),
+            updated.symbols.join("`, `")
+        ));
     }
     if !updated.relations.is_empty() {
         let rel_strs: Vec<String> = updated
@@ -133,10 +146,17 @@ pub fn handle_update_action(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             .iter()
             .map(|r| format!("`{}` -> {}", r.relation_type, r.target_id))
             .collect();
-        md.push_str(&format!("- **Relations** ({}): {}\n", updated.relations.len(), rel_strs.join(", ")));
+        md.push_str(&format!(
+            "- **Relations** ({}): {}\n",
+            updated.relations.len(),
+            rel_strs.join(", ")
+        ));
     }
     if let Some(resolved) = updated.is_resolved {
-        md.push_str(&format!("- **Resolved**: {}\n", if resolved { "Yes" } else { "Open Doubt" }));
+        md.push_str(&format!(
+            "- **Resolved**: {}\n",
+            if resolved { "Yes" } else { "Open Doubt" }
+        ));
         if let Some(ref note) = updated.resolution_note {
             md.push_str(&format!("  *Note*: {note}\n"));
         }

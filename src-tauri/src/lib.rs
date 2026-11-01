@@ -109,7 +109,9 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
             let wal_path = std::path::PathBuf::from(format!("{}-wal", target_path.display()));
 
-            let cur_mtime = std::fs::metadata(&target_path).and_then(|m| m.modified()).ok();
+            let cur_mtime = std::fs::metadata(&target_path)
+                .and_then(|m| m.modified())
+                .ok();
             let wal_meta = std::fs::metadata(&wal_path).ok();
             let cur_wal_mtime = wal_meta.as_ref().and_then(|m| m.modified().ok());
             let cur_wal_len = wal_meta.as_ref().map(|m| m.len()).unwrap_or(0);
