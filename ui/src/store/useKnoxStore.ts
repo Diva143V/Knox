@@ -103,6 +103,10 @@ interface KnoxStore {
   openTour: () => void;
   closeTour: () => void;
   setTheme: (theme: ThemeMode) => void;
+  updateConfig: (params: {
+    sessionTimeoutSeconds?: number;
+    globalMode?: boolean;
+  }) => Promise<KnoxConfig>;
   refreshData: () => Promise<void>;
 }
 
@@ -339,6 +343,18 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
       console.error("Failed to refresh Knox state:", err);
       set({ isLoading: false });
       get().showToast(String(err), true);
+    }
+  },
+
+  updateConfig: async (params) => {
+    try {
+      const updated = await KnoxAPI.updateConfig(params);
+      set({ config: updated });
+      return updated;
+    } catch (err) {
+      console.error("Failed to update config:", err);
+      get().showToast(String(err), true);
+      throw err;
     }
   },
 }));

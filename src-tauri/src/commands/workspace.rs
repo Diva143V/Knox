@@ -11,7 +11,8 @@ use crate::AppState;
 #[tauri::command]
 pub async fn init_project(state: State<'_, AppState>, path: String) -> Result<String, String> {
     let path_buf = PathBuf::from(&path);
-    cmd_init(&path_buf, &state.config).map_err(|e| e.to_string())?;
+    let config = state.config.lock().await;
+    cmd_init(&path_buf, &config).map_err(|e| e.to_string())?;
     Ok(format!("Initialized Knox in {}", path_buf.display()))
 }
 

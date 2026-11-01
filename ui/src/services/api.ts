@@ -208,6 +208,25 @@ export const KnoxAPI = {
     return invoke<KnoxConfig>("get_config");
   },
 
+  async updateConfig(params: {
+    sessionTimeoutSeconds?: number;
+    globalMode?: boolean;
+  }): Promise<KnoxConfig> {
+    if (!isTauri) {
+      return {
+        kg_path: "~/.knox/knox.db",
+        session_timeout_seconds: params.sessionTimeoutSeconds ?? 1800,
+        global_mode: params.globalMode ?? true,
+      };
+    }
+    return invoke<KnoxConfig>("update_config", {
+      sessionTimeoutSeconds: params.sessionTimeoutSeconds,
+      session_timeout_seconds: params.sessionTimeoutSeconds,
+      globalMode: params.globalMode,
+      global_mode: params.globalMode,
+    });
+  },
+
   async openFileDialog(options?: {
     name?: string;
     extensions?: string[];

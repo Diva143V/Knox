@@ -15,7 +15,7 @@ use tokio::sync::Mutex;
 /// Shared state available to all Tauri command invocations.
 pub struct AppState {
     pub db: Arc<Mutex<KnoxDb>>,
-    pub config: KnoxConfig,
+    pub config: Arc<Mutex<KnoxConfig>>,
 }
 
 /// Initializes the SQLite database or exits cleanly on fatal error.
@@ -119,7 +119,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(AppState {
             db: Arc::new(Mutex::new(db)),
-            config,
+            config: Arc::new(Mutex::new(config)),
         })
         .invoke_handler(tauri::generate_handler![
             commands::status::get_status,
@@ -138,6 +138,7 @@ pub fn run() {
             commands::sessions::end_session,
             commands::sessions::get_sessions,
             commands::config::get_config,
+            commands::config::update_config,
             commands::dialog::open_file_dialog,
             commands::dialog::open_folder_dialog,
             commands::mcp::detect_mcp_configs,
@@ -167,9 +168,9 @@ mod tests {
         let db = KnoxDb::open_memory().unwrap();
         let state = AppState {
             db: Arc::new(Mutex::new(db)),
-            config,
+            config: Arc::new(Mutex::new(config)),
         };
-        assert!(state.config.session_timeout.as_secs() > 0);
+        assert!(state.config.try_lock().unwrap().session_timeout.as_secs() > 0);
     }
 
     #[test]
