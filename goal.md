@@ -118,33 +118,36 @@ Every time an AI coding agent starts a task, it wastes tokens rediscovering proj
 | `verifies` | Action → Action | Test or benchmark verifies an implementation |
 | `relates_to` | Action → Action | Conceptual or thematic association |
 | `reverts` | Action → Action | Explicit rollback or undo of a target action |
+| `resolves` | Action → Action | Decision or action resolves an earlier open doubt or question |
 
 All edges carry: `timestamp`, `session_id`, `tool_source`.
 
 ---
 
-## MCP Interface (14 Tools, Resources & Prompts)
+## MCP Interface (16 Tools, Resources & Prompts)
 
-When running `knox serve --stdio`, Knox exposes 14 tools, 3 native resources, and 2 guided prompts:
+When running `knox serve --stdio`, Knox exposes 16 tools, 3 native resources, and 2 guided prompts:
 
 ### 1. Session Management
 - **`knox_start_session`** — Start an explicit work session (or rely on smart implicit auto-sessions).
 - **`knox_end_session`** — Close an active work session.
 
-### 2. Action & Decision Recording
+### 2. Action, Decision & Cognitive Recording
 - **`knox_record_action`** — Record an action with semantic relations, symbols, rationale, and context summary.
-- **`knox_record_decision`** — Record an ADR decision with mandatory rationale and prohibited alternatives.
-- **`knox_record_batch`** — Atomically record multiple related actions/decisions in a single round trip.
+- **`knox_record_decision`** — Record an architectural decision (major or minor micro-decision) with rationale and prohibited alternatives.
+- **`knox_record_doubt`** — Record an active human uncertainty, open question, or technical doubt with context.
+- **`knox_resolve_doubt`** — Mark an open doubt as resolved, recording resolution rationale and creating a `Resolves` edge.
+- **`knox_record_batch`** — Atomically record multiple related actions, decisions, and doubts in a single round trip.
 
 ### 3. Context & Lineage Retrieval
-- **`knox_get_context`** — Token-compact Markdown digest of active, non-superseded project decisions and files.
+- **`knox_get_context`** — Token-compact Markdown digest of active, non-superseded project decisions, open doubts, and files.
 - **`knox_get_history`** — Full append-only historical audit trail.
 - **`knox_get_lineage`** — Reverse DAG traversal tracing causal ancestry back to root plans.
 - **`knox_get_impact`** — Forward DAG traversal computing downstream blast radius and affected files.
 - **`knox_get_path`** — Shortest directed causal path between two actions or files.
 
 ### 4. Safety Guardrails & Maintenance
-- **`knox_check_guardrails`** — Pre-flight safety check against active ADRs and rejected alternatives.
+- **`knox_check_guardrails`** — Pre-flight safety check against active ADRs, rejected alternatives, and unresolved open doubts on target files.
 - **`knox_search`** — SQLite FTS5 full-text keyword and code symbol search.
 - **`knox_list_stale`** — Query superseded actions and outdated architectural patterns.
 - **`knox_scan_staged`** — Git staged diff inspection for untracked human modifications.
@@ -179,6 +182,9 @@ When running `knox serve --stdio`, Knox exposes 14 tools, 3 native resources, an
 | 18 | **Cosmos Circular Node Visualization** | Radiant circular nodes (`CircleNode.tsx`) with role-based glowing radial auras and cardinal handle routing for high-density cluster comprehension. |
 | 19 | **Continuous Live D3 Force Simulation** | Dynamic physics simulation (`useLivePhysics.ts`) providing real-time node grabbing, spring constraints, and reheat motion. |
 | 20 | **Guided Tour with Peek Window Mode** | 9-step interactive product walkthrough (`OnboardingTourModal.tsx`) with live background tab synchronization, keyboard navigation, and instant Peek Window toggle (<kbd>P</kbd>) docking into a bottom bar to view live windows unobstructed. |
+| 21 | **Universal Ingestion System (Multi-Format & Multi-Source)** | Universal transcript parser supporting Antigravity, Cursor, Claude Code, Gemini CLI, raw JSON/JSONL, and git log history with live preview and project auto-discovery. |
+| 22 | **Cognitive Memory & Doubts Lifecycle (V3)** | First-class capture of human inquiries, uncertainties, and open architectural doubts (`knox_record_doubt`, `knox_resolve_doubt`, `Resolves` relation) alongside major and minor micro-decisions (`significance: "minor"`). Prevents agents from prematurely concluding unverified assumptions. |
+| 23 | **Tri-Channel Continuous Cognitive Capture** | Continuous thought/doubt capture across MCP stdio tools, Desktop Global Keyboard Shortcut (`Ctrl+Shift+T` / `QuickThoughtModal`), and CLI subcommands with instant UI graph synchronization. |
 
 ---
 
@@ -195,14 +201,24 @@ kg_path: "~/.knox/knox.db"                    # global KG path (or .knox/knox.db
 mcp_server: "knox serve --stdio"               # command to launch the MCP server
 mcp_transport: "stdio"                          # transport protocol
 tools_registered:
-  - knox_get_context
-  - knox_get_history
+  - knox_start_session
+  - knox_end_session
   - knox_record_action
   - knox_record_decision
+  - knox_record_doubt
+  - knox_resolve_doubt
+  - knox_record_batch
+  - knox_get_context
+  - knox_get_history
+  - knox_get_lineage
+  - knox_get_impact
+  - knox_get_path
+  - knox_check_guardrails
   - knox_search
   - knox_list_stale
+  - knox_scan_staged
 created_at: "2026-10-29T18:00:00Z"
-knox_version: "0.1.0"
+knox_version: "1.2.1"
 -->
 
 # Knox — Active Knowledge Graph
@@ -434,11 +450,57 @@ Records an action (write, debug, read, review) linked to the current session.
 ```
 
 #### `knox_record_decision`
-Records a design decision or approach choice. Identical to `knox_record_action` but with `action_type` forced to `"decide"`. Exists as a separate tool so agents treat decisions with higher intentionality.
+Records a design decision or approach choice (major or minor micro-decision). Supports mandatory rationale, affected symbols, and prohibited rejected alternatives.
 
-**Input:** Same as `knox_record_action`, but `action_type` is always `"decide"`.
+**Input:** Same as `knox_record_action`, but `action_type` defaults to `"decide"`. Optional `significance`: `"major"` (default) or `"minor"` (micro-decision, convention, tactical choice).
 
 **Output:** Same as `knox_record_action`.
+
+#### `knox_record_doubt`
+Records a human technical inquiry, uncertainty, debate, or unresolved question. Prevents agents from prematurely concluding unverified assumptions.
+
+**Input:**
+```json
+{
+  "summary": "Should we use rusqlite bundled or dynamic linking on Alpine?",  // required
+  "context_summary": "Musl target builds might need explicit libsqlite3 package", // optional
+  "files": ["Cargo.toml", "Dockerfile"],                                      // optional
+  "symbols": ["rusqlite"],                                                    // optional
+  "tags": ["musl", "alpine", "sqlite"],                                       // optional
+  "actor": "gemini"                                                           // optional (defaults to "human" / software)
+}
+```
+**Output:**
+```json
+{
+  "id": "a-uuid-005",
+  "status": "recorded",
+  "is_resolved": false,
+  "timestamp": "2026-10-29T18:20:00Z"
+}
+```
+
+#### `knox_resolve_doubt`
+Resolves a previously recorded doubt or question, recording resolution rationale and establishing a `Resolves` causal edge to the resolving action/decision.
+
+**Input:**
+```json
+{
+  "doubt_id": "a-uuid-005",                                                   // required
+  "resolution_note": "Decided on bundled sqlite3; tested successfully on musl", // required
+  "resolving_action_id": "a-uuid-006",                                        // optional
+  "actor": "gemini"                                                           // optional
+}
+```
+**Output:**
+```json
+{
+  "id": "a-uuid-005",
+  "status": "resolved",
+  "resolution_note": "Decided on bundled sqlite3; tested successfully on musl",
+  "resolving_action_id": "a-uuid-006"
+}
+```
 
 #### `knox_get_context`
 Retrieves current context for a file or project. **Default behavior:** returns non-superseded actions, most recent first.

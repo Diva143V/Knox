@@ -52,7 +52,7 @@ Knox/
 │   ├── graph/                    # Layer 2: read-only petgraph loading/traversal
 │   ├── ingest/                   # Layer 2: transcript mapping (Antigravity etc.)
 │   ├── commands/                 # Layer 3: domain operation orchestration
-│   ├── mcp/                      # Layer 4: MCP stdio transport, 14 JSON-RPC tools, resources, prompts, format.rs
+│   ├── mcp/                      # Layer 4: MCP stdio transport, 16 JSON-RPC tools, resources, prompts, format.rs
 │   └── cli/                      # Layer 5: clap argument definitions and dispatch
 ├── src-tauri/                    # Tauri v2 shell and unified executable crate
 │   ├── Cargo.toml                # Defines [[bin]] name = "knox" path = "src/main.rs"
@@ -304,7 +304,7 @@ Rules:
 
 ### Required Desktop Command Surface
 
-The following is the complete, verified IPC inventory registered in `src-tauri/src/lib.rs`:
+The following is the complete, verified IPC inventory registered in `src-tauri/src/lib.rs` (30 commands):
 
 | Invoke name | Command module | Rust operation / purpose |
 |---|---|---|
@@ -313,7 +313,12 @@ The following is the complete, verified IPC inventory registered in `src-tauri/s
 | `get_action` | `query` | Retrieve one action for the inspector |
 | `get_graph_data` | `graph` | Load graph-safe data for the React Flow canvas |
 | `ingest_transcript` | `ingest` | `cmd_ingest` for a selected transcript path |
+| `ingest_raw_transcript` | `ingest` | Ingest raw pasted/text transcripts directly |
+| `preview_transcript` | `ingest` | Preview parsed actions prior to committing ingestion |
+| `ingest_git_history` | `ingest` | Ingest git commit history as historical actions |
+| `detect_local_transcripts` | `ingest` | Auto-detect transcripts in standard tool paths |
 | `init_project` | `workspace` | `cmd_init` for the chosen workspace |
+| `get_projects` | `workspace` | List known registered workspace projects |
 | `install_hook` | `workspace` | Install the project hook through the command layer |
 | `uninstall_hook` | `workspace` | Remove the project hook through the command layer |
 | `get_knox_md` | `workspace` | Retrieve generated `knox.md` workspace instructions |
@@ -323,8 +328,16 @@ The following is the complete, verified IPC inventory registered in `src-tauri/s
 | `end_session` | `sessions` | End a persisted session |
 | `get_sessions` | `sessions` | List open/recent sessions |
 | `get_config` | `config` | Return safe configuration required by the UI |
+| `update_config` | `config` | Update active configuration parameters |
 | `open_file_dialog` | `dialog` | Native file selection dialog (e.g. transcript picking) |
 | `open_folder_dialog`| `dialog` | Native directory selection dialog (workspace path picking) |
+| `detect_mcp_configs` | `mcp` | Detect MCP client configuration files on the host |
+| `deep_scan_mcp_configs` | `mcp` | Deep scan across filesystem for MCP config files |
+| `inspect_custom_mcp_config` | `mcp` | Inspect arbitrary MCP config at target path |
+| `inject_mcp_config` | `mcp` | Inject Knox MCP stanza into client configuration |
+| `remove_mcp_config` | `mcp` | Remove Knox MCP stanza from client configuration |
+| `record_quick_thought` | `thoughts` | Record thought, doubt, or decision from UI/shortcut |
+| `resolve_doubt` | `thoughts` | Resolve an open doubt action with note and link |
 
 If a requested UI control needs an operation absent from this table, first determine whether it can be derived from existing data. If not, add a narrowly named domain command, DTO, Tauri wrapper, frontend type, and API method together. Do not fake a working UI control or use a placeholder shell command.
 
@@ -333,7 +346,7 @@ If a requested UI control needs an operation absent from this table, first deter
 | File | Responsibility |
 |---|---|
 | `src-tauri/src/main.rs` | **Unified Hybrid Binary Entrypoint (`knox.exe`)**. Under `#![windows_subsystem = "windows"]`, checks command line args: if 0 args or `"gui"`, launches the desktop window (`knox_desktop_lib::run()`) with zero console flash. If subcommands (`serve`, `query`, `init`, etc.), inspects stdout: if `FILE_TYPE_PIPE`, preserves pipes intact for agent JSON-RPC; if interactive terminal, calls `AttachConsole(ATTACH_PARENT_PROCESS)` and redirects CONOUT$/CONIN$, then dispatches CLI via `knox::cli::dispatch`. |
-| `src-tauri/src/lib.rs` | Constructs `AppState`, initializes SQLite DB (`KnoxDb::open`), configures system tray icon & menu, manages window close-to-tray lifecycle, and registers all 17 IPC commands. |
+| `src-tauri/src/lib.rs` | Constructs `AppState`, initializes SQLite DB (`KnoxDb::open`), configures system tray icon & menu, manages window close-to-tray lifecycle, and registers all 30 IPC commands. |
 | `src-tauri/src/commands/mod.rs` | Declares command modules (`status`, `query`, `graph`, `ingest`, `scan`, `sessions`, `workspace`, `config`, `dialog`). |
 | `src-tauri/src/commands/*.rs` | One serializable desktop adapter domain per file. |
 | `src-tauri/build.rs` | Only invokes `tauri_build::build()`. |
@@ -380,6 +393,11 @@ Naming:
 `ui/src/types/knox.ts` mirrors Rust serialized DTOs. The canonical action shape is:
 
 ```ts
+export interface ActionRelation {
+  target_id: string;
+  relation_type: string;
+}
+
 export interface KnoxAction {
   id: string;
   actor: string;
@@ -393,6 +411,16 @@ export interface KnoxAction {
   parent_action_id: string | null;
   supersedes: string | null;
   is_current: boolean;
+  // V2 Knowledge Graph Fields
+  relations?: ActionRelation[];
+  symbols?: string[];
+  rationale?: string | null;
+  rejected_alternatives?: string[];
+  context_summary?: string | null;
+  // V3 Cognitive Memory & Doubts Fields
+  significance?: "major" | "minor" | string;
+  is_resolved?: boolean;
+  resolution_note?: string | null;
 }
 ```
 

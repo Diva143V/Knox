@@ -164,7 +164,7 @@ fn test_mcp_search_and_tools_call_standard() {
     let list_res = dispatch("tools/list", json!({}), &db);
     assert_eq!(
         list_res.result.unwrap()["tools"].as_array().unwrap().len(),
-        14
+        16
     );
 
     let session_id = mcp_start(&db, "gemini");
@@ -186,6 +186,66 @@ fn test_mcp_search_and_tools_call_standard() {
         search_results[0]["summary"],
         "Optimized inverted index indexing strategy"
     );
+}
+
+#[test]
+fn test_mcp_doubt_lifecycle_and_resolution() {
+    let db = KnoxDb::open_memory().expect("open memory db");
+    let session_id = mcp_start(&db, "gemini");
+
+    // 1. Record doubt via dispatch
+    let doubt_res = dispatch(
+        "knox_record_doubt",
+        json!({
+            "session_id": session_id,
+            "actor": "gemini",
+            "summary": "Can we support 50k nodes in petgraph without high heap overhead?",
+            "context_summary": "Graph scalability investigation"
+        }),
+        &db,
+    );
+    assert!(doubt_res.error.is_none(), "record_doubt failed: {:?}", doubt_res.error);
+    let doubt_id = doubt_res.result.unwrap()["id"].as_str().unwrap().to_string();
+
+    let action_id = ActionId::from(doubt_id.clone());
+    let doubt_action = knox::storage::nodes::get_action(&db, &action_id)
+        .unwrap()
+        .expect("must exist");
+    assert_eq!(doubt_action.action_type, "doubt");
+    assert_eq!(doubt_action.is_resolved, Some(false));
+    assert_eq!(doubt_action.significance.as_deref(), Some("minor"));
+
+    // 2. Record an answering decision
+    let decide_res = dispatch(
+        "knox_record_decision",
+        json!({
+            "session_id": session_id,
+            "actor": "gemini",
+            "summary": "Adopt lazy bounded BFS subgraph extraction rather than loading whole KG into petgraph",
+            "significance": "major"
+        }),
+        &db,
+    );
+    assert!(decide_res.error.is_none());
+    let decide_id = decide_res.result.unwrap()["id"].as_str().unwrap().to_string();
+
+    // 3. Resolve the doubt linking to the decision
+    let resolve_res = dispatch(
+        "knox_resolve_doubt",
+        json!({
+            "doubt_id": doubt_id,
+            "resolution_note": "Verified 2-hop bounded BFS uses <15MB heap regardless of overall 50k node DB size.",
+            "resolved_by_action_id": decide_id
+        }),
+        &db,
+    );
+    assert!(resolve_res.error.is_none(), "resolve_doubt failed: {:?}", resolve_res.error);
+
+    let updated_doubt = knox::storage::nodes::get_action(&db, &action_id)
+        .unwrap()
+        .expect("must exist");
+    assert_eq!(updated_doubt.is_resolved, Some(true));
+    assert!(updated_doubt.resolution_note.is_some());
 }
 
 async fn send_mcp_call(

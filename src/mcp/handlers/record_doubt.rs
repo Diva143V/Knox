@@ -48,3 +48,4 @@ mod tests {
         assert_eq!(action.resolution_note, None);
     }
 }
+

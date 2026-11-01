@@ -276,3 +276,4 @@ export const QuickThoughtModal: React.FC<QuickThoughtModalProps> = ({
     </div>
   );
 };
+

@@ -31,6 +31,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
 
     let mut active_decisions: Vec<KnoxAction> = Vec::new();
     let mut stale_decisions: Vec<KnoxAction> = Vec::new();
+    let mut open_doubts: Vec<KnoxAction> = Vec::new();
 
     let norm_files: Vec<String> = input.files.iter().map(|f| normalize_file_path(f)).collect();
 
@@ -66,6 +67,22 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
                 stale_decisions.push(a);
             }
         }
+
+        // Query open doubts / questions on target files
+        let doubt_filter = QueryFilter {
+            file_path: Some(file.clone()),
+            action_type: Some("doubt".to_string()),
+            current_only: true,
+            project: input.project.clone(),
+            limit: 20,
+            ..Default::default()
+        };
+        let doubt_res = crate::storage::queries::query_actions(db, &doubt_filter)?;
+        for a in doubt_res.results {
+            if a.is_resolved != Some(true) && !open_doubts.iter().any(|d| d.id == a.id) {
+                open_doubts.push(a);
+            }
+        }
     }
 
     let mut violations: Vec<String> = Vec::new();
@@ -98,6 +115,8 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
             "violations_count": violations.len(),
             "violations": violations,
             "decision_count": decision_count,
+            "open_doubts_count": open_doubts.len(),
+            "open_doubts": open_doubts,
             "files": norm_files,
             "active_constraints_count": active_decisions.len(),
             "active_constraints": active_decisions,
@@ -109,12 +128,15 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
             &active_decisions,
             &stale_decisions,
             &violations,
+            &open_doubts,
         );
         Ok(json!({
             "pass": pass,
             "violations_count": violations.len(),
             "violations": violations,
             "decision_count": decision_count,
+            "open_doubts_count": open_doubts.len(),
+            "open_doubts": open_doubts,
             "files": norm_files,
             "active_constraints_count": active_decisions.len(),
             "active_constraints": active_decisions,
@@ -189,5 +211,36 @@ mod tests {
         assert_eq!(res.get("violations_count").unwrap(), 1);
         let violations = res.get("violations").unwrap().as_array().unwrap();
         assert!(violations[0].as_str().unwrap().contains("libsqlite3-sys dynamic linking"));
+    }
+
+    #[test]
+    fn test_handle_check_guardrails_surfaces_open_doubts() {
+        let db = KnoxDb::open_memory().unwrap();
+        let doubt = KnoxAction {
+            id: ActionId::new(),
+            actor: "human".to_string(),
+            action_type: "doubt".to_string(),
+            summary: "Is dynamic linking required on musl targets?".to_string(),
+            context_summary: Some("Need to verify static compilation for musl".to_string()),
+            files: vec!["Cargo.toml".to_string()],
+            timestamp: Utc::now(),
+            is_current: true,
+            is_resolved: Some(false),
+            ..Default::default()
+        };
+        crate::storage::nodes::insert_action(&db, &doubt).unwrap();
+
+        let res = handle_check_guardrails(
+            &db,
+            json!({
+                "files": ["Cargo.toml"]
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(res.get("open_doubts_count").unwrap(), 1);
+        let md = res.get("markdown").unwrap().as_str().unwrap();
+        assert!(md.contains("Open Doubts & Technical Inquiries"));
+        assert!(md.contains("Is dynamic linking required on musl targets?"));
     }
 }

@@ -26,8 +26,13 @@ fn format_linear_digest(title: &str, actions: &[KnoxAction]) -> String {
     for act in actions {
         let ts = act.timestamp.format("%Y-%m-%d %H:%M").to_string();
         if act.action_type == "decide" {
+            let callout_type = if act.significance.as_deref() == Some("minor") {
+                "[!NOTE]\n> **Minor Decision"
+            } else {
+                "[!IMPORTANT]\n> **Decision"
+            };
             out.push_str(&format!(
-                "> [!IMPORTANT]\n> **Decision [{}]** by `@{}` ({}):\n> {}\n",
+                "> {callout_type} [{}]** by `@{}` ({}):\n> {}\n",
                 act.id, act.actor, ts, act.summary
             ));
             if let Some(ref r) = act.rationale {
@@ -44,6 +49,26 @@ fn format_linear_digest(title: &str, actions: &[KnoxAction]) -> String {
             }
             if !act.symbols.is_empty() {
                 out.push_str(&format!("> - **Symbols**: {}\n", act.symbols.join(", ")));
+            }
+            out.push('\n');
+        } else if act.action_type == "doubt" || act.action_type == "question" {
+            let status = if act.is_resolved == Some(true) {
+                "[RESOLVED]"
+            } else {
+                "[OPEN DOUBT]"
+            };
+            out.push_str(&format!(
+                "> [!WARNING]\n> **Technical Doubt {} [{}]** by `@{}` ({}):\n> {}\n",
+                status, act.id, act.actor, ts, act.summary
+            ));
+            if let Some(ref note) = act.resolution_note {
+                out.push_str(&format!("> - **Resolution**: {}\n", note));
+            }
+            if let Some(ref ctx) = act.context_summary {
+                out.push_str(&format!("> - **Context**: {}\n", ctx));
+            }
+            if !act.files.is_empty() {
+                out.push_str(&format!("> - **Files**: {}\n", act.files.join(", ")));
             }
             out.push('\n');
         } else {
@@ -86,20 +111,52 @@ fn format_synthesized_digest(title: &str, actions: &[KnoxAction]) -> String {
     let mut out = String::with_capacity(1500);
     out.push_str(&format!("### {title} — Synthesized Context\n\n"));
 
+    let open_doubts: Vec<&KnoxAction> = actions
+        .iter()
+        .filter(|a| (a.action_type == "doubt" || a.action_type == "question") && a.is_resolved != Some(true))
+        .collect();
     let decisions: Vec<&KnoxAction> = actions.iter().filter(|a| a.action_type == "decide").collect();
     let writes: Vec<&KnoxAction> = actions.iter().filter(|a| a.action_type == "write").collect();
     let other: Vec<&KnoxAction> = actions
         .iter()
-        .filter(|a| a.action_type != "decide" && a.action_type != "write")
+        .filter(|a| {
+            a.action_type != "decide"
+                && a.action_type != "write"
+                && !(a.action_type == "doubt" || a.action_type == "question")
+        })
         .collect();
+
+    // 0. Open Doubts & Technical Inquiries
+    if !open_doubts.is_empty() {
+        out.push_str("#### ❓ Open Doubts & Unresolved Questions\n");
+        for d in &open_doubts {
+            let ts = d.timestamp.format("%Y-%m-%d").to_string();
+            out.push_str(&format!(
+                "> [!WARNING]\n> **Open Doubt [{}]** ({}): {}\n",
+                d.id, ts, d.summary
+            ));
+            if let Some(ref ctx) = d.context_summary {
+                out.push_str(&format!("> - **Context**: {}\n", ctx));
+            }
+            if !d.files.is_empty() {
+                out.push_str(&format!("> - **Target Files**: `{}`\n", d.files.join("`, `")));
+            }
+            out.push('\n');
+        }
+    }
 
     // 1. Active Decisions
     if !decisions.is_empty() {
         out.push_str("#### 1. Architectural Decisions & Constraints\n");
         for d in decisions {
             let ts = d.timestamp.format("%Y-%m-%d").to_string();
+            let callout_type = if d.significance.as_deref() == Some("minor") {
+                "[!NOTE]\n> **Minor Decision"
+            } else {
+                "[!IMPORTANT]\n> **Decision"
+            };
             out.push_str(&format!(
-                "> [!IMPORTANT]\n> **Decision [{}]** ({}): {}\n",
+                "> {callout_type} [{}]** ({}): {}\n",
                 d.id, ts, d.summary
             ));
             if let Some(ref r) = d.rationale {
@@ -187,12 +244,13 @@ pub fn format_lineage_markdown(target_label: &str, chain: &[KnoxAction]) -> Stri
     out
 }
 
-/// Formats guardrails (active decisions, constraint violations, and rejected patterns) for target files before editing.
+/// Formats guardrails (active decisions, constraint violations, open doubts, and rejected patterns) for target files before editing.
 pub fn format_guardrails_markdown(
     files: &[String],
     active_decisions: &[KnoxAction],
     stale_decisions: &[KnoxAction],
     violations: &[String],
+    open_doubts: &[KnoxAction],
 ) -> String {
     let mut out = String::with_capacity(1024);
     out.push_str(&format!(
@@ -212,7 +270,23 @@ pub fn format_guardrails_markdown(
         out.push('\n');
     }
 
-    if active_decisions.is_empty() && stale_decisions.is_empty() && violations.is_empty() {
+    if !open_doubts.is_empty() {
+        out.push_str("#### ❓ Open Doubts & Technical Inquiries\n");
+        for d in open_doubts {
+            out.push_str(&format!(
+                "> [!WARNING]\n> **Open Doubt [{}]** ({}): {}\n",
+                d.id,
+                d.timestamp.format("%Y-%m-%d"),
+                d.summary
+            ));
+            if let Some(ref ctx) = d.context_summary {
+                out.push_str(&format!("> - **Context**: {}\n", ctx));
+            }
+            out.push('\n');
+        }
+    }
+
+    if active_decisions.is_empty() && stale_decisions.is_empty() && violations.is_empty() && open_doubts.is_empty() {
         out.push_str("✅ *No restrictive architectural constraints or warnings found for these files. Proceed with standard implementation.*\n");
         return out;
     }
