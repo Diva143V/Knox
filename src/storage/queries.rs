@@ -62,6 +62,9 @@ type ActionDbRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
+    Option<i32>,
+    Option<String>,
 );
 
 /// Fetches and populates actions along with their associated files, tags, relations, and symbols.
@@ -74,7 +77,8 @@ fn fetch_query_actions(
     let select_sql = format!(
         "SELECT a.id, a.actor, a.action_type, a.summary, a.confidence,
                 a.timestamp, a.session_id, a.parent_action_id, a.superseded_by, a.is_current,
-                a.rationale, a.context_summary, a.rejected_alternatives
+                a.rationale, a.context_summary, a.rejected_alternatives,
+                a.significance, a.is_resolved, a.resolution_note
          FROM actions a WHERE {where_clause} ORDER BY a.timestamp DESC LIMIT {limit}"
     );
 
@@ -95,6 +99,9 @@ fn fetch_query_actions(
                 row.get::<_, Option<String>>(10)?,
                 row.get::<_, Option<String>>(11)?,
                 row.get::<_, Option<String>>(12)?,
+                row.get::<_, Option<String>>(13)?,
+                row.get::<_, Option<i32>>(14)?,
+                row.get::<_, Option<String>>(15)?,
             ))
         })?
         .collect::<Result<Vec<ActionDbRow>, _>>()?;
@@ -143,6 +150,9 @@ fn map_action_rows(
         rationale,
         context_summary,
         rejected_str,
+        significance,
+        is_resolved,
+        resolution_note,
     ) in rows
     {
         let timestamp = DateTime::parse_from_rfc3339(&ts_str)
@@ -197,6 +207,9 @@ fn map_action_rows(
             rationale,
             rejected_alternatives,
             context_summary,
+            significance: significance.or_else(|| Some("major".to_string())),
+            is_resolved: is_resolved.map(|v| v == 1),
+            resolution_note,
         });
     }
     Ok(results)

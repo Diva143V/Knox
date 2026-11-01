@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   ChevronRight,
   Database,
@@ -15,11 +15,13 @@ import {
   HardDrive,
   BookOpen,
   Compass,
+  PlusCircle,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { VIEW_BY_ID, type NavItemDef } from "@/lib/navigation";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
+import { QuickThoughtModal } from "@/components/modals/QuickThoughtModal";
 
 const ICONS: Record<NavItemDef["icon"], React.ReactNode> = {
   dashboard: <LayoutDashboard className="size-4" />,
@@ -43,6 +45,18 @@ export const Header: React.FC = () => {
     activeProjectScope,
   } = useKnoxStore();
   const current = VIEW_BY_ID[activeTab] ?? VIEW_BY_ID.dashboard;
+  const [isThoughtModalOpen, setIsThoughtModalOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === "n" || e.key === "N")) {
+        e.preventDefault();
+        setIsThoughtModalOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const currentProjectName = activeProjectScope
     ? activeProjectScope.replace(/\\/g, "/").split("/").filter(Boolean).pop() || activeProjectScope
@@ -105,6 +119,19 @@ export const Header: React.FC = () => {
 
         <Button
           type="button"
+          variant="primary"
+          size="sm"
+          onClick={() => setIsThoughtModalOpen(true)}
+          title="Quickly record a technical doubt, minor decision, or note (Ctrl+Alt+N)"
+          aria-label="Record thought or doubt"
+          className="gap-1.5"
+        >
+          <PlusCircle className="size-3.5" />
+          <span className="hidden sm:inline">+ Thought</span>
+        </Button>
+
+        <Button
+          type="button"
           variant="outline"
           size="sm"
           onClick={() => openTour()}
@@ -141,6 +168,11 @@ export const Header: React.FC = () => {
           <span className="hidden sm:inline">Refresh</span>
         </Button>
       </div>
+
+      <QuickThoughtModal
+        isOpen={isThoughtModalOpen}
+        onClose={() => setIsThoughtModalOpen(false)}
+      />
     </header>
   );
 };

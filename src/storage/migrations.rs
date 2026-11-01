@@ -21,6 +21,11 @@ pub fn run_migrations(conn: &Connection) -> KnoxResult<()> {
 
     if current_version < 2 {
         apply_v2(conn)?;
+        current_version = 2;
+    }
+
+    if current_version < 3 {
+        apply_v3(conn)?;
     }
 
     Ok(())
@@ -199,6 +204,23 @@ fn apply_v2(conn: &Connection) -> KnoxResult<()> {
     Ok(())
 }
 
+const V3_SCHEMA_SQL: &str = "BEGIN TRANSACTION;
+
+-- Extended cognitive attributes on actions table
+ALTER TABLE actions ADD COLUMN significance TEXT DEFAULT 'major';
+ALTER TABLE actions ADD COLUMN is_resolved INTEGER DEFAULT 1;
+ALTER TABLE actions ADD COLUMN resolution_note TEXT;
+
+UPDATE knox_meta SET value = '3' WHERE key = 'schema_version';
+
+COMMIT;";
+
+/// Applies version 3 of the Knox database schema.
+fn apply_v3(conn: &Connection) -> KnoxResult<()> {
+    conn.execute_batch(V3_SCHEMA_SQL)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,11 +230,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         let version = get_schema_version(&conn).unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
 
         // Re-running migrations should be idempotent
         run_migrations(&conn).unwrap();
         let version2 = get_schema_version(&conn).unwrap();
-        assert_eq!(version2, 2);
+        assert_eq!(version2, 3);
     }
 }

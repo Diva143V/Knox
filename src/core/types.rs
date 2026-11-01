@@ -20,6 +20,8 @@ pub enum RelationType {
     Reverts,
     /// General thematic or associative connection.
     RelatesTo,
+    /// This decision, action, or commit resolves or answers a prior doubt.
+    Resolves,
 }
 
 impl std::fmt::Display for RelationType {
@@ -30,6 +32,7 @@ impl std::fmt::Display for RelationType {
             Self::Verifies => write!(f, "verifies"),
             Self::Reverts => write!(f, "reverts"),
             Self::RelatesTo => write!(f, "relates_to"),
+            Self::Resolves => write!(f, "resolves"),
         }
     }
 }
@@ -43,6 +46,7 @@ impl std::str::FromStr for RelationType {
             "verifies" | "verify" | "tests" | "test" => Ok(Self::Verifies),
             "reverts" | "revert" | "fixes" | "fix" => Ok(Self::Reverts),
             "relates_to" | "relatesto" | "relates" => Ok(Self::RelatesTo),
+            "resolves" | "resolve" | "answers" | "answer" => Ok(Self::Resolves),
             other => Err(format!("Unknown relation type: {other}")),
         }
     }
@@ -99,6 +103,15 @@ pub struct KnoxAction {
     /// High-level context summary of the active objective/state.
     #[serde(default)]
     pub context_summary: Option<String>,
+    /// Significance level: "major" (e.g. ADRs, major milestones) vs "minor" (micro-decisions, tweaks).
+    #[serde(default)]
+    pub significance: Option<String>,
+    /// Resolution status (primarily for doubts/questions): true if resolved, false if open.
+    #[serde(default)]
+    pub is_resolved: Option<bool>,
+    /// Resolution explanation or note when a doubt is resolved.
+    #[serde(default)]
+    pub resolution_note: Option<String>,
 }
 
 impl Default for KnoxAction {
@@ -121,6 +134,9 @@ impl Default for KnoxAction {
             rationale: None,
             rejected_alternatives: Vec::new(),
             context_summary: None,
+            significance: Some("major".to_string()),
+            is_resolved: Some(true),
+            resolution_note: None,
         }
     }
 }

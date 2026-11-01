@@ -69,6 +69,15 @@ pub struct RecordActionParams {
     /// Convenience helper: automatically link `implements` to latest decision in session.
     #[serde(default)]
     pub implements_latest_decision: Option<bool>,
+    /// Optional significance level ("major" vs "minor").
+    #[serde(default)]
+    pub significance: Option<String>,
+    /// Optional resolution status (false for open doubts, true for resolved/standard).
+    #[serde(default)]
+    pub is_resolved: Option<bool>,
+    /// Optional resolution note.
+    #[serde(default)]
+    pub resolution_note: Option<String>,
 }
 
 /// Resolves an existing open session for this actor or spawns a new one transparently.
@@ -184,6 +193,10 @@ pub fn handle_record_action(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         other => other.to_string(),
     };
 
+    let is_doubt = normalized_action_type == "doubt" || normalized_action_type == "question";
+    let is_resolved = input.is_resolved.or(Some(!is_doubt));
+    let significance = input.significance.or_else(|| Some("major".to_string()));
+
     let action = KnoxAction {
         id: action_id.clone(),
         actor: input.actor.trim().to_string(),
@@ -202,6 +215,9 @@ pub fn handle_record_action(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         rationale: input.rationale,
         rejected_alternatives: input.rejected_alternatives,
         context_summary: input.context_summary,
+        significance,
+        is_resolved,
+        resolution_note: input.resolution_note,
     };
 
     crate::storage::nodes::insert_action(db, &action)?;

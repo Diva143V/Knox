@@ -150,6 +150,8 @@ pub fn run() {
             commands::mcp::inspect_custom_mcp_config,
             commands::mcp::inject_mcp_config,
             commands::mcp::remove_mcp_config,
+            commands::thoughts::record_quick_thought,
+            commands::thoughts::resolve_doubt,
         ])
         .setup(setup_tray)
         .on_window_event(handle_window_event);

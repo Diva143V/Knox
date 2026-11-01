@@ -7,6 +7,10 @@ import {
   AlertCircle,
   RotateCcw,
   X,
+  HelpCircle,
+  Sparkles,
+  MessageSquare,
+  GitCommit,
 } from "lucide-react";
 import { KnoxAPI } from "@/services/api";
 import { useKnoxStore } from "@/store/useKnoxStore";
@@ -45,6 +49,34 @@ export const QueryView: React.FC = () => {
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [hasQueried, setHasQueried] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [activeFacet, setActiveFacet] = useState<"all" | "doubts" | "major" | "minor" | "dialogue">("all");
+
+  const doubtsCount = results.filter(
+    (a) => (a.action_type === "doubt" || a.action_type === "question") && !a.is_resolved
+  ).length;
+  const majorCount = results.filter(
+    (a) => a.action_type === "decide" && a.significance !== "minor"
+  ).length;
+  const minorCount = results.filter((a) => a.significance === "minor").length;
+  const dialogueCount = results.filter(
+    (a) => a.action_type === "dialogue" || a.action_type === "conversation"
+  ).length;
+
+  const displayedResults = results.filter((a) => {
+    if (activeFacet === "doubts") {
+      return (a.action_type === "doubt" || a.action_type === "question") && !a.is_resolved;
+    }
+    if (activeFacet === "major") {
+      return a.action_type === "decide" && a.significance !== "minor";
+    }
+    if (activeFacet === "minor") {
+      return a.significance === "minor";
+    }
+    if (activeFacet === "dialogue") {
+      return a.action_type === "dialogue" || a.action_type === "conversation";
+    }
+    return true;
+  });
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -372,6 +404,76 @@ export const QueryView: React.FC = () => {
           </div>
         )}
 
+        {/* Cognitive Memory Facet Chips */}
+        <div className="px-4 py-2 border-b border-border bg-card/40 flex items-center gap-1.5 overflow-x-auto text-xs shrink-0 select-none">
+          <span className="text-3xs uppercase tracking-wider text-muted-foreground font-mono mr-1">
+            Focus:
+          </span>
+          <button
+            type="button"
+            onClick={() => setActiveFacet("all")}
+            className={cn(
+              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer",
+              activeFacet === "all"
+                ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                : "bg-muted/60 text-muted-foreground border-border hover:text-foreground"
+            )}
+          >
+            All ({results.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveFacet("doubts")}
+            className={cn(
+              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
+              activeFacet === "doubts"
+                ? "bg-amber-500 text-white border-amber-600 shadow-xs"
+                : "bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20"
+            )}
+          >
+            <HelpCircle className="size-3" />
+            <span>Open Doubts ({doubtsCount})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveFacet("major")}
+            className={cn(
+              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
+              activeFacet === "major"
+                ? "bg-warning text-black border-warning shadow-xs font-semibold"
+                : "bg-warning/10 text-warning border-warning/30 hover:bg-warning/20"
+            )}
+          >
+            <Sparkles className="size-3" />
+            <span>Major ADRs ({majorCount})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveFacet("minor")}
+            className={cn(
+              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
+              activeFacet === "minor"
+                ? "bg-muted text-foreground border-primary/50 shadow-xs"
+                : "bg-muted/60 text-muted-foreground border-border hover:text-foreground"
+            )}
+          >
+            <GitCommit className="size-3" />
+            <span>Minor Choices ({minorCount})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveFacet("dialogue")}
+            className={cn(
+              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
+              activeFacet === "dialogue"
+                ? "bg-cyan-500 text-white border-cyan-600 shadow-xs"
+                : "bg-cyan-500/10 text-cyan-500 border-cyan-500/30 hover:bg-cyan-500/20"
+            )}
+          >
+            <MessageSquare className="size-3" />
+            <span>Conversations ({dialogueCount})</span>
+          </button>
+        </div>
         <div
           className="flex-1 overflow-y-auto"
           role="listbox"
@@ -432,7 +534,7 @@ export const QueryView: React.FC = () => {
             </div>
           ) : (
             <div className="divide-y divide-border-subtle">
-              {results.map((action, idx) => {
+              {displayedResults.map((action, idx) => {
                 const isSelected =
                   selectedAction?.id === action.id || selectedIndex === idx;
 

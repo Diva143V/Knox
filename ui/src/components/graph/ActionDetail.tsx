@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import type { KnoxAction } from "@/types/knox";
+import { KnoxAPI } from "@/services/api";
 import { ActionBadge } from "@/components/ui/ActionBadge";
 import { ActorBadge } from "@/components/ui/ActorBadge";
 import { Button } from "@/components/ui/Button";
@@ -7,6 +8,8 @@ import { cn } from "@/lib/cn";
 import {
   Copy,
   Check,
+  CheckCircle2,
+  HelpCircle,
   FileCode,
   Tag,
   GitCommit,
@@ -58,7 +61,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
   onSelectAction,
   className = "",
 }) => {
-  const { actions, showToast, setSelectedAction, getProjectForAction } =
+  const { actions, showToast, setSelectedAction, getProjectForAction, refreshData } =
     useKnoxStore();
   const [copiedId, setCopiedId] = useState(false);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
@@ -176,29 +179,168 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
     }
   }, [action.timestamp]);
 
+  const [isResolving, setIsResolving] = useState(false);
+  const [resolutionNote, setResolutionNote] = useState("");
+  const [isSubmittingResolve, setIsSubmittingResolve] = useState(false);
+
+  const handleResolveDoubt = async () => {
+    const trimmed = resolutionNote.trim();
+    if (!trimmed) return;
+    try {
+      setIsSubmittingResolve(true);
+      await KnoxAPI.resolveDoubt({
+        doubtId: action.id,
+        resolutionNote: trimmed,
+      });
+      showToast("Doubt marked as resolved in Knox knowledge graph!", false);
+      setIsResolving(false);
+      await refreshData();
+    } catch (err) {
+      showToast(String(err), true);
+    } finally {
+      setIsSubmittingResolve(false);
+    }
+  };
+
   const confidencePct =
     typeof action.confidence === "number"
       ? Math.round(action.confidence * 100)
       : null;
 
+  const isDoubtType =
+    action.action_type === "doubt" || action.action_type === "question";
+
   return (
     <div className={cn("space-y-4 text-xs text-foreground", className)}>
       {/* Badges & Status */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
           <ActorBadge actor={action.actor} />
           <ActionBadge type={action.action_type} />
+          {action.significance === "minor" && (
+            <span className="text-3xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-muted text-muted-foreground border border-border">
+              MINOR
+            </span>
+          )}
+          {action.significance === "major" && action.action_type === "decide" && (
+            <span className="text-3xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-warning/20 text-warning border border-warning/30 font-bold">
+              MAJOR ADR
+            </span>
+          )}
         </div>
-        {action.is_current ? (
-          <span className="text-xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-success/15 text-success border border-success/30 shrink-0">
-            CURRENT
-          </span>
-        ) : (
-          <span className="text-xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-warning/15 text-warning border border-warning/30 shrink-0">
-            SUPERSEDED
-          </span>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isDoubtType && (
+            action.is_resolved ? (
+              <span className="text-xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-success/15 text-success border border-success/30 shrink-0 flex items-center gap-1">
+                <CheckCircle2 className="size-3" />
+                RESOLVED
+              </span>
+            ) : (
+              <span className="text-xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-amber-500/15 text-amber-500 border border-amber-500/30 shrink-0 flex items-center gap-1">
+                <HelpCircle className="size-3" />
+                OPEN DOUBT
+              </span>
+            )
+          )}
+          {action.is_current ? (
+            <span className="text-xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-success/15 text-success border border-success/30 shrink-0">
+              CURRENT
+            </span>
+          ) : (
+            <span className="text-xs font-mono font-medium px-1.5 py-0.5 rounded-sm bg-warning/15 text-warning border border-warning/30 shrink-0">
+              SUPERSEDED
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Open Doubt Resolution Card */}
+      {isDoubtType && (
+        <div
+          className={cn(
+            "p-3 rounded-lg border",
+            action.is_resolved
+              ? "border-success/30 bg-success/5"
+              : "border-amber-500/30 bg-amber-500/10 shadow-xs"
+          )}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-2xs font-bold uppercase tracking-wider flex items-center gap-1.5 font-sans">
+              {action.is_resolved ? (
+                <>
+                  <CheckCircle2 className="size-3.5 text-success" />
+                  <span className="text-success font-semibold">Technical Doubt Resolved</span>
+                </>
+              ) : (
+                <>
+                  <HelpCircle className="size-3.5 text-amber-500" />
+                  <span className="text-amber-500 font-semibold">
+                    Open Technical Doubt / Question
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+
+          {action.is_resolved ? (
+            <div className="text-xs space-y-1">
+              <span className="text-muted-foreground font-mono text-2xs uppercase">
+                Resolution Note:
+              </span>
+              <p className="font-sans text-foreground bg-background/50 p-2 rounded border border-border text-xs leading-relaxed">
+                {action.resolution_note || "Resolved without an attached note."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                This uncertainty was logged to prevent assumptions. Once answered, mark it resolved with the reasoning.
+              </p>
+              {isResolving ? (
+                <div className="space-y-2 pt-1">
+                  <textarea
+                    rows={2}
+                    value={resolutionNote}
+                    onChange={(e) => setResolutionNote(e.target.value)}
+                    placeholder="Explain how this doubt was answered or resolved..."
+                    className="w-full text-xs p-2 rounded border border-border bg-background focus:ring-1 focus:ring-primary font-sans"
+                  />
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsResolving(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      disabled={!resolutionNote.trim() || isSubmittingResolve}
+                      onClick={handleResolveDoubt}
+                    >
+                      {isSubmittingResolve ? "Saving..." : "Confirm Resolution"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
+                  onClick={() => setIsResolving(true)}
+                >
+                  <CheckCircle2 className="size-3.5 mr-1.5" />
+                  Mark as Resolved
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Work Done Narrative Card */}
       <div className="space-y-2 p-3 rounded-lg border border-primary/30 bg-primary/5">

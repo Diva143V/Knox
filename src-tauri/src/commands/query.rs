@@ -40,11 +40,13 @@ fn search_via_fts(
     })
 }
 
-/// Applies action type and search substring filters in memory to a QueryResult.
+/// Applies action type, significance, resolution status, and search substring filters in memory to a QueryResult.
 fn apply_in_memory_filters(
     result: &mut QueryResult,
     action_type: Option<&str>,
     search: Option<&str>,
+    significance: Option<&str>,
+    is_resolved: Option<bool>,
 ) {
     if let Some(act_type) = action_type {
         let trimmed_type = act_type.trim().to_lowercase();
@@ -53,6 +55,21 @@ fn apply_in_memory_filters(
                 .results
                 .retain(|a| a.action_type.to_lowercase() == trimmed_type);
         }
+    }
+
+    if let Some(sig) = significance {
+        let trimmed_sig = sig.trim().to_lowercase();
+        if !trimmed_sig.is_empty() {
+            result
+                .results
+                .retain(|a| a.significance.as_deref().unwrap_or("major").to_lowercase() == trimmed_sig);
+        }
+    }
+
+    if let Some(resolved) = is_resolved {
+        result
+            .results
+            .retain(|a| a.is_resolved.unwrap_or(true) == resolved);
     }
 
     if let Some(q) = search {
@@ -79,6 +96,8 @@ pub async fn query_actions(
     since: Option<String>,
     current_only: Option<bool>,
     limit: Option<usize>,
+    significance: Option<String>,
+    is_resolved: Option<bool>,
 ) -> Result<QueryResult, String> {
     let db = state.db.lock().await;
     let max_limit = limit.unwrap_or(50).clamp(1, 500);
@@ -90,7 +109,9 @@ pub async fn query_actions(
         let no_extra_filters = file_path.is_none()
             && actor.is_none()
             && action_type.is_none()
-            && parsed_since.is_none();
+            && parsed_since.is_none()
+            && significance.is_none()
+            && is_resolved.is_none();
         if !trimmed.is_empty() && no_extra_filters {
             return search_via_fts(&db, trimmed, max_limit, current_only_flag);
         }
@@ -106,7 +127,13 @@ pub async fn query_actions(
     };
 
     let mut result = db_query_actions(&db, &filter).map_err(|e| e.to_string())?;
-    apply_in_memory_filters(&mut result, action_type.as_deref(), search.as_deref());
+    apply_in_memory_filters(
+        &mut result,
+        action_type.as_deref(),
+        search.as_deref(),
+        significance.as_deref(),
+        is_resolved,
+    );
     Ok(result)
 }
 
@@ -176,16 +203,16 @@ mod tests {
         };
 
         // Filter by action_type
-        apply_in_memory_filters(&mut qr, Some("decide"), None);
+        apply_in_memory_filters(&mut qr, Some("decide"), None, None, None);
         assert_eq!(qr.results.len(), 1);
         assert_eq!(qr.results[0].action_type, "decide");
 
         // Filter by search substring in summary
-        apply_in_memory_filters(&mut qr, None, Some("sqlite"));
+        apply_in_memory_filters(&mut qr, None, Some("sqlite"), None, None);
         assert_eq!(qr.results.len(), 1);
 
         // Filter by search substring that does not match
-        apply_in_memory_filters(&mut qr, None, Some("nonexistent"));
+        apply_in_memory_filters(&mut qr, None, Some("nonexistent"), None, None);
         assert_eq!(qr.results.len(), 0);
     }
 }

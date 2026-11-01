@@ -7,6 +7,12 @@
 export function actionTypeClasses(type: string): string {
   const norm = (type || "").toLowerCase();
 
+  if (norm.includes("doubt") || norm.includes("question")) {
+    return "bg-amber-500/15 text-amber-500 border-amber-500/30";
+  }
+  if (norm.includes("dialogue") || norm.includes("conversation")) {
+    return "bg-cyan-500/15 text-cyan-500 border-cyan-500/30";
+  }
   if (norm.includes("write")) {
     return "bg-success/15 text-success border-success/30";
   }
@@ -63,6 +69,8 @@ export function actorBarClass(actor: string): string {
 
 export function actionTypeBarClass(type: string): string {
   const norm = (type || "").toLowerCase();
+  if (norm.includes("doubt") || norm.includes("question")) return "bg-amber-500";
+  if (norm.includes("dialogue") || norm.includes("conversation")) return "bg-cyan-500";
   if (norm.includes("write")) return "bg-success";
   if (norm.includes("plan")) return "bg-plan";
   if (norm.includes("decide")) return "bg-warning";

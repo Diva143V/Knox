@@ -47,11 +47,20 @@ export const KnoxAPI = {
     currentOnly?: boolean;
     current_only?: boolean;
     limit?: number;
+    significance?: string;
+    is_resolved?: boolean;
   }): Promise<QueryResult> {
     if (!isTauri) {
+      let filtered = mockActions;
+      if (params.significance) {
+        filtered = filtered.filter((a) => (a.significance || "major") === params.significance);
+      }
+      if (typeof params.is_resolved === "boolean") {
+        filtered = filtered.filter((a) => (a.is_resolved ?? true) === params.is_resolved);
+      }
       return {
-        results: mockActions,
-        total_count: mockActions.length,
+        results: filtered,
+        total_count: filtered.length,
         has_more: false,
       };
     }
@@ -70,6 +79,9 @@ export const KnoxAPI = {
       currentOnly: currentOnly,
       current_only: currentOnly,
       limit: params.limit ?? 50,
+      significance: params.significance || null,
+      isResolved: typeof params.is_resolved === "boolean" ? params.is_resolved : null,
+      is_resolved: typeof params.is_resolved === "boolean" ? params.is_resolved : null,
     });
   },
 
@@ -441,6 +453,67 @@ export const KnoxAPI = {
     }
     return listen<McpScanLog>("mcp-scan-log", (event) => {
       callback(event.payload);
+    });
+  },
+
+  async recordQuickThought(params: {
+    summary: string;
+    category: "doubt" | "minor_decision" | "major_decision" | "thought";
+    actor?: string;
+    contextSummary?: string;
+    files?: string[];
+  }): Promise<string> {
+    if (!isTauri) {
+      const mockId = `mock-action-${Date.now()}`;
+      mockActions.unshift({
+        id: mockId,
+        actor: params.actor || "human",
+        action_type: params.category === "doubt" ? "doubt" : params.category.includes("decision") ? "decide" : "dialogue",
+        summary: params.summary,
+        files: params.files || [],
+        tags: [params.category],
+        confidence: 1.0,
+        timestamp: new Date().toISOString(),
+        session_id: null,
+        parent_action_id: null,
+        supersedes: null,
+        is_current: true,
+        significance: params.category === "major_decision" ? "major" : "minor",
+        is_resolved: params.category !== "doubt",
+        context_summary: params.contextSummary || null,
+      });
+      return mockId;
+    }
+    return invoke<string>("record_quick_thought", {
+      summary: params.summary,
+      category: params.category,
+      actor: params.actor || null,
+      contextSummary: params.contextSummary || null,
+      context_summary: params.contextSummary || null,
+      files: params.files || null,
+    });
+  },
+
+  async resolveDoubt(params: {
+    doubtId: string;
+    resolutionNote: string;
+    resolverActionId?: string;
+  }): Promise<boolean> {
+    if (!isTauri) {
+      const target = mockActions.find((a) => a.id === params.doubtId);
+      if (target) {
+        target.is_resolved = true;
+        target.resolution_note = params.resolutionNote;
+      }
+      return true;
+    }
+    return invoke<boolean>("resolve_doubt", {
+      doubtId: params.doubtId,
+      doubt_id: params.doubtId,
+      resolutionNote: params.resolutionNote,
+      resolution_note: params.resolutionNote,
+      resolverActionId: params.resolverActionId || null,
+      resolver_action_id: params.resolverActionId || null,
     });
   },
 };

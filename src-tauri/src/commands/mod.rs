@@ -9,4 +9,5 @@ pub mod query;
 pub mod scan;
 pub mod sessions;
 pub mod status;
+pub mod thoughts;
 pub mod workspace;

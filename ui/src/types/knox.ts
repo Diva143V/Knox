@@ -24,6 +24,10 @@ export interface KnoxAction {
   rationale?: string | null;
   rejected_alternatives?: string[];
   context_summary?: string | null;
+  // V3 Cognitive Memory & Doubts Fields
+  significance?: "major" | "minor" | string;
+  is_resolved?: boolean;
+  resolution_note?: string | null;
 }
 
 export interface Session {

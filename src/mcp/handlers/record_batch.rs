@@ -35,6 +35,15 @@ pub struct BatchActionItem {
     pub rejected_alternatives: Vec<String>,
     #[serde(default)]
     pub context_summary: Option<String>,
+    /// Optional significance level ("major" vs "minor").
+    #[serde(default)]
+    pub significance: Option<String>,
+    /// Optional resolution status (false for open doubts, true for resolved/standard).
+    #[serde(default)]
+    pub is_resolved: Option<bool>,
+    /// Optional resolution note.
+    #[serde(default)]
+    pub resolution_note: Option<String>,
     /// Convenience helper: automatically set parent_action_id to the previous action in this batch.
     #[serde(default)]
     pub link_to_previous: Option<bool>,
@@ -121,6 +130,10 @@ pub fn handle_record_batch(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             other => other.to_string(),
         };
 
+        let is_doubt = norm_action_type == "doubt" || norm_action_type == "question";
+        let is_resolved = item.is_resolved.or(Some(!is_doubt));
+        let significance = item.significance.or_else(|| Some("major".to_string()));
+
         let action = KnoxAction {
             id: action_id.clone(),
             actor: input.actor.trim().to_string(),
@@ -139,6 +152,9 @@ pub fn handle_record_batch(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             rationale: item.rationale,
             rejected_alternatives: item.rejected_alternatives,
             context_summary: item.context_summary,
+            significance,
+            is_resolved,
+            resolution_note: item.resolution_note,
         };
 
         crate::storage::nodes::insert_action(db, &action)?;

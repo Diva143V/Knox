@@ -8,6 +8,8 @@ tools_registered:
   - knox_end_session
   - knox_record_action
   - knox_record_decision
+  - knox_record_doubt
+  - knox_resolve_doubt
   - knox_record_batch
   - knox_get_context
   - knox_get_history
@@ -43,6 +45,7 @@ knox_version: "1.2.1"
 3. **Causal Lineage & Semantic Graph**: Connect actions into directed graphs using `parent_action_id` and first-class `relations` (`depends_on`, `implements`, `verifies`, `relates_to`, `reverts`).
 4. **Explicit Edge Attribution**: Identify your agent in `actor` (e.g., `gemini`, `cursor`, `claude`, `codex`, `human`).
 5. **Decisions are First-Class Citizens**: Architectural decisions (`knox_record_decision`) carry the highest weight in the graph. Always document rationale, symbols touched, and rejected alternatives.
+6. **Continuous Cognitive Memory & Doubts**: Record user conversations, uncertainties, and questions as `doubt` actions (`knox_record_doubt`). Capture micro-decisions and implementation assumptions with `significance: "minor"`. When a doubt is verified or resolved, close the cognitive loop using `knox_resolve_doubt` linking the answering decision or commit.
 
 ---
 
@@ -56,9 +59,9 @@ Knox supports **Smart Implicit Sessions**: agents can immediately record actions
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ (checks active constraints & superseded anti-patterns)
 ┌───────────────────────────────────▼────────────────────────────────────┐
-│ Phase 2: Execute & Record Changes     → knox_record_decision / batch   │
+│ Phase 2: Execute & Cognitive Logging  → doubts / decisions / batch     │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ (logs rationale, symbols, and semantic relations)
+                                    │ (logs doubts, major/minor choices, and resolves prior questions)
 ┌───────────────────────────────────▼────────────────────────────────────┐
 │ Phase 3: Graph Navigation & Audit      → knox_get_lineage / impact     │
 └────────────────────────────────────────────────────────────────────────┘
@@ -69,8 +72,10 @@ Before touching files:
 - Call `knox_check_guardrails` with `files: ["path/to/target.rs"]` to inspect active decisions and ensure you don't repeat superseded patterns.
 - Call `knox_get_context` to retrieve token-efficient Markdown context for relevant files, symbols, or topics.
 
-### Phase 2: Record Decisions & Modifications
-- **When choosing an approach**: Call `knox_record_decision` with `summary`, `rationale`, and `rejected_alternatives`.
+### Phase 2: Cognitive Capture, Decisions & Modifications
+- **When user expresses doubt or questions architecture**: Call `knox_record_doubt` with `summary` and `context_summary`. Never leave user uncertainties floating unindexed.
+- **When choosing an approach**: Call `knox_record_decision` with `summary`, `rationale`, and `rejected_alternatives`. Pass `significance: "minor"` for implementation micro-tradeoffs or `significance: "major"` for architectural system contracts.
+- **When answering or resolving a previous doubt**: Call `knox_resolve_doubt` with `doubt_id`, `resolution_note`, and optional `resolved_by_action_id` to link the causal resolution.
 - **After code changes or test runs**: Call `knox_record_action` with `files`, `symbols`, and `relations`.
 - **For multi-step changes**: Call `knox_record_batch` with `link_to_previous: true` to record an atomic causal chain in a single turn.
 
@@ -83,7 +88,7 @@ Before touching files:
 
 ## 3. MCP Tool Reference & Schemas
 
-Knox exposes 14 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
+Knox exposes 16 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
 
 ### 3.1 `knox_check_guardrails`
 Pre-flight safety inspection for target files. Returns active decisions and superseded anti-patterns.
@@ -114,7 +119,7 @@ Records a code change, plan, debug investigation, review, or verification. `sess
 ```
 
 ### 3.3 `knox_record_decision`
-Records an architectural or design decision. Forces `action_type = "decide"`.
+Records an architectural or design decision. Forces `action_type = "decide"`. Accepts `significance: "major"` (default) or `"minor"`.
 ```json
 // Request
 {
@@ -122,11 +127,35 @@ Records an architectural or design decision. Forces `action_type = "decide"`.
   "summary": "Adopted SQLite WAL mode for concurrent multi-agent read/write",
   "files": ["src/storage/db.rs"],
   "rationale": "High throughput read-heavy workloads without reader-writer lock contention",
-  "rejected_alternatives": ["RocksDB", "DuckDB", "Flat JSON"]
+  "rejected_alternatives": ["RocksDB", "DuckDB", "Flat JSON"],
+  "significance": "major"
 }
 ```
 
-### 3.4 `knox_record_batch`
+### 3.4 `knox_record_doubt`
+Records an open technical doubt, uncertainty, or user question to track until answered and resolved.
+```json
+// Request
+{
+  "actor": "gemini",
+  "summary": "Will SQLite WAL mode block Tauri UI if a large batch is being ingested?",
+  "context_summary": "Evaluating background thread worker vs IPC thread pool",
+  "files": ["src-tauri/src/commands/ingest.rs"]
+}
+```
+
+### 3.5 `knox_resolve_doubt`
+Marks a previously recorded doubt as resolved with an explanation note and optional answering decision/commit link.
+```json
+// Request
+{
+  "doubt_id": "a-89bc721a",
+  "resolution_note": "Verified SQLite WAL allows concurrent readers on Tauri UI thread while worker thread writes batches.",
+  "resolved_by_action_id": "a-91dc8f72"
+}
+```
+
+### 3.6 `knox_record_batch`
 Atomically records multiple actions in one call with optional predecessor chaining.
 ```json
 // Request

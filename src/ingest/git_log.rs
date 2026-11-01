@@ -101,6 +101,9 @@ impl TranscriptMapper for GitLogMapper {
                 rationale,
                 context_summary: Some(format!("Git commit {} by {}", &commit.hash[..commit.hash.len().min(8)], commit.author)),
                 rejected_alternatives: Vec::new(),
+                significance: Some("major".to_string()),
+                is_resolved: Some(true),
+                resolution_note: None,
             };
 
             actions.push(plan_action);
@@ -129,6 +132,9 @@ impl TranscriptMapper for GitLogMapper {
                     rationale: None,
                     context_summary: None,
                     rejected_alternatives: Vec::new(),
+                    significance: Some("minor".to_string()),
+                    is_resolved: Some(true),
+                    resolution_note: None,
                 };
                 actions.push(write_action);
                 previous_action_id = Some(write_id);

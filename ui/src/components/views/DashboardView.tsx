@@ -12,6 +12,7 @@ import {
   PlusCircle,
   Network,
   PlugZap,
+  HelpCircle,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -52,6 +53,12 @@ export const DashboardView: React.FC = () => {
       lastUpdateStr = "No records yet";
     }
   }
+
+  const openDoubts = actions.filter(
+    (a) =>
+      (a.action_type === "doubt" || a.action_type === "question") &&
+      !a.is_resolved
+  );
 
   const recentActions = actions.slice(0, 15);
   const topActors = Object.entries(status?.actions_by_actor || {})
@@ -128,10 +135,61 @@ export const DashboardView: React.FC = () => {
             {status?.projects_tracked ?? "—"}
           </span>
         </span>
+        {openDoubts.length > 0 && (
+          <>
+            <span className="hidden sm:inline text-border">|</span>
+            <span className="text-amber-500 font-semibold flex items-center gap-1">
+              <HelpCircle className="size-3" />
+              {openDoubts.length} Open {openDoubts.length === 1 ? "Doubt" : "Doubts"}
+            </span>
+          </>
+        )}
         <span className="ml-auto truncate max-w-[240px]" title={config?.kg_path}>
           {config?.kg_path || "knox.db"}
         </span>
       </div>
+
+      {/* Open Doubts Alert Panel if any doubts are pending */}
+      {openDoubts.length > 0 && (
+        <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-500">
+              <HelpCircle className="size-4 shrink-0" />
+              <h2 className="text-xs font-bold uppercase tracking-wider font-sans">
+                Open Doubts & Unresolved Questions ({openDoubts.length})
+              </h2>
+            </div>
+            <span className="text-3xs font-mono font-medium px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500 border border-amber-500/30">
+              Pending Resolution
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {openDoubts.slice(0, 4).map((doubt) => (
+              <div
+                key={doubt.id}
+                onClick={() => setSelectedAction(doubt)}
+                className="p-3 rounded-lg border border-border/80 bg-card hover:border-amber-500/50 hover:bg-accent/40 transition-all cursor-pointer flex flex-col justify-between gap-2 shadow-2xs"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-1 text-3xs font-mono">
+                    <span className="text-muted-foreground">{doubt.actor}</span>
+                    <span className="text-amber-500 font-semibold uppercase">Open</span>
+                  </div>
+                  <p className="text-xs font-medium text-foreground line-clamp-2">
+                    {doubt.summary}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between pt-1 border-t border-border/60 text-3xs text-muted-foreground">
+                  <span>{new Date(doubt.timestamp).toLocaleDateString()}</span>
+                  <span className="text-primary hover:underline font-sans font-medium flex items-center gap-0.5">
+                    Inspect & Resolve →
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {isLoading && !status ? (

@@ -12,6 +12,8 @@ pub mod prompts;
 pub mod record_action;
 pub mod record_batch;
 pub mod record_decision;
+pub mod record_doubt;
+pub mod resolve_doubt;
 pub mod resources;
 pub mod scan_staged;
 pub mod search;
@@ -29,6 +31,8 @@ pub use prompts::{handle_prompts_get, handle_prompts_list};
 pub use record_action::handle_record_action;
 pub use record_batch::handle_record_batch;
 pub use record_decision::handle_record_decision;
+pub use record_doubt::handle_record_doubt;
+pub use resolve_doubt::handle_resolve_doubt;
 pub use resources::{handle_resources_list, handle_resources_read};
 pub use scan_staged::handle_scan_staged;
 pub use search::handle_search;
@@ -96,6 +100,8 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         "knox_end_session" => handle_end_session(db, params),
         "knox_record_action" => handle_record_action(db, params),
         "knox_record_decision" => handle_record_decision(db, params),
+        "knox_record_doubt" => handle_record_doubt(db, params),
+        "knox_resolve_doubt" => handle_resolve_doubt(db, params),
         "knox_record_batch" => handle_record_batch(db, params),
         "knox_get_context" => handle_get_context(db, params),
         "knox_get_history" => handle_get_history(db, params),
@@ -206,7 +212,7 @@ mod tests {
         assert!(res.error.is_none());
         let result = res.result.unwrap();
         let tools = result.get("tools").unwrap().as_array().unwrap();
-        assert_eq!(tools.len(), 14);
+        assert_eq!(tools.len(), 16);
     }
 
     #[test]

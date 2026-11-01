@@ -4,12 +4,14 @@ use serde_json::json;
 
 use super::protocol::ToolDescription;
 
-/// All supported Knox MCP tool names (14 tools).
-pub const TOOL_NAMES: [&str; 14] = [
+/// All supported Knox MCP tool names (16 tools).
+pub const TOOL_NAMES: [&str; 16] = [
     "knox_start_session",
     "knox_end_session",
     "knox_record_action",
     "knox_record_decision",
+    "knox_record_doubt",
+    "knox_resolve_doubt",
     "knox_record_batch",
     "knox_get_context",
     "knox_get_history",
@@ -22,13 +24,15 @@ pub const TOOL_NAMES: [&str; 14] = [
     "knox_scan_staged",
 ];
 
-/// Returns the complete list of all 14 Knox tool definitions.
+/// Returns the complete list of all 16 Knox tool definitions.
 pub fn all_tools() -> Vec<ToolDescription> {
     vec![
         tool_start_session(),
         tool_end_session(),
         tool_record_action(),
         tool_record_decision(),
+        tool_record_doubt(),
+        tool_resolve_doubt(),
         tool_record_batch(),
         tool_get_context(),
         tool_get_history(),
@@ -140,7 +144,7 @@ fn action_schema_properties(action_type_desc: &str) -> serde_json::Value {
                     "target_id": { "type": "string", "description": "Target action ID" },
                     "relation_type": {
                         "type": "string",
-                        "enum": ["depends_on", "implements", "verifies", "reverts", "relates_to"],
+                        "enum": ["depends_on", "implements", "verifies", "reverts", "relates_to", "resolves"],
                         "description": "Semantic type of the relation"
                     }
                 },
@@ -165,6 +169,19 @@ fn action_schema_properties(action_type_desc: &str) -> serde_json::Value {
             "type": "string",
             "description": "High-level summary of active task and state at execution time"
         },
+        "significance": {
+            "type": "string",
+            "enum": ["major", "minor"],
+            "description": "Significance level: 'major' (ADR, architectural decision) or 'minor' (implementation detail, styling, micro-tradeoff)"
+        },
+        "is_resolved": {
+            "type": "boolean",
+            "description": "Resolution status (false for open doubts, true for resolved/standard actions)"
+        },
+        "resolution_note": {
+            "type": "string",
+            "description": "Explanation of how a doubt was resolved or answered"
+        },
         "link_to_latest": {
             "type": "boolean",
             "description": "Convenience helper: automatically link to immediate predecessor in session"
@@ -174,6 +191,70 @@ fn action_schema_properties(action_type_desc: &str) -> serde_json::Value {
             "description": "Convenience helper: automatically link `implements` to latest decision in session"
         }
     })
+}
+
+fn tool_record_doubt() -> ToolDescription {
+    ToolDescription::new(
+        "knox_record_doubt",
+        "Records a user doubt, open technical question, or uncertainty to be tracked until resolved.",
+        json!({
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "type": "string",
+                    "description": "Software or agent name (e.g. gemini, cursor, claude)"
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "The exact question, doubt, or hypothesis being tracked"
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Session ID (optional; auto-attaches to latest active session if omitted)"
+                },
+                "files": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Affected or referenced file paths"
+                },
+                "context_summary": {
+                    "type": "string",
+                    "description": "Context or background surrounding why this doubt arose"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional search tags"
+                }
+            },
+            "required": ["actor", "summary"]
+        }),
+    )
+}
+
+fn tool_resolve_doubt() -> ToolDescription {
+    ToolDescription::new(
+        "knox_resolve_doubt",
+        "Marks a previously recorded doubt or question as resolved with an explanation note and optional answering action link.",
+        json!({
+            "type": "object",
+            "properties": {
+                "doubt_id": {
+                    "type": "string",
+                    "description": "The unique ID of the doubt action being marked as resolved"
+                },
+                "resolution_note": {
+                    "type": "string",
+                    "description": "Detailed explanation of the answer, solution, or reason why the doubt was resolved"
+                },
+                "resolved_by_action_id": {
+                    "type": "string",
+                    "description": "Optional action ID of the decision, code write, or verification that resolved the doubt"
+                }
+            },
+            "required": ["doubt_id", "resolution_note"]
+        }),
+    )
 }
 
 fn tool_record_action() -> ToolDescription {
@@ -599,7 +680,7 @@ mod tests {
     #[test]
     fn test_all_tools_count_and_names() {
         let tools = all_tools();
-        assert_eq!(tools.len(), 14);
+        assert_eq!(tools.len(), 16);
         for expected_name in TOOL_NAMES {
             assert!(
                 tools.iter().any(|t| t.name == expected_name),

@@ -21,12 +21,19 @@ pub fn insert_action(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<ActionId> {
         Some(serde_json::to_string(&action.rejected_alternatives).unwrap_or_default())
     };
 
+    let is_resolved_int = match action.is_resolved {
+        Some(false) => 0,
+        _ => 1,
+    };
+    let significance_str = action.significance.as_deref().unwrap_or("major");
+
     conn.execute(
         "INSERT INTO actions (
             id, actor, action_type, summary, confidence, timestamp,
             session_id, parent_action_id, superseded_by, is_current,
-            rationale, context_summary, rejected_alternatives
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            rationale, context_summary, rejected_alternatives,
+            significance, is_resolved, resolution_note
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             action.id.as_str(),
             action.actor.as_str(),
@@ -41,6 +48,9 @@ pub fn insert_action(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<ActionId> {
             action.rationale.as_deref(),
             action.context_summary.as_deref(),
             rejected_alt_json.as_deref(),
+            significance_str,
+            is_resolved_int,
+            action.resolution_note.as_deref(),
         ],
     )?;
 
@@ -171,7 +181,8 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
     let mut stmt = conn.prepare(
         "SELECT id, actor, action_type, summary, confidence, timestamp,
                 session_id, parent_action_id, superseded_by, is_current,
-                rationale, context_summary, rejected_alternatives
+                rationale, context_summary, rejected_alternatives,
+                significance, is_resolved, resolution_note
          FROM actions WHERE id = ?1",
     )?;
 
@@ -190,6 +201,9 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
         let rationale: Option<String> = row.get(10)?;
         let context_summary: Option<String> = row.get(11)?;
         let rejected_str: Option<String> = row.get(12)?;
+        let significance: Option<String> = row.get(13)?;
+        let is_resolved_int: Option<i32> = row.get(14)?;
+        let resolution_note: Option<String> = row.get(15)?;
 
         let timestamp = DateTime::parse_from_rfc3339(&timestamp_str)
             .map(|dt| dt.with_timezone(&Utc))
@@ -220,6 +234,9 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
             rationale,
             rejected_alternatives,
             context_summary,
+            significance: significance.or_else(|| Some("major".to_string())),
+            is_resolved: is_resolved_int.map(|v| v == 1),
+            resolution_note,
         }))
     } else {
         Ok(None)
@@ -348,6 +365,34 @@ pub fn list_projects(db: &KnoxDb) -> KnoxResult<Vec<Project>> {
     }
 
     Ok(projects)
+}
+
+/// Marks an existing doubt action as resolved with an explanation, optionally linking to a resolver action.
+pub fn resolve_doubt(
+    db: &KnoxDb,
+    doubt_id: &ActionId,
+    resolution_note: &str,
+    resolver_action_id: Option<&ActionId>,
+) -> KnoxResult<()> {
+    let conn = db.conn();
+    let rows_affected = conn.execute(
+        "UPDATE actions SET is_resolved = 1, resolution_note = ?1 WHERE id = ?2",
+        params![resolution_note, doubt_id.as_str()],
+    )?;
+
+    if rows_affected == 0 {
+        return Err(crate::core::error::KnoxError::ActionNotFound(doubt_id.to_string()));
+    }
+
+    if let Some(resolver_id) = resolver_action_id {
+        conn.execute(
+            "INSERT OR IGNORE INTO action_relations (from_action_id, to_action_id, relation_type)
+             VALUES (?1, ?2, ?3)",
+            params![resolver_id.as_str(), doubt_id.as_str(), "resolves"],
+        )?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

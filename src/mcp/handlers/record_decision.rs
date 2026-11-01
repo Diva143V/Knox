@@ -40,5 +40,29 @@ mod tests {
             .unwrap()
             .expect("must find recorded decision");
         assert_eq!(action.action_type, "decide");
+        assert_eq!(action.significance.as_deref(), Some("major"));
+    }
+
+    #[test]
+    fn test_handle_record_minor_decision() {
+        let db = KnoxDb::open_memory().unwrap();
+        let session = crate::storage::sessions::start_session(&db, "gemini", None).unwrap();
+
+        let params = json!({
+            "session_id": session.id.as_str(),
+            "actor": "gemini",
+            "summary": "Decided on 8px padding for buttons",
+            "significance": "minor"
+        });
+
+        let res = handle_record_decision(&db, params).unwrap();
+        let action_id_str = res.get("id").unwrap().as_str().unwrap();
+        let action_id = ActionId::from(action_id_str);
+
+        let action = crate::storage::nodes::get_action(&db, &action_id)
+            .unwrap()
+            .expect("must find recorded decision");
+        assert_eq!(action.action_type, "decide");
+        assert_eq!(action.significance.as_deref(), Some("minor"));
     }
 }
