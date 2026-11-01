@@ -7,6 +7,7 @@ pub mod get_history;
 pub mod get_impact;
 pub mod get_lineage;
 pub mod get_path;
+pub mod ingest;
 pub mod list_stale;
 pub mod prompts;
 pub mod record_action;
@@ -26,6 +27,7 @@ pub use get_history::handle_get_history;
 pub use get_impact::handle_get_impact;
 pub use get_lineage::handle_get_lineage;
 pub use get_path::handle_get_path;
+pub use ingest::handle_ingest;
 pub use list_stale::handle_list_stale;
 pub use prompts::{handle_prompts_get, handle_prompts_list};
 pub use record_action::handle_record_action;
@@ -112,6 +114,7 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         "knox_search" => handle_search(db, params),
         "knox_list_stale" => handle_list_stale(db, params),
         "knox_scan_staged" => handle_scan_staged(db, params),
+        "knox_ingest" => handle_ingest(db, params),
         _ => Err(KnoxError::InvalidInput(format!("Unknown tool: {name}"))),
     }
 }
@@ -212,7 +215,7 @@ mod tests {
         assert!(res.error.is_none());
         let result = res.result.unwrap();
         let tools = result.get("tools").unwrap().as_array().unwrap();
-        assert_eq!(tools.len(), 16);
+        assert_eq!(tools.len(), 17);
     }
 
     #[test]

@@ -71,7 +71,8 @@ fn test_ingest_pure_reasoning_yields_decide_action() {
     assert_eq!(actions.len(), 2);
 
     assert_eq!(actions[0].actor, "human");
-    assert_eq!(actions[0].action_type, "plan");
+    assert_eq!(actions[0].action_type, "doubt");
+    assert_eq!(actions[0].is_resolved, Some(false));
     assert_eq!(actions[0].summary, "Should we use SQLite or RocksDB?");
 
     assert_eq!(actions[1].actor, "antigravity");

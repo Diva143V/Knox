@@ -52,7 +52,7 @@ Knox/
 │   ├── graph/                    # Layer 2: read-only petgraph loading/traversal
 │   ├── ingest/                   # Layer 2: transcript mapping (Antigravity etc.)
 │   ├── commands/                 # Layer 3: domain operation orchestration
-│   ├── mcp/                      # Layer 4: MCP stdio transport, 16 JSON-RPC tools, resources, prompts, format.rs
+│   ├── mcp/                      # Layer 4: MCP stdio transport, 17 JSON-RPC tools, resources, prompts, format.rs
 │   └── cli/                      # Layer 5: clap argument definitions and dispatch
 ├── src-tauri/                    # Tauri v2 shell and unified executable crate
 │   ├── Cargo.toml                # Defines [[bin]] name = "knox" path = "src/main.rs"

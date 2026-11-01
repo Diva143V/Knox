@@ -119,6 +119,7 @@ tools_registered:\n\
   - knox_search\n\
   - knox_list_stale\n\
   - knox_scan_staged\n\
+  - knox_ingest\n\
 resources_available:\n\
   - knox://project/overview\n\
   - knox://decisions/active\n\
@@ -191,7 +192,7 @@ Before touching files:
 
 ## 3. MCP Tool Reference & Schemas
 
-Knox exposes 16 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
+Knox exposes 17 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
 
 ### 3.1 `knox_check_guardrails`
 Pre-flight safety inspection for target files. Returns active decisions and superseded anti-patterns.
@@ -356,7 +357,16 @@ Scans git index for untracked human modifications and records `human_write` acti
 }
 ```
 
-### 3.13 `knox_start_session` & 3.14 `knox_end_session`
+### 3.13 `knox_ingest`
+Ingests conversational transcripts, chat logs, or raw conversation text into the knowledge graph. Automatically classifies human inputs into plans, doubts, and dialogues, records decisions and writes, and establishes causal lineage.
+```json
+// Request
+{
+  "raw_transcript": "User: Should we use SQLite WAL mode?\nAssistant: Decided on SQLite WAL for concurrent reads and writes."
+}
+```
+
+### 3.14 `knox_start_session` & 3.15 `knox_end_session`
 Explicit session boundary management (optional; sessions auto-manage if omitted).
 
 ### 3.15 Native MCP Resources (`resources/*`)
@@ -457,6 +467,7 @@ mod tests {
         assert!(rendered.contains("knox_record_decision"));
         assert!(rendered.contains("knox_record_doubt"));
         assert!(rendered.contains("knox_resolve_doubt"));
+        assert!(rendered.contains("knox_ingest"));
     }
 
     #[test]

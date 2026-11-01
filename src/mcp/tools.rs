@@ -4,8 +4,8 @@ use serde_json::json;
 
 use super::protocol::ToolDescription;
 
-/// All supported Knox MCP tool names (16 tools).
-pub const TOOL_NAMES: [&str; 16] = [
+/// All supported Knox MCP tool names (17 tools).
+pub const TOOL_NAMES: [&str; 17] = [
     "knox_start_session",
     "knox_end_session",
     "knox_record_action",
@@ -22,9 +22,10 @@ pub const TOOL_NAMES: [&str; 16] = [
     "knox_search",
     "knox_list_stale",
     "knox_scan_staged",
+    "knox_ingest",
 ];
 
-/// Returns the complete list of all 16 Knox tool definitions.
+/// Returns the complete list of all 17 Knox tool definitions.
 pub fn all_tools() -> Vec<ToolDescription> {
     vec![
         tool_start_session(),
@@ -43,6 +44,7 @@ pub fn all_tools() -> Vec<ToolDescription> {
         tool_search(),
         tool_list_stale(),
         tool_scan_staged(),
+        tool_ingest(),
     ]
 }
 
@@ -673,6 +675,30 @@ fn tool_scan_staged() -> ToolDescription {
     )
 }
 
+fn tool_ingest() -> ToolDescription {
+    ToolDescription::new(
+        "knox_ingest",
+        "Ingests conversational transcripts, human chat notes, or raw dialogue into the Knox knowledge graph. Automatically classifies human inputs into plans, doubts, and dialogues, records writes and decisions, and establishes causal lineage.",
+        json!({
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Optional filesystem path to a conversation transcript file (JSONL, JSON, Markdown, or git repo)."
+                },
+                "raw_transcript": {
+                    "type": "string",
+                    "description": "Optional raw conversation text, Markdown chat, or JSON string to ingest directly."
+                },
+                "actor": {
+                    "type": "string",
+                    "description": "Optional actor/tool override for actions emitted during ingestion (defaults to auto-detected format)."
+                }
+            }
+        }),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -680,7 +706,7 @@ mod tests {
     #[test]
     fn test_all_tools_count_and_names() {
         let tools = all_tools();
-        assert_eq!(tools.len(), 16);
+        assert_eq!(tools.len(), 17);
         for expected_name in TOOL_NAMES {
             assert!(
                 tools.iter().any(|t| t.name == expected_name),

@@ -25,6 +25,115 @@ pub struct DebugExecution {
     pub exit_code: Option<i32>,
 }
 
+/// Classification of a human conversation input during transcript ingestion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HumanInputKind {
+    /// An inquiry, question, doubt, or uncertainty.
+    Doubt,
+    /// A directive, instruction, plan, or task.
+    Plan,
+    /// General dialogue, clarification, or conversational exchange.
+    Dialogue,
+}
+
+/// Classifies a user input string into a Doubt, Plan, or Dialogue.
+pub fn classify_human_input(content: &str) -> HumanInputKind {
+    let clean = extract_user_request_text(content).trim();
+    if clean.is_empty() {
+        return HumanInputKind::Plan;
+    }
+
+    let lower = clean.to_ascii_lowercase();
+
+    // Check for explicit commands or slash commands
+    if lower.contains("/goal")
+        || lower.contains("/plan")
+        || lower.contains("/fix")
+        || lower.contains("/build")
+        || lower.starts_with("implement")
+        || lower.starts_with("build")
+        || lower.starts_with("create")
+        || lower.starts_with("add ")
+        || lower.starts_with("refactor")
+        || lower.starts_with("fix ")
+        || lower.starts_with("delete ")
+        || lower.starts_with("remove ")
+    {
+        return HumanInputKind::Plan;
+    }
+
+    // Check polite instruction prefixes: "can you ...", "could you ...", "please ..."
+    let words: Vec<&str> = lower
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
+        .filter(|w| !w.is_empty())
+        .collect();
+
+    if words.len() >= 2 {
+        let first_two = (words[0], words[1]);
+        if first_two == ("can", "you")
+            || first_two == ("could", "you")
+            || first_two == ("would", "you")
+            || first_two == ("will", "you")
+            || words[0] == "please"
+        {
+            return HumanInputKind::Plan;
+        }
+    }
+
+    // Check question starters: "can i ...", "what ...", "why ...", "how ...", "is it ...", "should we ..."
+    let question_starters = [
+        "what", "why", "how", "where", "when", "which", "who", "whom",
+        "should", "would", "is", "are", "was", "were",
+    ];
+    if let Some(&first) = words.first() {
+        if question_starters.contains(&first) {
+            return HumanInputKind::Doubt;
+        }
+        if (first == "can" || first == "could") && words.get(1).is_some_and(|w| matches!(*w, "i" | "we")) {
+            return HumanInputKind::Doubt;
+        }
+        if (first == "do" || first == "does" || first == "did") && words.get(1).is_some_and(|w| matches!(*w, "we" | "i" | "you" | "they" | "it")) {
+            return HumanInputKind::Doubt;
+        }
+    }
+
+    // Check if ends with '?' or contains question / doubt phrases
+    let trimmed_end = clean.trim_end_matches(&[' ', '\r', '\n', '`', '*', '"', '\'', '.'][..]);
+    if trimmed_end.ends_with('?') || clean.contains('?') {
+        return HumanInputKind::Doubt;
+    }
+
+    let doubt_phrases = [
+        "i wonder",
+        "not sure",
+        "doubt",
+        "wondering",
+        "confused",
+        "is it possible",
+        "should we",
+        "can we",
+        "what if",
+        "what happens",
+    ];
+    if doubt_phrases.iter().any(|&phrase| lower.contains(phrase)) {
+        return HumanInputKind::Doubt;
+    }
+
+    // Conversational acknowledgments, greetings, or short confirmations
+    let conversational_words = [
+        "ok", "okay", "yes", "no", "sure", "thanks", "thank", "sounds",
+        "apply", "proceed", "continue", "done", "hello", "hi", "hey",
+        "yep", "nope", "acknowledged", "cool", "great", "nice",
+    ];
+    if words.len() <= 3 && words.iter().any(|w| conversational_words.contains(w)) {
+        return HumanInputKind::Dialogue;
+    }
+
+    // Default to Plan for descriptive tasks and directives
+    HumanInputKind::Plan
+}
+
 /// Generates a summary for a user plan action, taking at most 200 characters.
 pub fn summarize_plan(content: &str) -> String {
     let clean = extract_user_request_text(content);
@@ -295,5 +404,64 @@ mod tests {
         assert_eq!(file_mod.lines_removed, 1);
         assert_eq!(file_mod.lines_added, 2);
         assert!(!file_mod.is_new);
+    }
+
+    #[test]
+    fn test_classify_human_input_doubts() {
+        assert_eq!(
+            classify_human_input("what happens if i delete this"),
+            HumanInputKind::Doubt
+        );
+        assert_eq!(
+            classify_human_input("can i delete this one the text is double and overlapping"),
+            HumanInputKind::Doubt
+        );
+        assert_eq!(
+            classify_human_input("Should we use SQLite or RocksDB?"),
+            HumanInputKind::Doubt
+        );
+        assert_eq!(
+            classify_human_input("Is sqlite locking safe with multi-process?"),
+            HumanInputKind::Doubt
+        );
+        assert_eq!(
+            classify_human_input("Which architecture is better: monolithic or layered?"),
+            HumanInputKind::Doubt
+        );
+        assert_eq!(
+            classify_human_input("I wonder if we need a connection pool"),
+            HumanInputKind::Doubt
+        );
+    }
+
+    #[test]
+    fn test_classify_human_input_plans() {
+        assert_eq!(
+            classify_human_input("Refactor parser module to support streaming tokens"),
+            HumanInputKind::Plan
+        );
+        assert_eq!(
+            classify_human_input("can you fix the login button?"),
+            HumanInputKind::Plan
+        );
+        assert_eq!(
+            classify_human_input("please implement token streaming in parser"),
+            HumanInputKind::Plan
+        );
+        assert_eq!(
+            classify_human_input("Implement session caching in rust"),
+            HumanInputKind::Plan
+        );
+        assert_eq!(
+            classify_human_input("<USER_REQUEST>\nFix connection timeout in db.rs\n</USER_REQUEST>"),
+            HumanInputKind::Plan
+        );
+    }
+
+    #[test]
+    fn test_classify_human_input_dialogue() {
+        assert_eq!(classify_human_input("ok"), HumanInputKind::Dialogue);
+        assert_eq!(classify_human_input("apply"), HumanInputKind::Dialogue);
+        assert_eq!(classify_human_input("thanks a lot"), HumanInputKind::Dialogue);
     }
 }

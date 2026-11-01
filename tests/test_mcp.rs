@@ -4,6 +4,7 @@ use serde_json::json;
 
 use knox::core::KnoxResult;
 use knox::core::ids::ActionId;
+use knox::core::types::QueryFilter;
 use knox::mcp::handlers::dispatch;
 use knox::storage::db::KnoxDb;
 
@@ -164,7 +165,7 @@ fn test_mcp_search_and_tools_call_standard() {
     let list_res = dispatch("tools/list", json!({}), &db);
     assert_eq!(
         list_res.result.unwrap()["tools"].as_array().unwrap().len(),
-        16
+        17
     );
 
     let session_id = mcp_start(&db, "gemini");
@@ -587,4 +588,62 @@ fn test_mcp_resources_and_prompts() {
     assert!(prompt_get.error.is_none());
     let messages = prompt_get.result.unwrap()["messages"].as_array().unwrap().clone();
     assert!(!messages.is_empty());
+}
+
+#[test]
+fn test_mcp_ingest_conversation_with_plans_and_doubts() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    let raw_conversation = r#"
+## User
+Can I delete the old egui GUI module from the codebase?
+
+## Assistant
+Decided to remove egui and eframe completely in favor of Tauri desktop.
+
+## User
+Implement the clean removal of egui dependencies from Cargo.toml
+"#;
+
+    let ingest_res = dispatch(
+        "knox_ingest",
+        json!({
+            "raw_transcript": raw_conversation,
+            "actor": "gemini"
+        }),
+        &db,
+    );
+
+    assert!(ingest_res.error.is_none());
+    let result = ingest_res.result.unwrap();
+    assert_eq!(result["status"], "ingested");
+    assert_eq!(result["actions_imported"], 3);
+
+    // Verify Doubt was captured
+    let doubt_filter = QueryFilter {
+        action_type: Some("doubt".to_string()),
+        ..Default::default()
+    };
+    let doubt_res = knox::storage::queries::query_actions(&db, &doubt_filter).unwrap();
+    assert_eq!(doubt_res.total_count, 1);
+    assert_eq!(doubt_res.results[0].is_resolved, Some(false));
+    assert!(doubt_res.results[0].summary.contains("Can I delete the old egui GUI"));
+
+    // Verify Decision was captured
+    let decide_filter = QueryFilter {
+        action_type: Some("decide".to_string()),
+        ..Default::default()
+    };
+    let decide_res = knox::storage::queries::query_actions(&db, &decide_filter).unwrap();
+    assert_eq!(decide_res.total_count, 1);
+    assert!(decide_res.results[0].summary.contains("Decided to remove egui"));
+
+    // Verify Plan was captured
+    let plan_filter = QueryFilter {
+        action_type: Some("plan".to_string()),
+        ..Default::default()
+    };
+    let plan_res = knox::storage::queries::query_actions(&db, &plan_filter).unwrap();
+    assert_eq!(plan_res.total_count, 1);
+    assert!(plan_res.results[0].summary.contains("Implement the clean removal of egui"));
 }

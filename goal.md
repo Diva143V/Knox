@@ -124,9 +124,9 @@ All edges carry: `timestamp`, `session_id`, `tool_source`.
 
 ---
 
-## MCP Interface (16 Tools, Resources & Prompts)
+## MCP Interface (17 Tools, Resources & Prompts)
 
-When running `knox serve --stdio`, Knox exposes 16 tools, 3 native resources, and 2 guided prompts:
+When running `knox serve --stdio`, Knox exposes 17 tools, 3 native resources, and 2 guided prompts:
 
 ### 1. Session Management
 - **`knox_start_session`** — Start an explicit work session (or rely on smart implicit auto-sessions).
@@ -138,6 +138,7 @@ When running `knox serve --stdio`, Knox exposes 16 tools, 3 native resources, an
 - **`knox_record_doubt`** — Record an active human uncertainty, open question, or technical doubt with context.
 - **`knox_resolve_doubt`** — Mark an open doubt as resolved, recording resolution rationale and creating a `Resolves` edge.
 - **`knox_record_batch`** — Atomically record multiple related actions, decisions, and doubts in a single round trip.
+- **`knox_ingest`** — Ingest entire conversations, chat notes, or raw transcripts with automatic plan/doubt/dialogue classification.
 
 ### 3. Context & Lineage Retrieval
 - **`knox_get_context`** — Token-compact Markdown digest of active, non-superseded project decisions, open doubts, and files.
@@ -217,6 +218,7 @@ tools_registered:
   - knox_search
   - knox_list_stale
   - knox_scan_staged
+  - knox_ingest
 created_at: "2026-10-29T18:00:00Z"
 knox_version: "1.2.1"
 -->

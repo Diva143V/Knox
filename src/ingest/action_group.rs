@@ -8,8 +8,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::summary::{
-    DebugExecution, FileModification, parse_debug_execution, parse_file_modification,
-    summarize_debug, summarize_decide, summarize_plan, summarize_write,
+    DebugExecution, FileModification, HumanInputKind, classify_human_input,
+    parse_debug_execution, parse_file_modification, summarize_debug,
+    summarize_decide, summarize_plan, summarize_write,
 };
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::ids::{ActionId, SessionId};
@@ -146,20 +147,42 @@ impl ActionGrouper {
     ) -> Vec<KnoxAction> {
         let emitted = self.flush_current_group();
 
-        let plan_summary = summarize_plan(step.content.as_deref().unwrap_or_default());
+        let content_str = step.content.as_deref().unwrap_or_default();
+        let plan_summary = summarize_plan(content_str);
+        let kind = classify_human_input(content_str);
+
+        let (action_type, is_resolved, tags) = match kind {
+            HumanInputKind::Doubt => (
+                "doubt".to_string(),
+                Some(false),
+                vec!["user-doubt".to_string(), "open-question".to_string()],
+            ),
+            HumanInputKind::Dialogue => (
+                "dialogue".to_string(),
+                Some(true),
+                vec!["conversation".to_string()],
+            ),
+            HumanInputKind::Plan => (
+                "plan".to_string(),
+                Some(true),
+                vec!["plan".to_string()],
+            ),
+        };
+
         let human_plan = KnoxAction {
             id: ActionId::new(),
             actor: "human".to_string(),
-            action_type: "plan".to_string(),
+            action_type,
             summary: plan_summary,
             files: Vec::new(),
-            tags: Vec::new(),
+            tags,
             confidence: None,
             timestamp,
             session_id: self.session_id.clone(),
             parent_action_id: None,
             supersedes: None,
             is_current: true,
+            is_resolved,
             ..Default::default()
         };
 
@@ -479,12 +502,31 @@ mod tests {
 
         let actions = grouper.finish();
         assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0].action_type, "plan");
+        assert_eq!(actions[0].action_type, "doubt");
+        assert_eq!(actions[0].is_resolved, Some(false));
         assert_eq!(actions[1].action_type, "decide");
         assert_eq!(
             actions[1].summary,
             "Layered architecture is preferred for strict dependency boundaries."
         );
         assert_eq!(actions[1].parent_action_id, Some(actions[0].id.clone()));
+    }
+
+    #[test]
+    fn test_action_grouper_dialogue_classification() {
+        let mut grouper = ActionGrouper::new("antigravity");
+
+        grouper.process_step(&TranscriptStep {
+            step_index: Some(0),
+            source: Some("USER_EXPLICIT".to_string()),
+            step_type: Some("USER_INPUT".to_string()),
+            content: Some("ok sounds good".to_string()),
+            ..Default::default()
+        });
+
+        let actions = grouper.finish();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].action_type, "dialogue");
+        assert_eq!(actions[0].is_resolved, Some(true));
     }
 }
