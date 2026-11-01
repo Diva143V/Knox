@@ -11,6 +11,7 @@ import type {
   IngestPreview,
   DetectedTranscript,
   KnoxConfig,
+  DbStats,
   Session,
   Project,
   DetectedMcpApp,
@@ -315,10 +316,11 @@ export const KnoxAPI = {
   async updateConfig(params: {
     sessionTimeoutSeconds?: number;
     globalMode?: boolean;
+    kgPath?: string;
   }): Promise<KnoxConfig> {
     if (!isTauri) {
       return {
-        kg_path: "~/.knox/knox.db",
+        kg_path: params.kgPath ?? "~/.knox/knox.db",
         session_timeout_seconds: params.sessionTimeoutSeconds ?? 1800,
         global_mode: params.globalMode ?? true,
       };
@@ -328,7 +330,54 @@ export const KnoxAPI = {
       session_timeout_seconds: params.sessionTimeoutSeconds,
       globalMode: params.globalMode,
       global_mode: params.globalMode,
+      kgPath: params.kgPath,
+      kg_path: params.kgPath,
     });
+  },
+
+  async saveConfig(config: KnoxConfig): Promise<KnoxConfig> {
+    if (!isTauri) {
+      return config;
+    }
+    return invoke<KnoxConfig>("save_config", { config });
+  },
+
+  async getDbStats(): Promise<DbStats> {
+    if (!isTauri) {
+      return {
+        db_size_bytes: 4200000,
+        wal_size_bytes: 131072,
+        page_count: 1024,
+        page_size: 4096,
+        total_actions: 42,
+        total_sessions: 5,
+        total_relations: 18,
+        schema_version: 3,
+      };
+    }
+    return invoke<DbStats>("get_db_stats");
+  },
+
+  async runDbIntegrity(): Promise<string> {
+    if (!isTauri) {
+      return "ok";
+    }
+    return invoke<string>("run_db_integrity");
+  },
+
+  async runDbVacuum(): Promise<string> {
+    if (!isTauri) {
+      return "Database vacuum completed successfully.";
+    }
+    return invoke<string>("run_db_vacuum");
+  },
+
+  async revealDbFolder(): Promise<void> {
+    if (!isTauri) {
+      console.log("Mock revealDbFolder called");
+      return;
+    }
+    return invoke<void>("reveal_db_folder");
   },
 
   async openFileDialog(options?: {

@@ -102,6 +102,110 @@ export interface KnoxConfig {
   global_mode: boolean;
 }
 
+export interface DbStats {
+  db_size_bytes: number;
+  wal_size_bytes: number;
+  page_count: number;
+  page_size: number;
+  total_actions: number;
+  total_sessions: number;
+  total_relations: number;
+  schema_version: number;
+}
+
+export type SettingsTabId =
+  | "general"
+  | "storage"
+  | "graph"
+  | "mcp"
+  | "scanner"
+  | "ingestion"
+  | "system"
+  | "shortcuts"
+  | "about";
+
+export interface UserSettings {
+  // Appearance
+  theme: "dark" | "light" | "system";
+  uiDensity: "comfortable" | "compact";
+  enableGlowFx: boolean;
+  defaultStartupView: ViewTab;
+
+  // Graph Engine
+  defaultGraphMode: "cards" | "cosmos";
+  defaultLivePhysics: boolean;
+  defaultLayoutEngine: "hierarchical" | "dagre" | "force" | "grid";
+  showFileNodes: boolean;
+  showLegend: boolean;
+  showEdgeLabels: boolean;
+  chargeStrength: number;
+  linkDistance: number;
+  collisionPadding: number;
+
+  // AI Agents & MCP
+  mcpCommandMode: "system" | "absolute";
+  guardrailsMode: "strict" | "advisory" | "off";
+  enableMarkdownDigest: boolean;
+
+  // Git & Scanner
+  defaultAuthorName: string;
+  scannerIgnorePatterns: string[];
+  strictGitHook: boolean;
+  diffScanDepth: number;
+
+  // Ingestion
+  ingestWatchPaths: string[];
+  deduplicationMode: "skip" | "supersede";
+  requireIngestPreview: boolean;
+
+  // System & Shell
+  closeToTray: boolean;
+  startOnBoot: boolean;
+  showDesktopNotifications: boolean;
+}
+
+export const DEFAULT_USER_SETTINGS: UserSettings = {
+  theme: "dark",
+  uiDensity: "comfortable",
+  enableGlowFx: true,
+  defaultStartupView: "dashboard",
+
+  defaultGraphMode: "cards",
+  defaultLivePhysics: false,
+  defaultLayoutEngine: "hierarchical",
+  showFileNodes: true,
+  showLegend: true,
+  showEdgeLabels: true,
+  chargeStrength: -380,
+  linkDistance: 140,
+  collisionPadding: 28,
+
+  mcpCommandMode: "system",
+  guardrailsMode: "advisory",
+  enableMarkdownDigest: true,
+
+  defaultAuthorName: "human",
+  scannerIgnorePatterns: [
+    "node_modules/**",
+    "target/**",
+    "dist/**",
+    "build/**",
+    "*.lock",
+    "*.min.js",
+    ".git/**",
+  ],
+  strictGitHook: false,
+  diffScanDepth: 1000,
+
+  ingestWatchPaths: [],
+  deduplicationMode: "skip",
+  requireIngestPreview: true,
+
+  closeToTray: true,
+  startOnBoot: false,
+  showDesktopNotifications: true,
+};
+
 export type ViewTab =
   | "dashboard"
   | "graph"

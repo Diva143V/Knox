@@ -2,10 +2,33 @@
 
 import { create } from "zustand";
 import { KnoxAPI } from "@/services/api";
-import type { KnoxAction, KnoxConfig, Project, StatusReport, ViewTab } from "@/types/knox";
-import { isValidTab } from "@/types/knox";
+import type {
+  KnoxAction,
+  KnoxConfig,
+  Project,
+  StatusReport,
+  ViewTab,
+  UserSettings,
+  SettingsTabId,
+} from "@/types/knox";
+import { isValidTab, DEFAULT_USER_SETTINGS } from "@/types/knox";
 import type { ToastVariant } from "@/components/ui/Toast";
 import { applyTheme, getStoredTheme, type ThemeMode } from "@/lib/theme";
+
+const SETTINGS_STORAGE_KEY = "knox_user_settings_v1";
+
+const getSavedUserSettings = (): UserSettings => {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULT_USER_SETTINGS, ...parsed };
+    }
+  } catch {
+    // fallback
+  }
+  return DEFAULT_USER_SETTINGS;
+};
 
 const getInitialTab = (): ViewTab => {
   if (typeof window !== "undefined" && window.location.hash) {
@@ -51,9 +74,7 @@ const getSavedRecentProjects = (): RecentProject[] => {
   } catch {
     // ignore
   }
-  return [
-    { name: "Knox", path: "D:\\Knox" },
-  ];
+  return [];
 };
 
 const getSavedActiveProject = (): string | null => {
@@ -78,8 +99,11 @@ interface KnoxStore {
   commandPaletteOpen: boolean;
   onboardingOpen: boolean;
   isTourOpen: boolean;
+  isSettingsOpen: boolean;
+  activeSettingsTab: SettingsTabId;
   config: KnoxConfig | null;
   theme: ThemeMode;
+  userSettings: UserSettings;
 
   // Global KG vs Project Folder Scope
   activeProjectScope: string | null;
@@ -102,10 +126,15 @@ interface KnoxStore {
   setOnboardingOpen: (open: boolean) => void;
   openTour: () => void;
   closeTour: () => void;
+  openSettings: (tab?: SettingsTabId) => void;
+  closeSettings: () => void;
   setTheme: (theme: ThemeMode) => void;
+  updateUserSettings: (patch: Partial<UserSettings>) => void;
+  resetUserSettings: () => void;
   updateConfig: (params: {
     sessionTimeoutSeconds?: number;
     globalMode?: boolean;
+    kgPath?: string;
   }) => Promise<KnoxConfig>;
   refreshData: () => Promise<void>;
 }
@@ -124,10 +153,48 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   commandPaletteOpen: false,
   onboardingOpen: !isTourFirstRun() && isFirstRun(),
   isTourOpen: isTourFirstRun(),
+  isSettingsOpen: false,
+  activeSettingsTab: "general",
   openTour: () => set({ isTourOpen: true }),
   closeTour: () => set({ isTourOpen: false }),
+  openSettings: (tab) =>
+    set({ isSettingsOpen: true, activeSettingsTab: tab ?? "general" }),
+  closeSettings: () => set({ isSettingsOpen: false }),
   config: null,
   theme: getStoredTheme(),
+  userSettings: getSavedUserSettings(),
+
+  updateUserSettings: (patch) => {
+    const current = get().userSettings;
+    const updated = { ...current, ...patch };
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+    if (patch.theme && patch.theme !== current.theme) {
+      if (patch.theme === "system") {
+        const isDark =
+          typeof window !== "undefined" &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        applyTheme(isDark ? "dark" : "light");
+      } else {
+        applyTheme(patch.theme);
+      }
+      set({ theme: patch.theme === "light" ? "light" : "dark" });
+    }
+    set({ userSettings: updated });
+  },
+
+  resetUserSettings: () => {
+    try {
+      localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    applyTheme("dark");
+    set({ userSettings: DEFAULT_USER_SETTINGS, theme: "dark" });
+  },
 
   activeProjectScope: getSavedActiveProject(),
   recentProjects: getSavedRecentProjects(),
