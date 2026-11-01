@@ -37,8 +37,13 @@ impl TranscriptMapper for GitLogMapper {
 
             if line0.starts_with("commit ") && line0.len() >= 47 {
                 let hash_candidate = &line0[7..];
-                if hash_candidate.chars().take(40).all(|c| c.is_ascii_hexdigit())
-                    && (line1.starts_with("Author:") || line2.starts_with("Author:") || line1.starts_with("Merge:"))
+                if hash_candidate
+                    .chars()
+                    .take(40)
+                    .all(|c| c.is_ascii_hexdigit())
+                    && (line1.starts_with("Author:")
+                        || line2.starts_with("Author:")
+                        || line1.starts_with("Merge:"))
                 {
                     return true;
                 }
@@ -58,7 +63,8 @@ impl TranscriptMapper for GitLogMapper {
         let mut previous_action_id: Option<ActionId> = None;
 
         for commit in commits {
-            let is_merge = commit.subject.starts_with("Merge ") || commit.subject.contains("pull request");
+            let is_merge =
+                commit.subject.starts_with("Merge ") || commit.subject.contains("pull request");
             let action_type = if is_merge { "decide" } else { "plan" };
 
             let plan_id = ActionId::new();
@@ -99,7 +105,11 @@ impl TranscriptMapper for GitLogMapper {
                 supersedes: None,
                 is_current: true,
                 rationale,
-                context_summary: Some(format!("Git commit {} by {}", &commit.hash[..commit.hash.len().min(8)], commit.author)),
+                context_summary: Some(format!(
+                    "Git commit {} by {}",
+                    &commit.hash[..commit.hash.len().min(8)],
+                    commit.author
+                )),
                 rejected_alternatives: Vec::new(),
                 significance: Some("major".to_string()),
                 is_resolved: Some(true),
@@ -115,7 +125,11 @@ impl TranscriptMapper for GitLogMapper {
                     id: write_id.clone(),
                     actor: "git".to_string(),
                     action_type: "write".to_string(),
-                    summary: format!("Modify {} file(s) in commit {}", commit.files.len(), &commit.hash[..commit.hash.len().min(8)]),
+                    summary: format!(
+                        "Modify {} file(s) in commit {}",
+                        commit.files.len(),
+                        &commit.hash[..commit.hash.len().min(8)]
+                    ),
                     confidence: Some(1.0),
                     timestamp: commit.timestamp,
                     session_id: None,

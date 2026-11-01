@@ -113,10 +113,18 @@ fn format_synthesized_digest(title: &str, actions: &[KnoxAction]) -> String {
 
     let open_doubts: Vec<&KnoxAction> = actions
         .iter()
-        .filter(|a| (a.action_type == "doubt" || a.action_type == "question") && a.is_resolved != Some(true))
+        .filter(|a| {
+            (a.action_type == "doubt" || a.action_type == "question") && a.is_resolved != Some(true)
+        })
         .collect();
-    let decisions: Vec<&KnoxAction> = actions.iter().filter(|a| a.action_type == "decide").collect();
-    let writes: Vec<&KnoxAction> = actions.iter().filter(|a| a.action_type == "write").collect();
+    let decisions: Vec<&KnoxAction> = actions
+        .iter()
+        .filter(|a| a.action_type == "decide")
+        .collect();
+    let writes: Vec<&KnoxAction> = actions
+        .iter()
+        .filter(|a| a.action_type == "write")
+        .collect();
     let other: Vec<&KnoxAction> = actions
         .iter()
         .filter(|a| {
@@ -139,7 +147,10 @@ fn format_synthesized_digest(title: &str, actions: &[KnoxAction]) -> String {
                 out.push_str(&format!("> - **Context**: {}\n", ctx));
             }
             if !d.files.is_empty() {
-                out.push_str(&format!("> - **Target Files**: `{}`\n", d.files.join("`, `")));
+                out.push_str(&format!(
+                    "> - **Target Files**: `{}`\n",
+                    d.files.join("`, `")
+                ));
             }
             out.push('\n');
         }
@@ -200,7 +211,10 @@ fn format_synthesized_digest(title: &str, actions: &[KnoxAction]) -> String {
 
     // 4. Other actions summary
     if !other.is_empty() {
-        out.push_str(&format!("*+ {} other actions (debug/plan/read)*\n", other.len()));
+        out.push_str(&format!(
+            "*+ {} other actions (debug/plan/read)*\n",
+            other.len()
+        ));
     }
 
     out
@@ -286,7 +300,11 @@ pub fn format_guardrails_markdown(
         }
     }
 
-    if active_decisions.is_empty() && stale_decisions.is_empty() && violations.is_empty() && open_doubts.is_empty() {
+    if active_decisions.is_empty()
+        && stale_decisions.is_empty()
+        && violations.is_empty()
+        && open_doubts.is_empty()
+    {
         out.push_str("✅ *No restrictive architectural constraints or warnings found for these files. Proceed with standard implementation.*\n");
         return out;
     }

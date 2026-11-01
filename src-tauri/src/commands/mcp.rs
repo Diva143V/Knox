@@ -51,11 +51,17 @@ fn expand_user_path(p: &str) -> Option<PathBuf> {
         Some(PathBuf::from(home).join(rest))
     } else if p.contains("%APPDATA%") {
         let appdata = std::env::var("APPDATA").ok()?;
-        let rest = p.replace("%APPDATA%", "").trim_start_matches(['/', '\\']).to_string();
+        let rest = p
+            .replace("%APPDATA%", "")
+            .trim_start_matches(['/', '\\'])
+            .to_string();
         Some(PathBuf::from(appdata).join(rest))
     } else if p.contains("%LOCALAPPDATA%") {
         let localappdata = std::env::var("LOCALAPPDATA").ok()?;
-        let rest = p.replace("%LOCALAPPDATA%", "").trim_start_matches(['/', '\\']).to_string();
+        let rest = p
+            .replace("%LOCALAPPDATA%", "")
+            .trim_start_matches(['/', '\\'])
+            .to_string();
         Some(PathBuf::from(localappdata).join(rest))
     } else {
         Some(PathBuf::from(p))
@@ -82,10 +88,14 @@ fn inspect_mcp_file(path: &Path) -> (bool, bool, String, Option<String>) {
         return (false, false, "standard".to_string(), None);
     }
 
-    let modified = path.metadata().ok().and_then(|m| m.modified().ok()).map(|time| {
-        let datetime: chrono::DateTime<chrono::Utc> = time.into();
-        datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()
-    });
+    let modified = path
+        .metadata()
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .map(|time| {
+            let datetime: chrono::DateTime<chrono::Utc> = time.into();
+            datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+        });
 
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
@@ -192,7 +202,11 @@ pub async fn detect_mcp_configs(app: tauri::AppHandle) -> Result<Vec<DetectedMcp
 pub async fn detect_mcp_configs_impl(
     app: Option<&tauri::AppHandle>,
 ) -> Result<Vec<DetectedMcpApp>, String> {
-    emit_scan_log(app, "info", "Starting quick scan of standard IDE directories...");
+    emit_scan_log(
+        app,
+        "info",
+        "Starting quick scan of standard IDE directories...",
+    );
     let mut results = Vec::new();
 
     for known in KNOWN_APPS {
@@ -217,10 +231,7 @@ pub async fn detect_mcp_configs_impl(
                     emit_scan_log(
                         app,
                         "found",
-                        &format!(
-                            "Found {} (Unconfigured, schema: {})",
-                            known.name, format
-                        ),
+                        &format!("Found {} (Unconfigured, schema: {})", known.name, format),
                     );
                 }
             } else {
@@ -270,7 +281,11 @@ pub async fn deep_scan_mcp_configs(app: tauri::AppHandle) -> Result<Vec<Detected
 pub async fn deep_scan_mcp_configs_impl(
     app: Option<&tauri::AppHandle>,
 ) -> Result<Vec<DetectedMcpApp>, String> {
-    emit_scan_log(app, "info", "Starting deep drive scan for MCP configurations across all local drives...");
+    emit_scan_log(
+        app,
+        "info",
+        "Starting deep drive scan for MCP configurations across all local drives...",
+    );
     // 1. Gather all active logical drive roots on Windows or root on Unix
     let roots = get_drive_roots();
     let drives_str = roots
@@ -383,7 +398,8 @@ fn scan_directory_recursive(
                 || lower == "target"
                 || lower == "temp"
                 || lower == "tmp"
-                || (current_depth == 1 && (lower == "program files" || lower == "program files (x86)"))
+                || (current_depth == 1
+                    && (lower == "program files" || lower == "program files (x86)"))
             {
                 if current_depth <= 2 {
                     emit_scan_log(
@@ -435,10 +451,7 @@ fn scan_directory_recursive(
                             emit_scan_log(
                                 app,
                                 "found",
-                                &format!(
-                                    "Validated candidate {} (schema: {})",
-                                    file_name, format
-                                ),
+                                &format!("Validated candidate {} (schema: {})", file_name, format),
                             );
                         }
                         results.push(DetectedMcpApp {
@@ -587,7 +600,10 @@ pub async fn remove_mcp_config(file_path: String) -> Result<bool, String> {
         serde_json::from_str(&content).map_err(|e| format!("Invalid JSON: {e}"))?;
 
     if let Some(root_obj) = json_val.as_object_mut() {
-        if let Some(mcp_servers) = root_obj.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
+        if let Some(mcp_servers) = root_obj
+            .get_mut("mcpServers")
+            .and_then(|v| v.as_object_mut())
+        {
             mcp_servers.remove("knox");
         }
         if let Some(servers) = root_obj
@@ -598,7 +614,10 @@ pub async fn remove_mcp_config(file_path: String) -> Result<bool, String> {
         {
             servers.remove("knox");
         }
-        if let Some(cs) = root_obj.get_mut("context_servers").and_then(|v| v.as_object_mut()) {
+        if let Some(cs) = root_obj
+            .get_mut("context_servers")
+            .and_then(|v| v.as_object_mut())
+        {
             cs.remove("knox");
         }
     }
@@ -736,4 +755,3 @@ mod tests {
         assert!(apps.iter().any(|a| a.id == "cursor"));
     }
 }
-

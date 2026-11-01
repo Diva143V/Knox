@@ -114,9 +114,8 @@ fn fetch_query_actions(
     let mut rel_stmt = conn.prepare_cached(
         "SELECT to_action_id, relation_type FROM action_relations WHERE from_action_id = ?1 ORDER BY to_action_id",
     )?;
-    let mut sym_stmt = conn.prepare_cached(
-        "SELECT symbol FROM action_symbols WHERE action_id = ?1 ORDER BY symbol",
-    )?;
+    let mut sym_stmt = conn
+        .prepare_cached("SELECT symbol FROM action_symbols WHERE action_id = ?1 ORDER BY symbol")?;
 
     map_action_rows(
         action_rows,

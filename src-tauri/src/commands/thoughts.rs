@@ -27,7 +27,9 @@ pub fn record_quick_thought_impl(
     let (action_type, significance, is_resolved) = match cat.as_str() {
         "doubt" | "question" => ("doubt".to_string(), "minor".to_string(), false),
         "minor_decision" | "minor" => ("decide".to_string(), "minor".to_string(), true),
-        "major_decision" | "decision" | "decide" => ("decide".to_string(), "major".to_string(), true),
+        "major_decision" | "decision" | "decide" => {
+            ("decide".to_string(), "major".to_string(), true)
+        }
         "dialogue" | "conversation" => ("dialogue".to_string(), "minor".to_string(), true),
         _ => ("dialogue".to_string(), "minor".to_string(), true),
     };

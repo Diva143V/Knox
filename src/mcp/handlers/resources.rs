@@ -109,7 +109,9 @@ pub fn handle_resources_read(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             ("text/markdown", text)
         }
         other => {
-            return Err(KnoxError::InvalidInput(format!("Resource not found: {other}")));
+            return Err(KnoxError::InvalidInput(format!(
+                "Resource not found: {other}"
+            )));
         }
     };
 

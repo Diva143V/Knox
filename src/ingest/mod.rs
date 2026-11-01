@@ -120,9 +120,15 @@ pub fn detect_local_transcripts(project_root: Option<&Path>) -> Vec<DetectedTran
         if antigravity_brain.exists() {
             if let Ok(conv_dirs) = std::fs::read_dir(&antigravity_brain) {
                 for conv in conv_dirs.flatten().take(5) {
-                    let transcript_path = conv.path().join(".system_generated").join("logs").join("transcript.jsonl");
+                    let transcript_path = conv
+                        .path()
+                        .join(".system_generated")
+                        .join("logs")
+                        .join("transcript.jsonl");
                     if transcript_path.exists() {
-                        let size = std::fs::metadata(&transcript_path).map(|m| m.len()).unwrap_or(0);
+                        let size = std::fs::metadata(&transcript_path)
+                            .map(|m| m.len())
+                            .unwrap_or(0);
                         detected.push(DetectedTranscript {
                             path: transcript_path.display().to_string(),
                             source: "Antigravity".to_string(),

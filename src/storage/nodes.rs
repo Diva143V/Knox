@@ -164,9 +164,8 @@ fn fetch_action_relations_and_symbols(
         })?
         .collect::<Result<Vec<ActionRelation>, _>>()?;
 
-    let mut sym_stmt = conn.prepare_cached(
-        "SELECT symbol FROM action_symbols WHERE action_id = ?1 ORDER BY symbol",
-    )?;
+    let mut sym_stmt = conn
+        .prepare_cached("SELECT symbol FROM action_symbols WHERE action_id = ?1 ORDER BY symbol")?;
     let symbols = sym_stmt
         .query_map(params![id.as_str()], |r| r.get::<_, String>(0))?
         .collect::<Result<Vec<String>, _>>()?;
@@ -308,9 +307,8 @@ pub fn get_project_by_path(db: &KnoxDb, path: &str) -> KnoxResult<Option<Project
     let verbatim = format!(r"\\?\{clean}");
 
     let conn = db.conn();
-    let mut stmt = conn.prepare(
-        "SELECT id, name, path, created_at FROM projects WHERE path = ?1 OR path = ?2",
-    )?;
+    let mut stmt = conn
+        .prepare("SELECT id, name, path, created_at FROM projects WHERE path = ?1 OR path = ?2")?;
     let mut rows = stmt.query(params![clean, verbatim])?;
 
     if let Some(row) = rows.next()? {
@@ -340,7 +338,8 @@ pub fn get_project_by_path(db: &KnoxDb, path: &str) -> KnoxResult<Option<Project
 /// Normalizes paths by stripping Windows verbatim prefix `\\?\` if present.
 pub fn list_projects(db: &KnoxDb) -> KnoxResult<Vec<Project>> {
     let conn = db.conn();
-    let mut stmt = conn.prepare("SELECT id, name, path, created_at FROM projects ORDER BY created_at ASC")?;
+    let mut stmt =
+        conn.prepare("SELECT id, name, path, created_at FROM projects ORDER BY created_at ASC")?;
     let mut rows = stmt.query([])?;
     let mut projects = Vec::new();
 
@@ -381,7 +380,9 @@ pub fn resolve_doubt(
     )?;
 
     if rows_affected == 0 {
-        return Err(crate::core::error::KnoxError::ActionNotFound(doubt_id.to_string()));
+        return Err(crate::core::error::KnoxError::ActionNotFound(
+            doubt_id.to_string(),
+        ));
     }
 
     if let Some(resolver_id) = resolver_action_id {

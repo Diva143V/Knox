@@ -21,9 +21,8 @@ fn resolve_project_id(
         .trim_end_matches(['\\', '/']);
     let verbatim_path = format!(r"\\?\{clean_path}");
 
-    let mut stmt = conn.prepare(
-        "SELECT id FROM projects WHERE id = ?1 OR name = ?1 OR path = ?1 OR path = ?2",
-    )?;
+    let mut stmt = conn
+        .prepare("SELECT id FROM projects WHERE id = ?1 OR name = ?1 OR path = ?1 OR path = ?2")?;
     let mut rows = stmt.query(params![clean_path, verbatim_path])?;
     if let Some(row) = rows.next()? {
         Ok(row.get(0)?)

@@ -23,14 +23,20 @@ impl TranscriptMapper for OpenAiMapper {
         };
 
         // Check for ChatGPT export mapping tree structure
-        if text.contains("\"mapping\"") && text.contains("\"message\"") && text.contains("\"author\"") {
+        if text.contains("\"mapping\"")
+            && text.contains("\"message\"")
+            && text.contains("\"author\"")
+        {
             return true;
         }
 
         // Check for OpenAI messages array
         if (text.contains("\"messages\"") || text.starts_with('['))
             && (text.contains("\"role\"") && text.contains("\"user\""))
-            && (text.contains("gpt-") || text.contains("o1-") || text.contains("o3-") || text.contains("\"assistant\""))
+            && (text.contains("gpt-")
+                || text.contains("o1-")
+                || text.contains("o3-")
+                || text.contains("\"assistant\""))
         {
             return true;
         }
@@ -39,8 +45,9 @@ impl TranscriptMapper for OpenAiMapper {
     }
 
     fn map(&self, raw: &[u8]) -> KnoxResult<Vec<KnoxAction>> {
-        let text = std::str::from_utf8(raw)
-            .map_err(|e| KnoxError::ParseError(format!("Invalid UTF-8 in OpenAI transcript: {e}")))?;
+        let text = std::str::from_utf8(raw).map_err(|e| {
+            KnoxError::ParseError(format!("Invalid UTF-8 in OpenAI transcript: {e}"))
+        })?;
 
         let mut grouper = ActionGrouper::new(self.tool_name());
         let mut all_actions = Vec::new();
@@ -61,7 +68,9 @@ impl TranscriptMapper for OpenAiMapper {
 
                         for (idx, node) in nodes.into_iter().enumerate() {
                             if let Some(msg) = node.get("message") {
-                                if let Some(step) = extract_step_from_openai_message(msg, idx as i64) {
+                                if let Some(step) =
+                                    extract_step_from_openai_message(msg, idx as i64)
+                                {
                                     all_actions.extend(grouper.process_step(&step));
                                 }
                             }
@@ -132,7 +141,11 @@ fn extract_step_from_openai_message(msg: &Value, idx: i64) -> Option<TranscriptS
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_else(|| Utc::now().to_rfc3339());
 
-    let content = if let Some(parts) = msg.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
+    let content = if let Some(parts) = msg
+        .get("content")
+        .and_then(|c| c.get("parts"))
+        .and_then(|p| p.as_array())
+    {
         let texts: Vec<&str> = parts.iter().filter_map(|p| p.as_str()).collect();
         texts.join("\n")
     } else if let Some(text) = msg.get("content").and_then(|c| c.as_str()) {

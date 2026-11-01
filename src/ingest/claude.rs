@@ -23,12 +23,18 @@ impl TranscriptMapper for ClaudeMapper {
         };
 
         // Check for Claude Desktop export signature
-        if text.contains("\"chat_messages\"") || (text.contains("\"sender\"") && text.contains("\"human\"")) {
+        if text.contains("\"chat_messages\"")
+            || (text.contains("\"sender\"") && text.contains("\"human\""))
+        {
             return true;
         }
 
         // Check for Claude Code tool_use signature
-        if text.contains("\"tool_use\"") && (text.contains("\"Edit\"") || text.contains("\"Write\"") || text.contains("\"Bash\"")) {
+        if text.contains("\"tool_use\"")
+            && (text.contains("\"Edit\"")
+                || text.contains("\"Write\"")
+                || text.contains("\"Bash\""))
+        {
             return true;
         }
 
@@ -56,8 +62,9 @@ impl TranscriptMapper for ClaudeMapper {
     }
 
     fn map(&self, raw: &[u8]) -> KnoxResult<Vec<KnoxAction>> {
-        let text = std::str::from_utf8(raw)
-            .map_err(|e| KnoxError::ParseError(format!("Invalid UTF-8 in Claude transcript: {e}")))?;
+        let text = std::str::from_utf8(raw).map_err(|e| {
+            KnoxError::ParseError(format!("Invalid UTF-8 in Claude transcript: {e}"))
+        })?;
 
         let mut grouper = ActionGrouper::new(self.tool_name());
         let mut all_actions = Vec::new();
@@ -78,7 +85,9 @@ impl TranscriptMapper for ClaudeMapper {
 
         // 2. Try JSON Object with chat_messages or messages array
         if let Ok(Value::Object(root)) = serde_json::from_str::<Value>(text.trim()) {
-            if let Some(Value::Array(messages)) = root.get("chat_messages").or_else(|| root.get("messages")) {
+            if let Some(Value::Array(messages)) =
+                root.get("chat_messages").or_else(|| root.get("messages"))
+            {
                 for item in messages {
                     let steps = extract_steps_from_claude_value(item);
                     for step in steps {
@@ -185,7 +194,10 @@ fn extract_steps_from_claude_value(val: &Value) -> Vec<TranscriptStep> {
                         text_parts.push(t.to_string());
                     }
                 } else if block_type == "tool_use" {
-                    let tool_name = block.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
+                    let tool_name = block
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("unknown");
                     let input = block.get("input").cloned().unwrap_or(Value::Null);
 
                     // Map Claude tool names to standard Knox tool call arguments
@@ -225,9 +237,17 @@ fn extract_steps_from_claude_value(val: &Value) -> Vec<TranscriptStep> {
             step_type: Some("PLANNER_RESPONSE".to_string()),
             status: Some("DONE".to_string()),
             created_at: Some(timestamp),
-            content: if text_parts.is_empty() { None } else { Some(text_parts.join("\n")) },
+            content: if text_parts.is_empty() {
+                None
+            } else {
+                Some(text_parts.join("\n"))
+            },
             thinking: None,
-            tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+            tool_calls: if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls)
+            },
         });
     }
 

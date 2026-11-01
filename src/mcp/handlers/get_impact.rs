@@ -44,9 +44,7 @@ pub fn handle_get_impact(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             .results
             .first()
             .map(|a| a.id.clone())
-            .ok_or_else(|| {
-                KnoxError::InvalidInput(format!("No actions found for file: {fp}"))
-            })?
+            .ok_or_else(|| KnoxError::InvalidInput(format!("No actions found for file: {fp}")))?
     } else {
         return Err(KnoxError::InvalidInput(
             "Either action_id or file_path must be specified".to_string(),
@@ -66,7 +64,11 @@ pub fn handle_get_impact(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     affected_files.sort();
     affected_files.dedup();
 
-    let format_mode = input.format.as_deref().unwrap_or("markdown").to_ascii_lowercase();
+    let format_mode = input
+        .format
+        .as_deref()
+        .unwrap_or("markdown")
+        .to_ascii_lowercase();
 
     if format_mode == "json" {
         Ok(json!({
@@ -117,8 +119,8 @@ pub fn handle_get_impact(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::core::types::KnoxAction;
+    use chrono::Utc;
 
     #[test]
     fn test_handle_get_impact() {
@@ -192,9 +194,21 @@ mod tests {
         )
         .unwrap();
 
-        let file_count = file_impact_res.get("impacted_actions_count").unwrap().as_u64().unwrap();
+        let file_count = file_impact_res
+            .get("impacted_actions_count")
+            .unwrap()
+            .as_u64()
+            .unwrap();
         assert_eq!(file_count, 1);
-        let affected = file_impact_res.get("affected_files").unwrap().as_array().unwrap();
-        assert!(affected.iter().any(|f| f.as_str().unwrap() == "src/parser.rs"));
+        let affected = file_impact_res
+            .get("affected_files")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert!(
+            affected
+                .iter()
+                .any(|f| f.as_str().unwrap() == "src/parser.rs")
+        );
     }
 }

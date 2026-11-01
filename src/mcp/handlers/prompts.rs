@@ -26,24 +26,20 @@ pub fn all_prompts() -> Vec<PromptInfo> {
         PromptInfo {
             name: "architectural-audit",
             description: "Audit the codebase against recorded Knox architectural decisions to detect drift or rule violations.",
-            arguments: vec![
-                PromptArgument {
-                    name: "target_path",
-                    description: "Target directory or file path to audit (defaults to project root)",
-                    required: false,
-                }
-            ],
+            arguments: vec![PromptArgument {
+                name: "target_path",
+                description: "Target directory or file path to audit (defaults to project root)",
+                required: false,
+            }],
         },
         PromptInfo {
             name: "session-handover",
             description: "Generate a structured handover summary of decisions, actions, and code changes made in this session.",
-            arguments: vec![
-                PromptArgument {
-                    name: "session_id",
-                    description: "Optional session ID to summarize (defaults to most recent session)",
-                    required: false,
-                }
-            ],
+            arguments: vec![PromptArgument {
+                name: "session_id",
+                description: "Optional session ID to summarize (defaults to most recent session)",
+                required: false,
+            }],
         },
     ]
 }
@@ -146,7 +142,8 @@ pub fn handle_prompts_get(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
                 }]
             }))
         }
-        other => Err(KnoxError::InvalidInput(format!("Prompt not found: {other}"))),
+        other => Err(KnoxError::InvalidInput(format!(
+            "Prompt not found: {other}"
+        ))),
     }
 }
-

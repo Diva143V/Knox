@@ -102,7 +102,11 @@ fn parse_generic_json_item(val: &Value, idx: i64) -> Option<TranscriptStep> {
             } else if let Some(arr) = c.as_array() {
                 let parts: Vec<&str> = arr
                     .iter()
-                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()).or_else(|| p.as_str()))
+                    .filter_map(|p| {
+                        p.get("text")
+                            .and_then(|t| t.as_str())
+                            .or_else(|| p.as_str())
+                    })
                     .collect();
                 Some(parts.join("\n"))
             } else {
@@ -146,23 +150,32 @@ fn parse_markdown_or_plaintext(text: &str) -> Vec<TranscriptStep> {
     let mut current_lines: Vec<&str> = Vec::new();
     let mut step_counter: i64 = 0;
 
-    let flush_current = |steps: &mut Vec<TranscriptStep>, role: &str, lines: &[&str], counter: &mut i64| {
-        let content = lines.join("\n").trim().to_string();
-        if !content.is_empty() {
-            let is_user = role == "user";
-            steps.push(TranscriptStep {
-                step_index: Some(*counter),
-                source: Some(if is_user { "USER_EXPLICIT".to_string() } else { "MODEL".to_string() }),
-                step_type: Some(if is_user { "USER_INPUT".to_string() } else { "PLANNER_RESPONSE".to_string() }),
-                status: Some("DONE".to_string()),
-                created_at: Some(Utc::now().to_rfc3339()),
-                content: Some(content),
-                thinking: None,
-                tool_calls: None,
-            });
-            *counter += 1;
-        }
-    };
+    let flush_current =
+        |steps: &mut Vec<TranscriptStep>, role: &str, lines: &[&str], counter: &mut i64| {
+            let content = lines.join("\n").trim().to_string();
+            if !content.is_empty() {
+                let is_user = role == "user";
+                steps.push(TranscriptStep {
+                    step_index: Some(*counter),
+                    source: Some(if is_user {
+                        "USER_EXPLICIT".to_string()
+                    } else {
+                        "MODEL".to_string()
+                    }),
+                    step_type: Some(if is_user {
+                        "USER_INPUT".to_string()
+                    } else {
+                        "PLANNER_RESPONSE".to_string()
+                    }),
+                    status: Some("DONE".to_string()),
+                    created_at: Some(Utc::now().to_rfc3339()),
+                    content: Some(content),
+                    thinking: None,
+                    tool_calls: None,
+                });
+                *counter += 1;
+            }
+        };
 
     for line in text.lines() {
         let trimmed = line.trim();
@@ -216,4 +229,3 @@ mod tests {
         assert!(actions[0].summary.contains("Refactor authentication layer"));
     }
 }
-

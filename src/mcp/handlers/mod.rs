@@ -223,10 +223,21 @@ mod tests {
         let db = KnoxDb::open_memory().unwrap();
         let res_list = dispatch("resources/list", json!({}), &db);
         assert!(res_list.error.is_none());
-        let resources = res_list.result.unwrap().get("resources").unwrap().as_array().unwrap().len();
+        let resources = res_list
+            .result
+            .unwrap()
+            .get("resources")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len();
         assert!(resources >= 2);
 
-        let res_read = dispatch("resources/read", json!({"uri": "knox://project/overview"}), &db);
+        let res_read = dispatch(
+            "resources/read",
+            json!({"uri": "knox://project/overview"}),
+            &db,
+        );
         assert!(res_read.error.is_none());
 
         let p_list = dispatch("prompts/list", json!({}), &db);
