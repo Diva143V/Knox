@@ -62,6 +62,7 @@ struct CollectedGroup {
     human_plan: Option<KnoxAction>,
     write_mods: Vec<FileModification>,
     write_files: Vec<String>,
+    referenced_files: Vec<String>,
     first_write_timestamp: Option<DateTime<Utc>>,
     debug_execs: Vec<DebugExecution>,
     first_debug_timestamp: Option<DateTime<Utc>>,
@@ -211,6 +212,11 @@ impl ActionGrouper {
         if let Some(tool_calls) = &step.tool_calls {
             for call in tool_calls {
                 let args = call.args.as_ref().unwrap_or(&Value::Null);
+                for file in extract_referenced_file_paths_from_value(args) {
+                    if !group.referenced_files.contains(&file) {
+                        group.referenced_files.push(file);
+                    }
+                }
 
                 if let Some(file_mod) = parse_file_modification(&call.name, args) {
                     if !group.write_files.contains(&file_mod.path) {
@@ -267,7 +273,17 @@ impl ActionGrouper {
             // Attribute the files touched by the group to the human intent so
             // ingested doubts/plans surface in file-scoped guardrails.
             if plan.files.is_empty() {
-                plan.files = group.write_files.clone();
+                plan.files = group
+                    .write_files
+                    .iter()
+                    .chain(group.referenced_files.iter())
+                    .cloned()
+                    .fold(Vec::new(), |mut files, file| {
+                        if !files.contains(&file) {
+                            files.push(file);
+                        }
+                        files
+                    });
             }
             let id = plan.id.clone();
             actions.push(plan);
@@ -386,6 +402,37 @@ impl ActionGrouper {
             is_current: true,
             ..Default::default()
         })
+    }
+}
+
+fn extract_referenced_file_paths_from_value(value: &Value) -> Vec<String> {
+    let mut files = Vec::new();
+    let mut string_values = Vec::new();
+    collect_string_values(value, &mut string_values);
+    for value in string_values {
+        for file in extract_referenced_file_paths(&value) {
+            if !files.contains(&file) {
+                files.push(file);
+            }
+        }
+    }
+    files
+}
+
+fn collect_string_values(value: &Value, string_values: &mut Vec<String>) {
+    match value {
+        Value::String(value) => string_values.push(value.clone()),
+        Value::Array(values) => {
+            for value in values {
+                collect_string_values(value, string_values);
+            }
+        }
+        Value::Object(object) => {
+            for value in object.values() {
+                collect_string_values(value, string_values);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
 }
 
@@ -564,6 +611,27 @@ mod tests {
         let actions = grouper.finish();
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].action_type, "doubt");
+        assert_eq!(actions[0].files, vec!["src/storage/db.rs"]);
+    }
+
+    #[test]
+    fn test_action_grouper_attributes_files_from_tool_context_without_writes() {
+        let mut grouper = ActionGrouper::new("antigravity");
+        grouper.process_step(&TranscriptStep {
+            step_index: Some(0),
+            source: Some("USER_EXPLICIT".to_string()),
+            step_type: Some("USER_INPUT".to_string()),
+            content: Some("Why is the database locking here?".to_string()),
+            ..Default::default()
+        });
+        grouper.process_step(&tool_step(
+            1,
+            "run_command",
+            json!({"CommandLine": "cargo test --lib src/storage/db.rs"}),
+            "2026-10-29T12:00:05Z",
+        ));
+
+        let actions = grouper.finish();
         assert_eq!(actions[0].files, vec!["src/storage/db.rs"]);
     }
 }
