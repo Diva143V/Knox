@@ -36,6 +36,11 @@ pub fn run_migrations(conn: &Connection) -> KnoxResult<()> {
 
     if current_version < 5 {
         apply_v5(conn)?;
+        current_version = 5;
+    }
+
+    if current_version < 6 {
+        apply_v6(conn)?;
     }
 
     Ok(())
@@ -298,6 +303,63 @@ fn apply_v5(conn: &Connection) -> KnoxResult<()> {
     Ok(())
 }
 
+const V6_SCHEMA_SQL: &str = "BEGIN TRANSACTION;
+
+-- Derived lifecycle state is explicit and can be updated transactionally with
+-- supersession/resolution relationships without changing the v5 action model.
+CREATE TABLE IF NOT EXISTS action_state (
+    action_id TEXT PRIMARY KEY REFERENCES actions(id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK (state IN ('current', 'superseded', 'resolved', 'open')),
+    by_action_id TEXT REFERENCES actions(id),
+    updated_at TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO action_state (action_id, state, updated_at)
+SELECT id,
+       CASE
+           WHEN action_type IN ('doubt', 'question') AND coalesce(is_resolved, 0) = 0 THEN 'open'
+           WHEN is_current = 0 THEN 'superseded'
+           WHEN action_type IN ('doubt', 'question') AND coalesce(is_resolved, 0) = 1 THEN 'resolved'
+           ELSE 'current'
+       END,
+       timestamp
+FROM actions;
+
+CREATE TABLE IF NOT EXISTS guardrail_rules (
+    id TEXT PRIMARY KEY,
+    action_id TEXT NOT NULL REFERENCES actions(id) ON DELETE CASCADE,
+    project_id TEXT REFERENCES projects(id),
+    pattern_kind TEXT NOT NULL CHECK (pattern_kind IN ('path', 'symbol', 'phrase')),
+    pattern TEXT NOT NULL,
+    severity TEXT NOT NULL CHECK (severity IN ('strict', 'advisory')),
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
+);
+
+CREATE INDEX IF NOT EXISTS idx_guardrail_rules_project
+    ON guardrail_rules(project_id, active);
+CREATE INDEX IF NOT EXISTS idx_guardrail_rules_pattern
+    ON guardrail_rules(pattern_kind, pattern);
+
+CREATE TABLE IF NOT EXISTS ingest_log (
+    source_hash TEXT NOT NULL,
+    source_offset INTEGER NOT NULL,
+    outcome TEXT NOT NULL,
+    rule_id TEXT,
+    reason TEXT,
+    action_id TEXT REFERENCES actions(id),
+    PRIMARY KEY (source_hash, source_offset)
+);
+
+UPDATE knox_meta SET value = '6' WHERE key = 'schema_version';
+
+COMMIT;";
+
+/// Applies the additive v6 storage foundation.
+fn apply_v6(conn: &Connection) -> KnoxResult<()> {
+    conn.execute_batch(V6_SCHEMA_SQL)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,11 +369,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         let version = get_schema_version(&conn).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
 
         // Re-running migrations should be idempotent
         run_migrations(&conn).unwrap();
         let version2 = get_schema_version(&conn).unwrap();
-        assert_eq!(version2, 5);
+        assert_eq!(version2, 6);
     }
 }
