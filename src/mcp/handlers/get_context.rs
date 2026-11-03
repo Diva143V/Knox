@@ -69,6 +69,9 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         None
     };
 
+    let ranking_file = input.file_path.clone();
+    let ranking_symbols = input.symbols.clone();
+    let ranking_query = input.query.clone();
     let filter = QueryFilter {
         file_path: input.file_path.as_deref().map(normalize_query_file_path),
         file_path_exact: false,
@@ -84,7 +87,13 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         query: input.query,
     };
 
-    let result = crate::storage::queries::query_actions(db, &filter)?;
+    let mut result = crate::storage::queries::query_actions(db, &filter)?;
+    result.results = crate::retrieval::rank::rank_actions(
+        result.results,
+        ranking_file.as_deref(),
+        &ranking_symbols,
+        ranking_query.as_deref(),
+    );
     let budget = input.budget.unwrap_or(DEFAULT_CONTEXT_BUDGET);
     if budget == 0 || budget > MAX_CONTEXT_BUDGET {
         return Err(KnoxError::InvalidInput(format!(
