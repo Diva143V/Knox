@@ -103,3 +103,61 @@ export function initThemeListener(onSystemChange: (resolved: ResolvedTheme) => v
 export function toggleTheme(current: ResolvedTheme): ResolvedTheme {
   return current === "dark" ? "light" : "dark";
 }
+
+/** Accent presets offered in Settings → Appearance. */
+export const ACCENT_PRESETS = [
+  { hex: "#4a8ad6", label: "Signal blue" },
+  { hex: "#44a282", label: "Deep teal" },
+  { hex: "#d9a441", label: "Amber" },
+  { hex: "#e5566f", label: "Rose" },
+  { hex: "#8b7bd8", label: "Violet" },
+  { hex: "#8fbf4a", label: "Lime" },
+] as const;
+
+export function isAccentHex(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function channelToLinear(channel: number): number {
+  const c = channel / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+/** White or near-black, whichever reads on the chosen accent. */
+export function accentForeground(hex: string): string {
+  const r = channelToLinear(parseInt(hex.slice(1, 3), 16));
+  const g = channelToLinear(parseInt(hex.slice(3, 5), 16));
+  const b = channelToLinear(parseInt(hex.slice(5, 7), 16));
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.45 ? "#0b0b0c" : "#ffffff";
+}
+
+/**
+ * Apply (or clear) a user accent by overriding the primary ramp on <html>.
+ * Derived shades use color-mix so hover/muted/focus follow the accent exactly;
+ * the foreground is picked by luminance so light accents stay readable.
+ */
+export function applyAccent(hex: string | null | undefined): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  const managed = [
+    "--primary",
+    "--primary-foreground",
+    "--primary-hover",
+    "--primary-muted",
+    "--focus-ring",
+    "--plan",
+  ];
+
+  if (!isAccentHex(hex)) {
+    for (const token of managed) root.style.removeProperty(token);
+    return;
+  }
+
+  root.style.setProperty("--primary", hex);
+  root.style.setProperty("--plan", hex);
+  root.style.setProperty("--primary-foreground", accentForeground(hex));
+  root.style.setProperty("--primary-hover", `color-mix(in oklab, ${hex} 88%, #000)`);
+  root.style.setProperty("--primary-muted", `color-mix(in srgb, ${hex} 16%, transparent)`);
+  root.style.setProperty("--focus-ring", `color-mix(in srgb, ${hex} 45%, transparent)`);
+}

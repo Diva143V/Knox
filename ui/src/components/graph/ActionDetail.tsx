@@ -83,8 +83,15 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
     return getProjectForAction(action);
   }, [action, getProjectForAction]);
 
-  // Parse diff metrics from summary (e.g. (+2 -1) or +5 or -2)
+  // Parse diff metrics from first-class delta_summary or summary fallback
   const diffMetrics = useMemo(() => {
+    if (action.delta_summary) {
+      return {
+        added: action.delta_summary.lines_added,
+        deleted: action.delta_summary.lines_deleted,
+        net: action.delta_summary.lines_added - action.delta_summary.lines_deleted,
+      };
+    }
     const deltaMatch = action.summary.match(/\+(\d+)\s*-(\d+)/);
     if (deltaMatch) {
       const added = parseInt(deltaMatch[1], 10);
@@ -99,7 +106,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
       return { added, deleted, net: added - deleted };
     }
     return null;
-  }, [action.summary]);
+  }, [action.delta_summary, action.summary]);
 
   // Synthesize work narrative explaining what this node did and its intent
   const workNarrative = useMemo(() => {
@@ -669,6 +676,14 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
               <span>Session</span>
               <span className="text-foreground truncate flex-1 text-right ml-2 font-mono">
                 {action.session_id}
+              </span>
+            </div>
+          )}
+          {action.commit_sha && (
+            <div className="flex items-center justify-between gap-2 text-muted-foreground pt-2 border-t border-border-subtle">
+              <span>Commit</span>
+              <span className="text-foreground truncate flex-1 text-right ml-2 font-mono">
+                {action.commit_sha}
               </span>
             </div>
           )}

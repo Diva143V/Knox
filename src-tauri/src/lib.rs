@@ -165,6 +165,7 @@ pub fn run() {
             commands::status::get_status,
             commands::query::query_actions,
             commands::query::get_action,
+            commands::query::get_action_deltas,
             commands::graph::get_graph_data,
             commands::graph::update_action,
             commands::ingest::ingest_transcript,

@@ -124,20 +124,21 @@ All edges carry: `timestamp`, `session_id`, `tool_source`.
 
 ---
 
-## MCP Interface (17 Tools, Resources & Prompts)
+## MCP Interface (21 Tools, Resources & Prompts)
 
-When running `knox serve --stdio`, Knox exposes 17 tools, 3 native resources, and 2 guided prompts:
+When running `knox serve --stdio`, Knox exposes 21 tools, 3 native resources, and 2 guided prompts:
 
 ### 1. Session Management
 - **`knox_start_session`** — Start an explicit work session (or rely on smart implicit auto-sessions).
 - **`knox_end_session`** — Close an active work session.
 
 ### 2. Action, Decision & Cognitive Recording
-- **`knox_record_action`** — Record an action with semantic relations, symbols, rationale, and context summary.
+- **`knox_record_action`** — Record an action with semantic relations, symbols, rationale, code deltas, commit sha, and auto git diff.
 - **`knox_record_decision`** — Record an architectural decision (major or minor micro-decision) with rationale and prohibited alternatives.
 - **`knox_record_doubt`** — Record an active human uncertainty, open question, or technical doubt with context.
 - **`knox_resolve_doubt`** — Mark an open doubt as resolved, recording resolution rationale and creating a `Resolves` edge.
 - **`knox_record_batch`** — Atomically record multiple related actions, decisions, and doubts in a single round trip.
+- **`knox_update_action`** — Update summary, relations, rationale, or doubt resolution status of an existing action node.
 - **`knox_ingest`** — Ingest entire conversations, chat notes, or raw transcripts with automatic plan/doubt/dialogue classification.
 
 ### 3. Context & Lineage Retrieval
@@ -147,11 +148,16 @@ When running `knox serve --stdio`, Knox exposes 17 tools, 3 native resources, an
 - **`knox_get_impact`** — Forward DAG traversal computing downstream blast radius and affected files.
 - **`knox_get_path`** — Shortest directed causal path between two actions or files.
 
-### 4. Safety Guardrails & Maintenance
+### 4. Causal Code Deltas & Git Forensics
+- **`knox_diff_inspect`** — Inspect granular code deltas, unified diff hunks, and deleted code for any action.
+- **`knox_blame_causal`** — Trace git blame to causal agent decisions, actions, and rationales for specific lines of code.
+- **`knox_verify_drift`** — Audit workspace drift between Knox recorded actions and disk/git working tree state.
+
+### 5. Safety Guardrails & Maintenance
 - **`knox_check_guardrails`** — Pre-flight safety check against active ADRs, rejected alternatives, and unresolved open doubts on target files.
 - **`knox_search`** — SQLite FTS5 full-text keyword and code symbol search.
 - **`knox_list_stale`** — Query superseded actions and outdated architectural patterns.
-- **`knox_scan_staged`** — Git staged diff inspection for untracked human modifications.
+- **`knox_scan_staged`** — Git staged diff inspection for untracked human modifications with automatic delta capture.
 
 ### 5. Native MCP Resources & Prompts
 - **Resources**: `knox://project/overview`, `knox://decisions/active`, `knox://context/{file}`

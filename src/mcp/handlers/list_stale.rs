@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::types::QueryFilter;
-use crate::ingest::summary::normalize_file_path;
+use crate::ingest::summary::normalize_query_file_path;
 use crate::storage::db::KnoxDb;
 
 /// Input parameters for `knox_list_stale`.
@@ -28,7 +28,7 @@ pub fn handle_list_stale(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let limit = input.limit.unwrap_or(50);
 
     let filter = QueryFilter {
-        file_path: input.file_path.map(|fp| normalize_file_path(&fp)),
+        file_path: input.file_path.map(|fp| normalize_query_file_path(&fp)),
         project: input.project,
         session_id: None,
         actor: None,

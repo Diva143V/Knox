@@ -51,7 +51,7 @@ const getInitialTab = (): ViewTab => {
   return isValidTab(saved.defaultStartupView) ? saved.defaultStartupView : "dashboard";
 };
 
-const isFirstRun = (): boolean => {
+export const isFirstRun = (): boolean => {
   try {
     return typeof window !== "undefined" && !localStorage.getItem("knox_onboarding_completed");
   } catch {
@@ -59,7 +59,7 @@ const isFirstRun = (): boolean => {
   }
 };
 
-const isTourFirstRun = (): boolean => {
+export const isTourFirstRun = (): boolean => {
   try {
     return (
       typeof window !== "undefined" &&
@@ -169,8 +169,8 @@ export const useKnoxStore = create<KnoxStore>((set, get) => ({
   isLoading: false,
   toast: null,
   commandPaletteOpen: false,
-  onboardingOpen: !isTourFirstRun() && isFirstRun(),
-  isTourOpen: isTourFirstRun(),
+  onboardingOpen: false,
+  isTourOpen: false,
   isSettingsOpen: false,
   activeSettingsTab: "general",
   isEditNodeOpen: false,

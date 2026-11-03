@@ -2191,6 +2191,7 @@ dependencies = [
  "notify",
  "petgraph",
  "predicates",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

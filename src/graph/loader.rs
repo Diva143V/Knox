@@ -15,16 +15,77 @@ use crate::storage::queries::query_actions;
 /// In-memory directed graph representing Knox actions and causal/temporal relationships.
 pub type KnoxGraph = petgraph::Graph<KnoxAction, KnoxEdge, Directed>;
 
+/// Direction in which a subgraph should be expanded from its anchors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubgraphDirection {
+    /// Follow causes backwards: parents, superseded predecessors and incoming
+    /// semantic relations.
+    Ancestors,
+    /// Follow effects forwards: children, successors and outgoing semantic
+    /// relations.
+    Descendants,
+    /// Follow both directions (bounded connected component).
+    Both,
+}
+
 /// Helper to find the NodeIndex of an ActionId in a KnoxGraph.
+///
+/// Prefer [`build_node_index`] when several lookups are needed; this performs
+/// a linear scan.
 pub fn find_node_index(graph: &KnoxGraph, action_id: &ActionId) -> Option<NodeIndex> {
     graph
         .node_indices()
         .find(|&idx| graph[idx].id == *action_id)
 }
 
-/// Builds recursive CTE query for bounded subgraph traversal.
-fn build_subgraph_cte_sql(anchor_count: usize) -> String {
+/// Builds an `ActionId -> NodeIndex` map in a single pass so traversals do not
+/// rescan every node for each hop.
+pub fn build_node_index(graph: &KnoxGraph) -> HashMap<ActionId, NodeIndex> {
+    graph
+        .node_indices()
+        .map(|idx| (graph[idx].id.clone(), idx))
+        .collect()
+}
+
+/// Builds the recursive CTE for a bounded, *directional* subgraph traversal.
+fn build_subgraph_cte_sql(anchor_count: usize, direction: SubgraphDirection) -> String {
     let placeholders = vec!["?"; anchor_count].join(", ");
+
+    let mut clauses: Vec<&str> = Vec::new();
+    if matches!(
+        direction,
+        SubgraphDirection::Descendants | SubgraphDirection::Both
+    ) {
+        // Effects: children, superseded successors, and actions that point to
+        // this action as their semantic cause.
+        clauses.push("a.parent_action_id = c.action_id");
+        clauses.push("a.id = (SELECT superseded_by FROM actions WHERE id = c.action_id)");
+        clauses.push(
+            "EXISTS (
+                SELECT 1 FROM action_relations ar
+                WHERE ar.to_action_id = c.action_id AND ar.from_action_id = a.id
+            )",
+        );
+    }
+    if matches!(
+        direction,
+        SubgraphDirection::Ancestors | SubgraphDirection::Both
+    ) {
+        // Causes: parents, superseded predecessors, incoming semantic relations.
+        clauses.push("a.id = (SELECT parent_action_id FROM actions WHERE id = c.action_id)");
+        clauses.push("a.superseded_by = c.action_id");
+        clauses.push(
+            "EXISTS (
+                SELECT 1 FROM action_relations ar
+                WHERE ar.from_action_id = a.id AND ar.to_action_id = c.action_id
+            )",
+        );
+    }
+
+    // `Both` is the only direction that can be empty-safe; the match above
+    // always pushes at least one clause.
+    let join_condition = clauses.join("\n                OR ");
+
     format!(
         "WITH RECURSIVE connected(action_id, depth, path) AS (
             SELECT id, 0, ',' || id || ',' FROM actions WHERE id IN ({placeholders})
@@ -32,15 +93,7 @@ fn build_subgraph_cte_sql(anchor_count: usize) -> String {
             SELECT a.id, c.depth + 1, c.path || a.id || ','
             FROM connected c
             JOIN actions a ON (
-                a.parent_action_id = c.action_id
-                OR a.id = (SELECT parent_action_id FROM actions WHERE id = c.action_id)
-                OR a.superseded_by = c.action_id
-                OR a.id = (SELECT superseded_by FROM actions WHERE id = c.action_id)
-                OR EXISTS (
-                    SELECT 1 FROM action_relations ar
-                    WHERE (ar.from_action_id = c.action_id AND ar.to_action_id = a.id)
-                       OR (ar.from_action_id = a.id AND ar.to_action_id = c.action_id)
-                )
+                {join_condition}
             )
             WHERE c.depth < CAST(? AS INTEGER)
               AND instr(c.path, ',' || a.id || ',') = 0
@@ -52,12 +105,22 @@ fn build_subgraph_cte_sql(anchor_count: usize) -> String {
 /// Loads a scoped subgraph containing all actions within `max_depth` hops of the given anchor action IDs.
 /// Uses a recursive CTE in SQLite to compute the bounded connected component.
 pub fn load_subgraph(db: &KnoxDb, anchors: &[ActionId], max_depth: usize) -> KnoxResult<KnoxGraph> {
+    load_subgraph_directional(db, anchors, max_depth, SubgraphDirection::Both)
+}
+
+/// Loads a scoped subgraph expanded only in the requested direction.
+pub fn load_subgraph_directional(
+    db: &KnoxDb,
+    anchors: &[ActionId],
+    max_depth: usize,
+    direction: SubgraphDirection,
+) -> KnoxResult<KnoxGraph> {
     if anchors.is_empty() {
         return Ok(KnoxGraph::new());
     }
 
     let conn = db.conn();
-    let cte_sql = build_subgraph_cte_sql(anchors.len());
+    let cte_sql = build_subgraph_cte_sql(anchors.len(), direction);
     let max_depth_i64 = max_depth as i64;
     let mut params_vec: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(anchors.len() + 1);
     for anchor in anchors {
@@ -108,11 +171,11 @@ fn build_graph_from_actions(actions: Vec<KnoxAction>) -> KnoxResult<KnoxGraph> {
 
     // 2. Add edges for parent links, semantic relations, and superseded links
     for node_idx in graph.node_indices() {
-        let (action_id, parent_opt, relations, timestamp, session_id, actor) = {
+        let (parent_opt, supersedes, relations, timestamp, session_id, actor) = {
             let act = &graph[node_idx];
             (
-                act.id.clone(),
                 act.parent_action_id.clone(),
+                act.supersedes.clone(),
                 act.relations.clone(),
                 act.timestamp,
                 act.session_id.clone(),
@@ -133,6 +196,20 @@ fn build_graph_from_actions(actions: Vec<KnoxAction>) -> KnoxResult<KnoxGraph> {
             }
         }
 
+        // If this action supersedes a prior action in the subgraph, add
+        // directed edge: superseded -> superseding.
+        if let Some(prior_id) = supersedes {
+            if let Some(&prior_idx) = node_map.get(&prior_id) {
+                let edge = KnoxEdge {
+                    edge_type: "supersedes".to_string(),
+                    timestamp,
+                    session_id: session_id.clone(),
+                    tool_source: Some(actor.clone()),
+                };
+                graph.add_edge(prior_idx, node_idx, edge);
+            }
+        }
+
         // If semantic relations target nodes in the subgraph, add directed edges
         for rel in relations {
             if let Some(&target_idx) = node_map.get(&rel.target_id) {
@@ -145,8 +222,6 @@ fn build_graph_from_actions(actions: Vec<KnoxAction>) -> KnoxResult<KnoxGraph> {
                 graph.add_edge(target_idx, node_idx, edge);
             }
         }
-
-        let _ = action_id;
     }
 
     Ok(graph)

@@ -237,7 +237,7 @@ const TOUR_STEPS: TourStepDef[] = [
       {
         iconName: "Sparkles",
         label: "Smart Implicit Auto-Sessions",
-        detail: "Agents record actions seamlessly without needing explicit session creation boilerplate.",
+        detail: "Agents record actions directly without needing explicit session creation boilerplate.",
       },
       {
         iconName: "BookOpen",
@@ -261,7 +261,7 @@ const TOUR_STEPS: TourStepDef[] = [
       {
         iconName: "FolderGit2",
         label: "Multi-Workspace Vault",
-        detail: "Switch scopes seamlessly between different repositories or keep an umbrella multi-repo overview.",
+        detail: "Switch scopes directly between different repositories or keep an umbrella multi-repo overview.",
       },
       {
         iconName: "Terminal",
@@ -281,7 +281,7 @@ const TOUR_STEPS: TourStepDef[] = [
     stepNumber: 9,
     badge: "Ready to Explore",
     badgeVariant: "success",
-    title: "Knox is Ready to Supercharge Your AI Workflows",
+    title: "Knox is Ready to Manage Your AI Workflows",
     subtitle: "Choose how you want to begin exploring your knowledge graph.",
     description:
       "Your local Knox engine is armed and ready. Start an agent session in your IDE, inspect your repository dependencies, or ingest existing transcripts to bootstrap your project history.",
@@ -437,52 +437,44 @@ export const OnboardingTourModal: React.FC = () => {
     switch (step.visual.type) {
       case "welcome-concept":
         return (
-          <div className="h-full flex flex-col justify-center items-center p-6 bg-gradient-to-b from-primary/10 via-background/40 to-background/80 rounded-xl border border-primary/20 relative overflow-hidden">
-            <div className="absolute -top-12 -right-12 size-40 bg-primary/20 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute -bottom-12 -left-12 size-40 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
-
+          <div data-ui="tour-diagram" className="h-full flex flex-col justify-center items-center p-6 bg-card rounded-[var(--radius-card)] border border-border relative overflow-hidden">
             <div className="relative flex items-center justify-center gap-6 my-auto">
-              {/* Agent Node */}
-              <div className="flex flex-col items-center gap-1.5 animate-pulse">
-                <div className="size-14 rounded-full border-2 border-primary/60 bg-primary/15 shadow-[0_0_20px_rgba(16,185,129,0.35)] flex items-center justify-center">
-                  <Cpu className="size-6 text-primary" />
+              <div className="flex flex-col items-center gap-1.5">
+                <div className="size-11 rounded-full border border-border bg-raised/50 flex items-center justify-center">
+                  <Cpu className="size-4 text-foreground" />
                 </div>
-                <span className="text-2xs font-mono text-primary font-semibold">AI Agent</span>
+                <span className="text-3xs font-mono text-muted-foreground">AI agent</span>
               </div>
 
-              {/* Connecting Causal Line */}
-              <div className="w-16 h-0.5 bg-gradient-to-r from-primary via-warning to-cyan-400 relative">
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
-                  Memory
+              <div className="w-12 h-px bg-border relative">
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] font-mono text-muted-foreground">
+                  memory
                 </span>
               </div>
 
-              {/* Knox Knowledge Vault */}
               <div className="flex flex-col items-center gap-1.5">
-                <div className="size-16 rounded-full border-2 border-warning/70 bg-warning/20 shadow-[0_0_25px_rgba(245,158,11,0.35)] flex items-center justify-center">
-                  <Scale className="size-7 text-warning" />
+                <div className="size-12 rounded-full border border-primary/50 bg-raised/50 flex items-center justify-center">
+                  <Scale className="size-5 text-primary" />
                 </div>
-                <span className="text-2xs font-mono text-warning font-semibold">ADR Decision</span>
+                <span className="text-3xs font-mono text-primary font-medium">ADR decision</span>
               </div>
 
-              {/* Connecting Line */}
-              <div className="w-16 h-0.5 bg-gradient-to-r from-warning to-cyan-400 relative">
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
-                  Shapes
+              <div className="w-12 h-px bg-border relative">
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] font-mono text-muted-foreground">
+                  shapes
                 </span>
               </div>
 
-              {/* Code Files Node */}
               <div className="flex flex-col items-center gap-1.5">
-                <div className="size-14 rounded-full border-2 border-cyan-400/60 bg-cyan-500/15 shadow-[0_0_20px_rgba(6,182,212,0.35)] flex items-center justify-center">
-                  <FileCode className="size-6 text-cyan-300" />
+                <div className="size-11 rounded-full border border-border bg-raised/50 flex items-center justify-center">
+                  <FileCode className="size-4 text-foreground" />
                 </div>
-                <span className="text-2xs font-mono text-cyan-300 font-semibold">Source Files</span>
+                <span className="text-3xs font-mono text-muted-foreground">Source files</span>
               </div>
             </div>
 
-            <div className="mt-4 px-3 py-1.5 rounded-full bg-card/80 border border-border text-2xs font-mono text-muted-foreground text-center">
-              Deterministic Memory Bridge • 0% Context Drift • 100% Provenance
+            <div className="mt-4 px-3 py-1 rounded-[var(--radius-control)] bg-muted/40 border border-border text-3xs font-mono text-muted-foreground text-center">
+              Deterministic memory bridge · 0% context drift · 100% provenance
             </div>
           </div>
         );
@@ -533,9 +525,9 @@ export const OnboardingTourModal: React.FC = () => {
 
       case "graph-cosmos":
         return (
-          <div className="h-full flex flex-col justify-center items-center p-6 bg-gradient-to-br from-card via-background to-card rounded-xl border border-border relative overflow-hidden">
+          <div className="h-full flex flex-col justify-center items-center p-6 bg-card from-card via-background to-card rounded-xl border border-border relative overflow-hidden">
             <div className="flex items-center justify-center gap-5 my-auto">
-              <div className="size-16 rounded-full border-2 border-warning/80 bg-warning/20 shadow-[0_0_25px_rgba(245,158,11,0.4)] flex flex-col items-center justify-center text-center animate-bounce">
+              <div className="size-16 rounded-full border-2 border-warning/80 bg-warning/20 shadow-[0_0_25px_rgba(245,158,11,0.4)] flex flex-col items-center justify-center text-center ">
                 <Scale className="size-5 text-warning" />
                 <span className="text-[9px] font-mono font-bold text-warning">ADR</span>
               </div>
@@ -739,7 +731,7 @@ export const OnboardingTourModal: React.FC = () => {
 
       case "ready-completion":
         return (
-          <div className="h-full flex flex-col justify-center p-5 bg-gradient-to-b from-primary/10 via-card to-background rounded-xl border border-primary/30 space-y-3 text-center">
+          <div className="h-full flex flex-col justify-center p-5 bg-card from-primary/10 via-card to-background rounded-xl border border-primary/30 space-y-3 text-center">
             <div className="size-14 rounded-full bg-primary/20 border-2 border-primary/60 text-primary mx-auto flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.35)]">
               <CheckCircle2 className="size-8" />
             </div>
@@ -932,7 +924,7 @@ export const OnboardingTourModal: React.FC = () => {
           <div className="flex items-center gap-2">
             {/* Live background window indicator */}
             <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/25 text-primary text-2xs font-mono font-medium">
-              <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+              <span className="size-1.5 rounded-full bg-primary " />
               <span>Live Window: #{currentStep.tabId || "dashboard"}</span>
             </div>
 

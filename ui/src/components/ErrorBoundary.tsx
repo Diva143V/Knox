@@ -63,10 +63,10 @@ Location: ${window.location.href}`;
   public render() {
     if (this.state.hasError) {
       return (
-        <div className="h-screen w-screen flex items-center justify-center bg-[#0d1117] text-[#f8fafc] p-6 select-none">
-          <div className="max-w-xl w-full bg-[#161b22] border border-[#30363d] rounded-2xl p-6 shadow-2xl space-y-5 animate-in fade-in duration-200">
+        <div className="h-screen w-screen flex items-center justify-center bg-background text-foreground p-6 select-none">
+          <div className="max-w-xl w-full bg-card border border-border rounded-[var(--radius-card)] p-6 space-y-5 animate-in fade-in duration-200">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30">
+              <div className="p-2.5 rounded-[var(--radius-control)] bg-rose-500/15 text-rose-400 border border-rose-500/30">
                 <AlertTriangle className="w-6 h-6" />
               </div>
               <div>
@@ -79,7 +79,7 @@ Location: ${window.location.href}`;
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] font-mono text-xs text-rose-300 overflow-x-auto max-h-48 whitespace-pre-wrap break-all">
+            <div className="p-3.5 rounded-[var(--radius-control)] bg-[#0d1117] border border-[#30363d] font-mono text-xs text-rose-300 overflow-x-auto max-h-48 whitespace-pre-wrap break-all">
               {this.state.error?.message || "Unknown error"}
               {this.state.error?.stack && (
                 <span className="block mt-2 text-[11px] text-slate-500 font-sans">
@@ -92,14 +92,14 @@ Location: ${window.location.href}`;
               <div className="flex items-center gap-2">
                 <button
                   onClick={this.handleReload}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-[var(--radius-control)] text-xs font-semibold bg-primary hover:bg-primary-hover text-primary-foreground transition cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   Reload App
                 </button>
                 <button
                   onClick={this.handleResetAndReload}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-slate-200 border border-[#30363d] transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-[var(--radius-control)] text-xs font-semibold bg-[#21262d] hover:bg-[#30363d] text-slate-200 border border-[#30363d] transition cursor-pointer"
                   title="Clear localStorage (resets onboarding) and reloads"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -109,7 +109,7 @@ Location: ${window.location.href}`;
 
               <button
                 onClick={this.handleCopy}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white transition cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-[var(--radius-control)] text-xs font-medium text-slate-400 hover:text-white transition cursor-pointer"
               >
                 {this.state.copied ? (
                   <>

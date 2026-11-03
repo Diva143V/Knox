@@ -214,27 +214,82 @@ pub fn summarize_decide(content: &str) -> String {
     truncate_chars(content.trim(), 200)
 }
 
-/// Normalizes file paths to clean relative paths with forward slashes.
+/// Normalizes a filesystem path to a canonical, slash-separated form.
+///
+/// This is a purely lexical operation: it does not consult the filesystem and
+/// does not guess at a project root. Windows drive prefixes and verbatim
+/// prefixes are removed, `.`/`..` segments are resolved, and duplicate
+/// separators are collapsed. Absolute paths keep their leading `/` so callers
+/// can tell them apart from relative paths.
 pub fn normalize_file_path(path: &str) -> String {
     let replaced = path.replace('\\', "/");
+    let replaced = replaced.strip_prefix("//?/").unwrap_or(&replaced);
+
+    // Strip a Windows drive prefix such as `C:` (but not a POSIX path).
     let without_drive = match replaced.find(':') {
         Some(idx) if idx <= 2 => &replaced[idx + 1..],
-        _ => &replaced[..],
+        _ => replaced,
     };
 
-    let segments: Vec<&str> = without_drive
-        .split('/')
-        .filter(|s| !s.is_empty() && *s != ".")
-        .collect();
-
-    // If 'knox' appears as a folder component, take relative path after it
-    if let Some(pos) = segments.iter().position(|s| s.eq_ignore_ascii_case("knox")) {
-        if pos + 1 < segments.len() {
-            return segments[pos + 1..].join("/");
+    let is_absolute = without_drive.starts_with('/');
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in without_drive.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                // Do not escape above an absolute root; for relative paths keep
+                // the parent marker so two relative spellings stay comparable.
+                if matches!(segments.last(), Some(&last) if last != "..") {
+                    segments.pop();
+                } else if !is_absolute {
+                    segments.push("..");
+                }
+            }
+            other => segments.push(other),
         }
     }
 
-    segments.join("/")
+    let joined = segments.join("/");
+    if is_absolute {
+        format!("/{joined}")
+    } else {
+        joined
+    }
+}
+
+/// Normalizes `path` and, when it lives under `project_root`, returns the path
+/// relative to that root. This makes an absolute write and a relative query
+/// resolve to the same `action_files.file_path` value.
+pub fn normalize_file_path_with_root(path: &str, project_root: Option<&str>) -> String {
+    let normalized = normalize_file_path(path);
+    let Some(root) = project_root else {
+        return normalized;
+    };
+    let normalized_root = normalize_file_path(root);
+    let root = normalized_root.trim_end_matches('/');
+    if root.is_empty() {
+        return normalized;
+    }
+
+    if normalized == root {
+        return String::new();
+    }
+
+    let prefix = format!("{root}/");
+    if let Some(rest) = normalized.strip_prefix(&prefix) {
+        return rest.to_string();
+    }
+    normalized
+}
+
+/// Normalizes a query path against the current working directory when
+/// possible. The storage query also supports suffix matching, so callers can
+/// resolve paths from another project without knowing its root.
+pub fn normalize_query_file_path(path: &str) -> String {
+    let root = std::env::current_dir()
+        .ok()
+        .map(|value| value.to_string_lossy().to_string());
+    normalize_file_path_with_root(path, root.as_deref())
 }
 
 /// Extracts a string argument from a JSON value checking multiple key candidates.
@@ -269,7 +324,10 @@ pub fn parse_file_modification(tool_name: &str, args: &Value) -> Option<FileModi
     match tool_name {
         "edit_file" | "edit" => {
             let path_raw = extract_tool_args_string(args, &["Path", "path", "file", "file_path"])?;
-            let path = normalize_file_path(&path_raw);
+            let project_root = std::env::current_dir()
+                .ok()
+                .map(|path| path.to_string_lossy().to_string());
+            let path = normalize_file_path_with_root(&path_raw, project_root.as_deref());
             let target = extract_tool_args_string(args, &["Target", "target", "old_string"])
                 .unwrap_or_default();
             let replacement =
@@ -296,7 +354,10 @@ pub fn parse_file_modification(tool_name: &str, args: &Value) -> Option<FileModi
         }
         "write_file" | "create_file" | "write" => {
             let path_raw = extract_tool_args_string(args, &["Path", "path", "file", "file_path"])?;
-            let path = normalize_file_path(&path_raw);
+            let project_root = std::env::current_dir()
+                .ok()
+                .map(|path| path.to_string_lossy().to_string());
+            let path = normalize_file_path_with_root(&path_raw, project_root.as_deref());
             let content =
                 extract_tool_args_string(args, &["Content", "content"]).unwrap_or_default();
             let lines_added = if content.is_empty() {

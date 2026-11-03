@@ -52,6 +52,115 @@ impl std::str::FromStr for RelationType {
     }
 }
 
+/// Target size limits for code deltas.
+pub const MAX_DIFF_LINES: usize = 250;
+pub const MAX_HUNK_BYTES: usize = 16_384;            // 16 KiB limit
+pub const MAX_DELETED_SNIPPET_BYTES: usize = 4_096;  // 4 KiB limit
+pub const MAX_DELTA_FILE_BYTES: usize = 512 * 1024;  // 512 KiB limit
+
+/// Type of filesystem or git modification recorded in an action delta.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeltaChangeType {
+    /// New file created or added.
+    Added,
+    /// Existing file modified.
+    Modified,
+    /// File removed or deleted.
+    Deleted,
+    /// File renamed or moved.
+    Renamed,
+}
+
+impl std::fmt::Display for DeltaChangeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Added => write!(f, "added"),
+            Self::Modified => write!(f, "modified"),
+            Self::Deleted => write!(f, "deleted"),
+            Self::Renamed => write!(f, "renamed"),
+        }
+    }
+}
+
+impl std::str::FromStr for DeltaChangeType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "added" | "add" => Ok(Self::Added),
+            "modified" | "modify" | "mod" => Ok(Self::Modified),
+            "deleted" | "delete" | "del" => Ok(Self::Deleted),
+            "renamed" | "rename" => Ok(Self::Renamed),
+            other => Err(format!("Unknown change type: {other}")),
+        }
+    }
+}
+
+/// A granular code-level diff hunk or deleted code snippet associated with an action.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ActionDelta {
+    /// Unique identifier for this delta record.
+    pub id: String,
+    /// Action foreign key this delta belongs to.
+    pub action_id: ActionId,
+    /// Relative path of the affected file.
+    pub file_path: String,
+    /// Nature of modification (added, modified, deleted, renamed).
+    pub change_type: DeltaChangeType,
+    /// Previous path if file was renamed.
+    pub old_path: Option<String>,
+    /// Number of lines added.
+    pub lines_added: u32,
+    /// Number of lines deleted.
+    pub lines_deleted: u32,
+    /// Bounded unified diff hunk patch.
+    pub diff_hunk: Option<String>,
+    /// Snippet of deleted code if logic was removed.
+    pub deleted_code: Option<String>,
+    /// Architectural rationale explaining why code was deleted.
+    pub deletion_reason: Option<String>,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Input parameters for recording an action delta via MCP or tool call.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ActionDeltaInput {
+    /// Relative path of the affected file.
+    pub file_path: String,
+    /// Change type (e.g. "added", "modified", "deleted", "renamed").
+    pub change_type: String,
+    /// Previous path if renamed.
+    #[serde(default)]
+    pub old_path: Option<String>,
+    /// Explicit line count added (optional; derived if omitted).
+    #[serde(default)]
+    pub lines_added: Option<u32>,
+    /// Explicit line count deleted (optional; derived if omitted).
+    #[serde(default)]
+    pub lines_deleted: Option<u32>,
+    /// Unified diff hunk patch.
+    #[serde(default)]
+    pub diff_hunk: Option<String>,
+    /// Deleted code snippet.
+    #[serde(default)]
+    pub deleted_code: Option<String>,
+    /// Architectural reason for code removal.
+    #[serde(default)]
+    pub deletion_reason: Option<String>,
+}
+
+/// Summary of code delta statistics for an action.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeltaSummary {
+    /// Total number of distinct files touched in this action.
+    pub total_files: usize,
+    /// Aggregated lines added across all files.
+    pub lines_added: u32,
+    /// Aggregated lines deleted across all files.
+    pub lines_deleted: u32,
+}
+
 /// A directed semantic relationship linking this action to another action.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionRelation {
@@ -82,6 +191,10 @@ pub struct KnoxAction {
     pub timestamp: DateTime<Utc>,
     /// Session during which this action took place.
     pub session_id: Option<SessionId>,
+    /// Project scope resolved at write time. Populated even for session-less
+    /// writes so project-filtered queries can see hook and ingest actions.
+    #[serde(default)]
+    pub project_id: Option<ProjectId>,
     /// Direct causal predecessor action.
     pub parent_action_id: Option<ActionId>,
     /// ID of a prior decision or action that this action supersedes.
@@ -112,6 +225,12 @@ pub struct KnoxAction {
     /// Resolution explanation or note when a doubt is resolved.
     #[serde(default)]
     pub resolution_note: Option<String>,
+    /// Optional Git commit SHA if recorded or tied to a commit.
+    #[serde(default)]
+    pub commit_sha: Option<String>,
+    /// Aggregated code change statistics for this action.
+    #[serde(default)]
+    pub delta_summary: Option<DeltaSummary>,
 }
 
 impl Default for KnoxAction {
@@ -126,6 +245,7 @@ impl Default for KnoxAction {
             confidence: None,
             timestamp: Utc::now(),
             session_id: None,
+            project_id: None,
             parent_action_id: None,
             supersedes: None,
             is_current: true,
@@ -137,6 +257,8 @@ impl Default for KnoxAction {
             significance: Some("major".to_string()),
             is_resolved: Some(true),
             resolution_note: None,
+            commit_sha: None,
+            delta_summary: None,
         }
     }
 }
@@ -229,6 +351,9 @@ pub struct Session {
     pub id: SessionId,
     /// Primary actor initiating the session.
     pub actor: String,
+    /// Resolved project identifier, if the session is project-scoped.
+    #[serde(default)]
+    pub project_id: Option<ProjectId>,
     /// Associated project identifier or name, if scoped.
     pub project: Option<String>,
     /// Timestamp when the session started.
@@ -244,6 +369,10 @@ pub struct Session {
 pub struct QueryFilter {
     /// Filter by exact or prefix file path.
     pub file_path: Option<String>,
+    /// When true, `file_path` matches the exact path only (no directory prefix
+    /// expansion). Used by guardrails to query a directory scope deliberately.
+    #[serde(default)]
+    pub file_path_exact: bool,
     /// Filter by project identifier or name.
     pub project: Option<String>,
     /// Filter by specific session ID.
@@ -273,6 +402,7 @@ impl Default for QueryFilter {
     fn default() -> Self {
         Self {
             file_path: None,
+            file_path_exact: false,
             project: None,
             session_id: None,
             actor: None,
@@ -424,6 +554,7 @@ mod tests {
         let session = Session {
             id: SessionId::new(),
             actor: "developer".to_string(),
+            project_id: Some(ProjectId::new()),
             project: Some("knox".to_string()),
             started_at: Utc::now(),
             ended_at: None,

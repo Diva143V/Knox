@@ -3,6 +3,7 @@
 pub mod cli;
 pub mod commands;
 pub mod core;
+pub mod git;
 pub mod graph;
 pub mod ingest;
 pub mod mcp;

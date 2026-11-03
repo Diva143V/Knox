@@ -13,7 +13,7 @@ use super::summary::{
 };
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::ids::{ActionId, SessionId};
-use crate::core::types::KnoxAction;
+use crate::core::types::{DeltaSummary, KnoxAction};
 
 /// Operational state of the action grouping state machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -261,7 +261,12 @@ impl ActionGrouper {
         };
 
         let mut actions = Vec::new();
-        let plan_id = group.human_plan.take().map(|plan| {
+        let plan_id = group.human_plan.take().map(|mut plan| {
+            // Attribute the files touched by the group to the human intent so
+            // ingested doubts/plans surface in file-scoped guardrails.
+            if plan.files.is_empty() {
+                plan.files = group.write_files.clone();
+            }
             let id = plan.id.clone();
             actions.push(plan);
             id
@@ -293,6 +298,21 @@ impl ActionGrouper {
         let timestamp = group
             .first_write_timestamp
             .unwrap_or(group.default_timestamp);
+        let (lines_added, lines_removed) = group.write_mods.iter().fold((0u32, 0u32), |(a, r), m| {
+            (
+                a.saturating_add(m.lines_added.min(u32::MAX as usize) as u32),
+                r.saturating_add(m.lines_removed.min(u32::MAX as usize) as u32),
+            )
+        });
+        let delta_summary = if !group.write_files.is_empty() || lines_added > 0 || lines_removed > 0 {
+            Some(DeltaSummary {
+                total_files: group.write_files.len(),
+                lines_added,
+                lines_deleted: lines_removed,
+            })
+        } else {
+            None
+        };
         KnoxAction {
             id: ActionId::new(),
             actor: self.agent_actor.clone(),
@@ -306,6 +326,7 @@ impl ActionGrouper {
             parent_action_id: plan_id.clone(),
             supersedes: None,
             is_current: true,
+            delta_summary,
             ..Default::default()
         }
     }

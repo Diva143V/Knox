@@ -2,7 +2,15 @@ import { useState, useCallback } from "react";
 import type { Node, Edge } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
 import dagre from "@dagrejs/dagre";
-import { forceSimulation, forceLink, forceManyBody, forceCenter } from "d3-force";
+import {
+  forceSimulation,
+  forceLink,
+  forceManyBody,
+  forceCenter,
+  forceCollide,
+  forceX,
+  forceY,
+} from "d3-force";
 
 export type LayoutEngine = "hierarchical" | "dagre" | "force" | "grid";
 
@@ -108,11 +116,15 @@ export const useGraphLayout = () => {
 
         if (engine === "force") {
           // D3 Physics Force-Directed Layout
-          const simNodes = nodes.map((n) => ({
-            id: n.id,
-            x: n.position.x || Math.random() * 600,
-            y: n.position.y || Math.random() * 600,
-          }));
+          const simNodes = nodes.map((n) => {
+            const dims = getNodeDimensions(n.type);
+            return {
+              id: n.id,
+              x: n.position.x || Math.random() * 600,
+              y: n.position.y || Math.random() * 600,
+              radius: (Math.hypot(dims.width, dims.height) / 2) * 0.8,
+            };
+          });
 
           const simLinks = edges
             .filter(
@@ -130,10 +142,16 @@ export const useGraphLayout = () => {
                 .distance(160)
             )
             .force("charge", forceManyBody().strength(-600))
+            .force(
+              "collide",
+              forceCollide((d: any) => d.radius + 24).iterations(2)
+            )
+            .force("x", forceX(450).strength(0.04))
+            .force("y", forceY(350).strength(0.04))
             .force("center", forceCenter(450, 350))
             .stop();
 
-          for (let i = 0; i < 140; i++) sim.tick();
+          for (let i = 0; i < 220; i++) sim.tick();
 
           const simMap = new Map<string, { x: number; y: number }>();
           for (const sn of simNodes) {

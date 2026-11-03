@@ -11,6 +11,7 @@ tools_registered:
   - knox_record_doubt
   - knox_resolve_doubt
   - knox_record_batch
+  - knox_update_action
   - knox_get_context
   - knox_get_history
   - knox_get_lineage
@@ -21,6 +22,9 @@ tools_registered:
   - knox_list_stale
   - knox_scan_staged
   - knox_ingest
+  - knox_diff_inspect
+  - knox_blame_causal
+  - knox_verify_drift
 resources_available:
   - knox://project/overview
   - knox://decisions/active
@@ -89,7 +93,7 @@ Before touching files:
 
 ## 3. MCP Tool Reference & Schemas
 
-Knox exposes 17 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
+Knox exposes 21 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
 
 ### 3.1 `knox_check_guardrails`
 Pre-flight safety inspection for target files. Returns active decisions and superseded anti-patterns.
@@ -102,7 +106,7 @@ Pre-flight safety inspection for target files. Returns active decisions and supe
 ```
 
 ### 3.2 `knox_record_action`
-Records a code change, plan, debug investigation, review, or verification. `session_id` is optional (auto-inferred).
+Records a code change, plan, debug investigation, review, or verification. Automatically captures bounded working tree git diffs and scrubs credentials. `session_id` is optional (auto-inferred).
 ```json
 // Request
 {
@@ -110,6 +114,8 @@ Records a code change, plan, debug investigation, review, or verification. `sess
   "action_type": "write",
   "summary": "Implemented bounded BFS traversal for MCP lineage",
   "files": ["src/graph/loader.rs"],
+  "commit_sha": "a1b2c3d4",
+  "auto_git_diff": true,
   "symbols": ["load_subgraph", "build_subgraph_cte_sql"],
   "rationale": "Bound graph loading memory consumption under 50MB",
   "relations": [
@@ -171,7 +177,7 @@ Atomically records multiple actions in one call with optional predecessor chaini
 }
 ```
 
-### 3.5 `knox_get_context`
+### 3.7 `knox_get_context`
 Retrieves token-dense Markdown context (saves ~77% tokens vs raw JSON).
 ```json
 // Request
@@ -183,7 +189,7 @@ Retrieves token-dense Markdown context (saves ~77% tokens vs raw JSON).
 }
 ```
 
-### 3.6 `knox_get_lineage`
+### 3.8 `knox_get_lineage`
 Traces causal ancestry backwards to answer "Why was this code or decision made?".
 ```json
 // Request
@@ -194,7 +200,7 @@ Traces causal ancestry backwards to answer "Why was this code or decision made?"
 }
 ```
 
-### 3.7 `knox_get_impact`
+### 3.9 `knox_get_impact`
 Traces downstream descendants to answer "What will break or be impacted if I change this?".
 ```json
 // Request
@@ -205,7 +211,7 @@ Traces downstream descendants to answer "What will break or be impacted if I cha
 }
 ```
 
-### 3.8 `knox_get_path`
+### 3.10 `knox_get_path`
 Finds the shortest causal path between two actions in the knowledge graph.
 ```json
 // Request
@@ -215,7 +221,7 @@ Finds the shortest causal path between two actions in the knowledge graph.
 }
 ```
 
-### 3.9 `knox_get_history`
+### 3.11 `knox_get_history`
 Returns chronological append-only history, including superseded actions.
 ```json
 // Request
@@ -225,7 +231,7 @@ Returns chronological append-only history, including superseded actions.
 }
 ```
 
-### 3.10 `knox_search`
+### 3.12 `knox_search`
 Full-text search (FTS5) across summaries, rationales, and context summaries.
 ```json
 // Request
@@ -235,7 +241,7 @@ Full-text search (FTS5) across summaries, rationales, and context summaries.
 }
 ```
 
-### 3.11 `knox_list_stale`
+### 3.13 `knox_list_stale`
 Lists superseded actions (`is_current = false`) to inspect outdated architectural patterns.
 ```json
 // Request
@@ -245,7 +251,7 @@ Lists superseded actions (`is_current = false`) to inspect outdated architectura
 }
 ```
 
-### 3.12 `knox_scan_staged`
+### 3.14 `knox_scan_staged`
 Scans git index for untracked human modifications and records `human_write` actions.
 ```json
 // Request
@@ -254,24 +260,66 @@ Scans git index for untracked human modifications and records `human_write` acti
 }
 ```
 
-### 3.13 `knox_ingest`
-Ingests conversation transcripts, chat logs, or raw conversation text into the knowledge graph. Automatically classifies human inputs into plans, doubts, and dialogues, records decisions and writes, and establishes causal lineage.
+### 3.15 `knox_ingest`
+Ingests conversational transcripts, chat logs, or raw conversation text into the knowledge graph. Automatically classifies human inputs into plans, doubts, and dialogues, records decisions and writes, and establishes causal lineage.
 ```json
 // Request
 {
-  "raw_transcript": "## User\nShould we use SQLite WAL mode?\n\n## Assistant\nDecided on SQLite WAL for concurrent reads and writes."
+  "raw_transcript": "User: Should we use SQLite WAL mode?\nAssistant: Decided on SQLite WAL for concurrent reads and writes."
 }
 ```
 
-### 3.14 `knox_start_session` & 3.15 `knox_end_session`
+### 3.16 `knox_update_action`
+Updates summary, action_type, relations, symbols, rationale, significance, or doubt resolution status of an existing action node.
+```json
+// Request
+{
+  "id": "a-91dc8f72",
+  "summary": "Updated architecture with bounded diffs",
+  "is_resolved": true,
+  "resolution_note": "Integrated into core runtime"
+}
+```
+
+### 3.17 `knox_diff_inspect`
+Inspects granular code deltas, unified diff hunks, and deleted code snippets associated with an action.
+```json
+// Request
+{
+  "action_id": "a-91dc8f72",
+  "file_path": "src/storage/nodes.rs"
+}
+```
+
+### 3.18 `knox_blame_causal`
+Resolves the causal AI or human decision and code delta responsible for a specific line of code.
+```json
+// Request
+{
+  "file_path": "src/storage/nodes.rs",
+  "line_number": 42,
+  "commit_sha": "a1b2c3d4"
+}
+```
+
+### 3.19 `knox_verify_drift`
+Verifies workspace drift between Knox recorded actions and actual working tree files/git modifications.
+```json
+// Request
+{
+  "project_path": "."
+}
+```
+
+### 3.20 `knox_start_session` & 3.21 `knox_end_session`
 Explicit session boundary management (optional; sessions auto-manage if omitted).
 
-### 3.15 Native MCP Resources (`resources/*`)
+### 3.22 Native MCP Resources (`resources/*`)
 - `knox://project/overview` — High-level knowledge graph metrics, action counts, and recent activity.
 - `knox://decisions/active` — Live architectural constraints, design decisions, and rationales.
 - `knox://context/{file_path}` — Non-superseded context for any file in the workspace.
 
-### 3.16 Native MCP Prompts (`prompts/*`)
+### 3.23 Native MCP Prompts (`prompts/*`)
 - `architectural-audit` — Guided audit of active decisions, stale patterns, and constraint compliance.
 - `session-handover` — Synthesized context digest for handing over work to the next agent.
 
@@ -285,10 +333,13 @@ Explicit session boundary management (optional; sessions auto-manage if omitted)
 - `verifies` — Test or benchmark confirms an implementation.
 - `relates_to` — General conceptual association.
 - `reverts` — Explicitly rolls back or undoes target action.
+- `resolves` — Action or decision answers and resolves a prior open doubt.
 
 ### 4.2 Action Types (`action_type`)
 - `plan` — Technical roadmap or requirement breakdown.
 - `decide` — Strategic architectural choice or tradeoff evaluation.
+- `doubt` — Open uncertainty, question, or hypothesis being verified.
+- `dialogue` — User prompt conversation or design discussion record.
 - `write` — Code creation, refactoring, or file additions.
 - `change` — Incremental bug fix or configuration edit.
 - `debug` — Root-cause analysis, log inspection, or diagnosis.

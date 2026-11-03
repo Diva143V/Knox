@@ -86,6 +86,52 @@ impl KnoxConfig {
     pub fn save_default(&self) -> KnoxResult<()> {
         self.save_to_file(default_config_file_path())
     }
+
+    /// Resolves the database used by runtime commands.
+    ///
+    /// An explicitly configured `kg_path` always wins. Otherwise `global_mode`
+    /// decides between the shared `~/.knox/knox.db` and the nearest
+    /// project-local `.knox/knox.db`.
+    pub fn resolve_db_path(&self) -> PathBuf {
+        if self.has_explicit_kg_path() {
+            return self.kg_path.clone();
+        }
+        if self.global_mode {
+            return self.kg_path.clone();
+        }
+        let start = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        find_project_db_path(&start)
+    }
+
+    /// Resolves the database path for a specific project (used by `knox init`).
+    pub fn resolve_db_path_for(&self, project_path: &Path) -> PathBuf {
+        if self.has_explicit_kg_path() || self.global_mode {
+            self.kg_path.clone()
+        } else {
+            project_path
+                .join(DEFAULT_KNOX_DIR)
+                .join(DEFAULT_DB_FILENAME)
+        }
+    }
+
+    /// True when `kg_path` was set explicitly rather than left at its default.
+    fn has_explicit_kg_path(&self) -> bool {
+        self.kg_path != default_global_db_path()
+    }
+}
+
+/// Walks up from `start` to find an existing project-local database, falling
+/// back to `<start>/.knox/knox.db`.
+pub fn find_project_db_path(start: &Path) -> PathBuf {
+    let mut current = Some(start);
+    while let Some(dir) = current {
+        let candidate = dir.join(DEFAULT_KNOX_DIR).join(DEFAULT_DB_FILENAME);
+        if candidate.exists() {
+            return candidate;
+        }
+        current = dir.parent();
+    }
+    start.join(DEFAULT_KNOX_DIR).join(DEFAULT_DB_FILENAME)
 }
 
 impl Default for KnoxConfig {

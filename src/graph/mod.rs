@@ -5,5 +5,8 @@ pub mod loader;
 pub mod traversal;
 
 pub use cache::{CacheKey, DEFAULT_CACHE_CAPACITY, GraphCache};
-pub use loader::{KnoxGraph, find_node_index, load_full_graph, load_subgraph};
+pub use loader::{
+    KnoxGraph, SubgraphDirection, build_node_index, find_node_index, load_full_graph,
+    load_subgraph, load_subgraph_directional,
+};
 pub use traversal::{ancestors, causal_chain, descendants, path_between};

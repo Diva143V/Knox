@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod error;
+pub mod guardrails;
 pub mod ids;
 pub mod types;
 
@@ -11,6 +12,6 @@ pub use config::{
 pub use error::{KnoxError, KnoxResult};
 pub use ids::{ActionId, ProjectId, SessionId};
 pub use types::{
-    IngestReport, KnoxAction, KnoxEdge, Project, QueryFilter, QueryResult, ScanReport, Session,
-    StatusReport,
+    ActionDelta, ActionDeltaInput, DeltaChangeType, DeltaSummary, IngestReport, KnoxAction,
+    KnoxEdge, Project, QueryFilter, QueryResult, ScanReport, Session, StatusReport,
 };

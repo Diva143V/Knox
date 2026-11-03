@@ -26,6 +26,16 @@ pub fn run_migrations(conn: &Connection) -> KnoxResult<()> {
 
     if current_version < 3 {
         apply_v3(conn)?;
+        current_version = 3;
+    }
+
+    if current_version < 4 {
+        apply_v4(conn)?;
+        current_version = 4;
+    }
+
+    if current_version < 5 {
+        apply_v5(conn)?;
     }
 
     Ok(())
@@ -221,6 +231,73 @@ fn apply_v3(conn: &Connection) -> KnoxResult<()> {
     Ok(())
 }
 
+const V4_SCHEMA_SQL: &str = "BEGIN TRANSACTION;
+
+-- Add optional commit SHA tracking to actions
+ALTER TABLE actions ADD COLUMN commit_sha TEXT;
+
+-- Table storing granular patch hunks and deleted code blocks
+CREATE TABLE IF NOT EXISTS action_deltas (
+    id                TEXT PRIMARY KEY,
+    action_id         TEXT NOT NULL,
+    file_path         TEXT NOT NULL,
+    change_type       TEXT NOT NULL CHECK(change_type IN ('added', 'modified', 'deleted', 'renamed')),
+    old_path          TEXT,
+    lines_added       INTEGER NOT NULL DEFAULT 0,
+    lines_deleted     INTEGER NOT NULL DEFAULT 0,
+    diff_hunk         TEXT,
+    deleted_code      TEXT,
+    deletion_reason   TEXT,
+    created_at        TEXT NOT NULL,
+    FOREIGN KEY (action_id) REFERENCES actions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_actions_commit_sha     ON actions(commit_sha);
+CREATE INDEX IF NOT EXISTS idx_action_deltas_action   ON action_deltas(action_id);
+CREATE INDEX IF NOT EXISTS idx_action_deltas_file     ON action_deltas(file_path);
+CREATE INDEX IF NOT EXISTS idx_action_deltas_type     ON action_deltas(change_type);
+
+UPDATE knox_meta SET value = '4' WHERE key = 'schema_version';
+
+COMMIT;";
+
+/// Applies version 4 of the Knox database schema.
+fn apply_v4(conn: &Connection) -> KnoxResult<()> {
+    conn.execute_batch(V4_SCHEMA_SQL)?;
+    Ok(())
+}
+
+const V5_SCHEMA_SQL: &str = "BEGIN TRANSACTION;
+
+-- Project scope on actions. Project filtering used to go exclusively through
+-- sessions, which made session-less writes (git hook, `knox scan`, transcript
+-- ingestion) invisible to every project-filtered query.
+ALTER TABLE actions ADD COLUMN project_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_actions_project ON actions(project_id);
+
+-- Fixed-precision epoch milliseconds for ordering. RFC 3339 text with variable
+-- fractional digits does not sort correctly as a string.
+ALTER TABLE actions ADD COLUMN timestamp_ms INTEGER;
+CREATE INDEX IF NOT EXISTS idx_actions_timestamp_ms ON actions(timestamp_ms);
+
+UPDATE actions
+   SET project_id = (SELECT s.project_id FROM sessions s WHERE s.id = actions.session_id)
+ WHERE project_id IS NULL AND session_id IS NOT NULL;
+
+UPDATE actions
+   SET timestamp_ms = CAST(strftime('%s', timestamp) AS INTEGER) * 1000
+ WHERE timestamp_ms IS NULL;
+
+UPDATE knox_meta SET value = '5' WHERE key = 'schema_version';
+
+COMMIT;";
+
+/// Applies version 5 of the Knox database schema.
+fn apply_v5(conn: &Connection) -> KnoxResult<()> {
+    conn.execute_batch(V5_SCHEMA_SQL)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,11 +307,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         let version = get_schema_version(&conn).unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 5);
 
         // Re-running migrations should be idempotent
         run_migrations(&conn).unwrap();
         let version2 = get_schema_version(&conn).unwrap();
-        assert_eq!(version2, 3);
+        assert_eq!(version2, 5);
     }
 }

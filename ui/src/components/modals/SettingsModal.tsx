@@ -358,6 +358,107 @@ export const SettingsModal: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Accent Color — personalisation */}
+                  <div className="space-y-3 rounded-[var(--radius-card)] border border-border bg-card/60 p-3.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="text-xs font-medium text-foreground block">Accent Color</span>
+                        <span className="text-xs text-muted-foreground">
+                          Drives selection, focus rings and the graph's live paths, in both themes
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => updateUserSettings({ accentColor: null })}
+                        disabled={!userSettings.accentColor}
+                        className={cn(
+                          "shrink-0 rounded-[var(--radius-control)] border border-border px-2.5 py-1 text-xs transition-colors",
+                          userSettings.accentColor
+                            ? "text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                            : "text-muted-foreground/50 cursor-not-allowed"
+                        )}
+                      >
+                        Reset
+                      </button>
+                    </div>
+
+                    <div
+                      role="radiogroup"
+                      aria-label="Accent color"
+                      className="flex flex-wrap items-center gap-2"
+                    >
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={!userSettings.accentColor}
+                        onClick={() => updateUserSettings({ accentColor: null })}
+                        title="Follow the theme accent"
+                        className={cn(
+                          "flex items-center gap-1.5 rounded-[var(--radius-control)] border px-2.5 py-1 text-xs transition-colors cursor-pointer",
+                          !userSettings.accentColor
+                            ? "border-primary bg-primary-muted text-foreground"
+                            : "border-border text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <span className="size-3 rounded-full border border-current" aria-hidden />
+                        Theme default
+                      </button>
+
+                      {([
+                        ["#4a8ad6", "Signal blue"],
+                        ["#44a282", "Deep teal"],
+                        ["#d9a441", "Amber"],
+                        ["#e5566f", "Rose"],
+                        ["#8b7bd8", "Violet"],
+                        ["#8fbf4a", "Lime"],
+                      ] as const).map(([hex, name]) => {
+                        const active =
+                          (userSettings.accentColor ?? "").toLowerCase() === hex;
+                        return (
+                          <button
+                            key={hex}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            aria-label={name}
+                            title={name}
+                            onClick={() => updateUserSettings({ accentColor: hex })}
+                            className={cn(
+                              "size-6 rounded-full border transition-transform duration-100 cursor-pointer",
+                              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                              active
+                                ? "scale-110 border-foreground"
+                                : "border-border hover:scale-105"
+                            )}
+                            style={{ backgroundColor: hex }}
+                          />
+                        );
+                      })}
+
+                      <label
+                        className="relative flex size-6 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground transition-colors hover:text-foreground focus-within:ring-2 focus-within:ring-focus-ring cursor-pointer"
+                        title="Custom color"
+                      >
+                        <input
+                          type="color"
+                          value={userSettings.accentColor ?? "#4a8ad6"}
+                          onChange={(e) =>
+                            updateUserSettings({ accentColor: e.target.value.toLowerCase() })
+                          }
+                          className="absolute inset-0 size-full cursor-pointer opacity-0"
+                          aria-label="Custom accent color"
+                        />
+                        <span aria-hidden className="text-xs leading-none">
+                          +
+                        </span>
+                      </label>
+                    </div>
+
+                    <p className="font-mono text-[11px] text-muted-foreground">
+                      {userSettings.accentColor ?? "Following the theme accent"}
+                    </p>
+                  </div>
+
                   {/* UI Density */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-lg border border-border bg-card/60">
                     <div>
@@ -388,12 +489,15 @@ export const SettingsModal: React.FC = () => {
                   {/* Glow & Bloom FX */}
                   <div className="flex items-center justify-between p-3.5 rounded-lg border border-border bg-card/60">
                     <div>
-                      <label className="text-xs font-medium text-foreground block">Glow & Radial Bloom FX</label>
+                      <label htmlFor="setting-glow-fx" className="text-xs font-medium text-foreground block cursor-pointer">
+                        Graph Motion & Glow FX
+                      </label>
                       <span className="text-xs text-muted-foreground">
-                        Enable glowing Cosmos orbs and smooth neon bloom auras (disable to boost battery life)
+                        Cards turn slowly like a globe and orbs carry an orbiting rim. Turn off to hold the graph still and save battery.
                       </span>
                     </div>
                     <input
+                      id="setting-glow-fx"
                       type="checkbox"
                       checked={userSettings.enableGlowFx}
                       onChange={(e) => updateUserSettings({ enableGlowFx: e.target.checked })}
@@ -1168,7 +1272,7 @@ export const SettingsModal: React.FC = () => {
                 <div className="p-4 rounded-xl border border-border bg-card/60 space-y-4">
                   <div className="flex items-center gap-3">
                     <div className="size-12 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center text-primary text-xl font-bold">
-                      🛡️
+                      ️
                     </div>
                     <div>
                       <h4 className="text-base font-bold text-foreground tracking-tight">Knox Desktop</h4>

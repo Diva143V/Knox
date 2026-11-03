@@ -6,7 +6,7 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 
-/** Token-aligned edge colors (Graphite Vault). */
+/** Token-aligned edge colors (Achromatic Ledger / Data Terminal). */
 const RELATION_STYLE: Record<
   string,
   { stroke: string; dashed?: boolean; label: string }
@@ -15,15 +15,15 @@ const RELATION_STYLE: Record<
   caused: { stroke: "var(--primary)", label: "follows" },
   supersedes: { stroke: "var(--warning)", dashed: true, label: "supersedes" },
   superseded_by: { stroke: "var(--warning)", dashed: true, label: "supersedes" },
-  targets: { stroke: "var(--plan)", label: "targets" },
-  project: { stroke: "var(--info, #38bdf8)", label: "project" },
-  contains: { stroke: "var(--success, #10b981)", label: "contains" },
-  origin: { stroke: "var(--purple, #8b5cf6)", label: "origin" },
-  depends_on: { stroke: "var(--warning, #f59e0b)", dashed: true, label: "depends on" },
-  implements: { stroke: "var(--success, #10b981)", label: "implements" },
-  verifies: { stroke: "var(--plan, #06b6d4)", dashed: true, label: "verifies" },
-  relates_to: { stroke: "var(--muted-foreground, #94a3b8)", dashed: true, label: "relates to" },
-  reverts: { stroke: "var(--danger, #ef4444)", label: "reverts" },
+  targets: { stroke: "var(--muted-foreground)", label: "targets" },
+  project: { stroke: "var(--primary)", label: "project" },
+  contains: { stroke: "var(--success)", label: "contains" },
+  origin: { stroke: "var(--primary)", label: "origin" },
+  depends_on: { stroke: "var(--warning)", dashed: true, label: "depends on" },
+  implements: { stroke: "var(--success)", label: "implements" },
+  verifies: { stroke: "var(--primary)", dashed: true, label: "verifies" },
+  relates_to: { stroke: "var(--muted-foreground)", dashed: true, label: "relates to" },
+  reverts: { stroke: "var(--danger)", label: "reverts" },
 };
 
 export const CausalEdge = memo(function CausalEdge({
@@ -58,9 +58,9 @@ export const CausalEdge = memo(function CausalEdge({
         markerEnd={markerEnd}
         style={{
           stroke: style.stroke,
-          strokeWidth: selected ? 2.25 : 1.5,
-          strokeDasharray: style.dashed ? "5 4" : undefined,
-          opacity: selected ? 1 : 0.7,
+          strokeWidth: selected ? 2 : 1.25,
+          strokeDasharray: style.dashed ? "4 3" : undefined,
+          opacity: selected ? 1 : 0.75,
         }}
       />
       <EdgeLabelRenderer>
@@ -70,7 +70,7 @@ export const CausalEdge = memo(function CausalEdge({
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             pointerEvents: "none",
           }}
-          className="px-1 py-0.5 rounded-sm text-2xs font-mono uppercase tracking-wider bg-card/95 border border-border text-muted-foreground select-none nodrag nopan"
+          className="px-1 py-0.5 rounded-[var(--radius-control)] text-3xs font-mono bg-card border border-border text-muted-foreground select-none nodrag nopan"
         >
           {style.label}
         </div>

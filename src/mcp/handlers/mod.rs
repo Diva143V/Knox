@@ -1,6 +1,8 @@
 //! Handlers and dispatcher for Model Context Protocol (MCP) tools in Knox.
 
+pub mod blame_causal;
 pub mod check_guardrails;
+pub mod diff_inspect;
 pub mod end_session;
 pub mod get_context;
 pub mod get_history;
@@ -20,8 +22,11 @@ pub mod scan_staged;
 pub mod search;
 pub mod start_session;
 pub mod update_action;
+pub mod verify_drift;
 
+pub use blame_causal::handle_blame_causal;
 pub use check_guardrails::handle_check_guardrails;
+pub use diff_inspect::handle_diff_inspect;
 pub use end_session::handle_end_session;
 pub use get_context::handle_get_context;
 pub use get_history::handle_get_history;
@@ -41,6 +46,7 @@ pub use scan_staged::handle_scan_staged;
 pub use search::handle_search;
 pub use start_session::handle_start_session;
 pub use update_action::handle_update_action;
+pub use verify_drift::handle_verify_drift;
 
 use serde_json::{Value, json};
 
@@ -72,7 +78,7 @@ pub fn dispatch_with_id(
     db: &KnoxDb,
 ) -> McpResponse {
     match method {
-        "initialize" => handle_initialize(id),
+        "initialize" => handle_initialize(id, params),
         "ping" => McpResponse::success(id, json!({})),
         "tools/list" => McpResponse::success(id, json!({ "tools": all_tools() })),
         "tools/call" => handle_tools_call(id, params, db),
@@ -118,15 +124,46 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         "knox_list_stale" => handle_list_stale(db, params),
         "knox_scan_staged" => handle_scan_staged(db, params),
         "knox_ingest" => handle_ingest(db, params),
+        "knox_diff_inspect" => handle_diff_inspect(db, params),
+        "knox_blame_causal" => handle_blame_causal(db, params),
+        "knox_verify_drift" => handle_verify_drift(db, params),
         _ => Err(KnoxError::InvalidInput(format!("Unknown tool: {name}"))),
     }
 }
 
-fn handle_initialize(id: Option<Value>) -> McpResponse {
+/// Protocol revisions this server understands, newest first.
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
+/// Version used when the client requests nothing or an unsupported revision.
+const DEFAULT_PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// Compact protocol summary returned in the `initialize` response so clients
+/// that never surface `knox.md` still give the model the operating contract.
+const SERVER_INSTRUCTIONS: &str = "\
+Knox is an external long-term memory graph for AI coding agents. Use it instead of re-deriving project context.
+
+Mandatory protocol:
+1. Pre-flight: call knox_check_guardrails with the files you are about to touch (and any symbols). Read active decisions, open doubts and superseded anti-patterns before editing.
+2. During work: record decisions with knox_record_decision (include rationale and rejected_alternatives), doubts with knox_record_doubt, and code changes with knox_record_action or knox_record_batch (include files, symbols and relations). Use significance \"minor\" for micro-decisions.
+3. Navigation: use knox_get_lineage to trace why code exists, knox_get_impact before refactoring, and knox_get_path to connect two actions.
+4. When a doubt is answered, close the loop with knox_resolve_doubt. When an approach changes, supersede the previous decision instead of deleting history.
+
+Never delete history; append and supersede. Identify yourself in actor (for example gemini, cursor, claude, codex, human).";
+
+/// Negotiates the protocol revision, echoing a supported client request.
+fn negotiate_protocol_version(params: &Value) -> String {
+    params
+        .get("protocolVersion")
+        .and_then(Value::as_str)
+        .filter(|requested| SUPPORTED_PROTOCOL_VERSIONS.contains(requested))
+        .unwrap_or(DEFAULT_PROTOCOL_VERSION)
+        .to_string()
+}
+
+fn handle_initialize(id: Option<Value>, params: Value) -> McpResponse {
     McpResponse::success(
         id,
         json!({
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": negotiate_protocol_version(&params),
             "capabilities": {
                 "tools": {},
                 "resources": {},
@@ -135,7 +172,8 @@ fn handle_initialize(id: Option<Value>) -> McpResponse {
             "serverInfo": {
                 "name": "knox",
                 "version": env!("CARGO_PKG_VERSION")
-            }
+            },
+            "instructions": SERVER_INSTRUCTIONS
         }),
     )
 }
@@ -212,13 +250,31 @@ mod tests {
     }
 
     #[test]
+    fn test_initialize_negotiates_protocol_and_returns_instructions() {
+        let db = KnoxDb::open_memory().unwrap();
+
+        let supported = dispatch("initialize", json!({ "protocolVersion": "2024-11-05" }), &db);
+        let result = supported.result.unwrap();
+        assert_eq!(result.get("protocolVersion").unwrap(), "2024-11-05");
+        assert!(result.get("instructions").unwrap().as_str().unwrap().contains("knox_check_guardrails"));
+
+        let unknown = dispatch("initialize", json!({ "protocolVersion": "1999-01-01" }), &db);
+        let result = unknown.result.unwrap();
+        assert_eq!(result.get("protocolVersion").unwrap(), DEFAULT_PROTOCOL_VERSION);
+
+        let missing = dispatch("initialize", json!({}), &db);
+        let result = missing.result.unwrap();
+        assert_eq!(result.get("protocolVersion").unwrap(), DEFAULT_PROTOCOL_VERSION);
+    }
+
+    #[test]
     fn test_dispatch_tools_list() {
         let db = KnoxDb::open_memory().unwrap();
         let res = dispatch("tools/list", json!({}), &db);
         assert!(res.error.is_none());
         let result = res.result.unwrap();
         let tools = result.get("tools").unwrap().as_array().unwrap();
-        assert_eq!(tools.len(), 18);
+        assert_eq!(tools.len(), 21);
     }
 
     #[test]

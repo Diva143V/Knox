@@ -15,10 +15,11 @@ use crate::storage::db::KnoxDb;
 
 /// Opens the Knox SQLite database with user-friendly error context.
 pub fn open_db(config: &KnoxConfig) -> anyhow::Result<KnoxDb> {
-    KnoxDb::open(&config.kg_path).with_context(|| {
+    let db_path = config.resolve_db_path();
+    KnoxDb::open(&db_path).with_context(|| {
         format!(
             "Failed to open database at {}. Run 'knox init' to initialize your workspace.",
-            config.kg_path.display()
+            db_path.display()
         )
     })
 }
@@ -135,10 +136,11 @@ pub fn print_welcome_guide(config: &KnoxConfig) -> anyhow::Result<()> {
     println!("=======================================================\n");
     println!("Knox is a Command-Line Interface (CLI), Desktop App, and MCP server.\n");
 
-    if config.kg_path.exists() {
-        if let Ok(db) = KnoxDb::open(&config.kg_path) {
+    let db_path = config.resolve_db_path();
+    if db_path.exists() {
+        if let Ok(db) = KnoxDb::open(&db_path) {
             if let Ok(report) = crate::commands::cmd_status(&db) {
-                println!("Current Database Status ({}):", config.kg_path.display());
+                println!("Current Database Status ({}):", db_path.display());
                 println!("  • Total Actions:    {}", report.total_actions);
                 println!("  • Total Sessions:   {}", report.total_sessions);
                 println!("  • Projects Tracked: {}", report.projects_tracked);

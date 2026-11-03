@@ -4,9 +4,16 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::migrations;
-use crate::core::error::KnoxResult;
+use crate::core::error::{KnoxError, KnoxResult};
+
+/// How long SQLite waits for a competing writer before returning `SQLITE_BUSY`.
+pub const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Number of times a transaction is retried when the database is busy.
+const TX_MAX_RETRIES: u32 = 5;
 
 /// Comprehensive telemetry and disk usage statistics for the Knox SQLite database.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -27,6 +34,16 @@ pub struct KnoxDb {
     conn: Connection,
 }
 
+/// Exponential backoff with a small jitter derived from the wall clock.
+fn backoff_duration(attempt: u32) -> Duration {
+    let base_ms = 25u64.saturating_mul(1u64 << attempt.min(5));
+    let jitter_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| (d.subsec_nanos() as u64) % 25)
+        .unwrap_or(0);
+    Duration::from_millis(base_ms + jitter_ms)
+}
+
 impl KnoxDb {
     /// Opens or creates the SQLite database at the given filesystem path.
     /// Ensures parent directories exist, sets WAL mode and foreign keys, and applies migrations.
@@ -40,7 +57,8 @@ impl KnoxDb {
         let conn = Connection::open(path)?;
         let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        // Four processes (desktop, MCP server, CLI, git hook) share this file.
+        conn.busy_timeout(BUSY_TIMEOUT)?;
 
         let db = Self { conn };
         db.migrate()?;
@@ -53,11 +71,57 @@ impl KnoxDb {
     pub fn open_memory() -> KnoxResult<Self> {
         let conn = Connection::open_in_memory()?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        conn.busy_timeout(BUSY_TIMEOUT)?;
 
         let db = Self { conn };
         db.migrate()?;
         tracing::debug!("Opened in-memory Knox SQLite database");
         Ok(db)
+    }
+
+    /// Runs `f` inside a single SQLite transaction, retrying on lock contention.
+    ///
+    /// Any error returned by `f` rolls the whole unit of work back, so callers
+    /// never observe a partially written action.
+    pub fn with_tx<T, F>(&self, mut f: F) -> KnoxResult<T>
+    where
+        F: FnMut(&Connection) -> KnoxResult<T>,
+    {
+        let mut attempt = 0;
+        loop {
+            match self.try_tx(&mut f) {
+                Ok(value) => return Ok(value),
+                Err(KnoxError::DatabaseBusy(msg)) if attempt < TX_MAX_RETRIES => {
+                    let backoff = backoff_duration(attempt);
+                    tracing::warn!(
+                        attempt,
+                        backoff_ms = backoff.as_millis() as u64,
+                        error = %msg,
+                        "Database busy, retrying transaction"
+                    );
+                    std::thread::sleep(backoff);
+                    attempt += 1;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
+    fn try_tx<T, F>(&self, f: &mut F) -> KnoxResult<T>
+    where
+        F: FnMut(&Connection) -> KnoxResult<T>,
+    {
+        let tx = self.conn.unchecked_transaction()?;
+        match f(&tx) {
+            Ok(value) => {
+                tx.commit()?;
+                Ok(value)
+            }
+            Err(err) => {
+                let _ = tx.rollback();
+                Err(err)
+            }
+        }
     }
 
     /// Applies all pending database migrations.

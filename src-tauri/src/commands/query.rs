@@ -147,6 +147,17 @@ pub async fn get_action(
     db_get_action(&db, &ActionId::from(id)).map_err(|e| e.to_string())
 }
 
+/// Retrieves code deltas associated with an action.
+#[tauri::command]
+pub async fn get_action_deltas(
+    state: State<'_, AppState>,
+    action_id: String,
+) -> Result<Vec<knox::core::types::ActionDelta>, String> {
+    let db = state.db.lock().await;
+    knox::storage::nodes::get_deltas_by_action(&db, &ActionId::from(action_id))
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -166,7 +166,7 @@ export const OnboardingWizard: React.FC = () => {
       /* storage unavailable */
     }
     setOnboardingOpen(false);
-    showToast("Welcome to Knox 🛡️!");
+    showToast("Welcome to Knox ️!");
     refreshData();
   };
 

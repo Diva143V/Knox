@@ -4,8 +4,8 @@ use serde_json::json;
 
 use super::protocol::ToolDescription;
 
-/// All supported Knox MCP tool names (18 tools).
-pub const TOOL_NAMES: [&str; 18] = [
+/// All supported Knox MCP tool names (21 tools).
+pub const TOOL_NAMES: [&str; 21] = [
     "knox_start_session",
     "knox_end_session",
     "knox_record_action",
@@ -24,9 +24,16 @@ pub const TOOL_NAMES: [&str; 18] = [
     "knox_list_stale",
     "knox_scan_staged",
     "knox_ingest",
+    "knox_diff_inspect",
+    "knox_blame_causal",
+    "knox_verify_drift",
 ];
 
-/// Returns the complete list of all 18 Knox tool definitions.
+/// Canonical number of registered Knox tools. Documentation and tests derive
+/// from this constant so the count cannot drift from the implementation.
+pub const TOOL_COUNT: usize = TOOL_NAMES.len();
+
+/// Returns the complete list of all Knox tool definitions.
 pub fn all_tools() -> Vec<ToolDescription> {
     vec![
         tool_start_session(),
@@ -47,6 +54,9 @@ pub fn all_tools() -> Vec<ToolDescription> {
         tool_list_stale(),
         tool_scan_staged(),
         tool_ingest(),
+        tool_diff_inspect(),
+        tool_blame_causal(),
+        tool_verify_drift(),
     ]
 }
 
@@ -193,6 +203,36 @@ fn action_schema_properties(action_type_desc: &str) -> serde_json::Value {
         "implements_latest_decision": {
             "type": "boolean",
             "description": "Convenience helper: automatically link `implements` to latest decision in session"
+        },
+        "commit_sha": {
+            "type": "string",
+            "description": "Optional Git commit SHA associated with this action"
+        },
+        "auto_git_diff": {
+            "type": "boolean",
+            "description": "Whether to automatically capture working tree git diff for touched files (default true)"
+        },
+        "deletion_reason": {
+            "type": "string",
+            "description": "Architectural or technical rationale explaining why code was removed"
+        },
+        "deltas": {
+            "type": "array",
+            "description": "Explicit code diff hunks and deleted code blocks to record",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "file_path": { "type": "string", "description": "Relative path to the modified file" },
+                    "change_type": { "type": "string", "enum": ["added", "modified", "deleted", "renamed"], "description": "Type of file change" },
+                    "old_path": { "type": "string", "description": "Previous file path if renamed" },
+                    "lines_added": { "type": "integer", "description": "Number of lines added" },
+                    "lines_deleted": { "type": "integer", "description": "Number of lines deleted" },
+                    "diff_hunk": { "type": "string", "description": "Unified diff hunk patch" },
+                    "deleted_code": { "type": "string", "description": "Deleted code snippet" },
+                    "deletion_reason": { "type": "string", "description": "Rationale for deleting this code" }
+                },
+                "required": ["file_path", "change_type"]
+            }
         }
     })
 }
@@ -816,6 +856,69 @@ fn tool_ingest() -> ToolDescription {
     )
 }
 
+fn tool_diff_inspect() -> ToolDescription {
+    ToolDescription::new(
+        "knox_diff_inspect",
+        "Inspects granular code deltas, unified diff hunks, and deleted code snippets associated with an action.",
+        json!({
+            "type": "object",
+            "properties": {
+                "action_id": {
+                    "type": "string",
+                    "description": "Unique identifier of the action node to inspect"
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Optional file path filter to inspect deltas only for a specific file"
+                }
+            },
+            "required": ["action_id"]
+        }),
+    )
+}
+
+fn tool_blame_causal() -> ToolDescription {
+    ToolDescription::new(
+        "knox_blame_causal",
+        "Resolves the causal AI or human decision and code delta responsible for a specific line of code in a file.",
+        json!({
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Relative file path within the project workspace"
+                },
+                "line_number": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based line number to causally trace"
+                },
+                "commit_sha": {
+                    "type": "string",
+                    "description": "Optional known git commit hash to accelerate causal resolution"
+                }
+            },
+            "required": ["file_path", "line_number"]
+        }),
+    )
+}
+
+fn tool_verify_drift() -> ToolDescription {
+    ToolDescription::new(
+        "knox_verify_drift",
+        "Verifies workspace drift between Knox recorded actions and actual working tree files/git modifications.",
+        json!({
+            "type": "object",
+            "properties": {
+                "project_path": {
+                    "type": "string",
+                    "description": "Optional root directory path of the project (defaults to active project or current dir)"
+                }
+            }
+        }),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -823,7 +926,8 @@ mod tests {
     #[test]
     fn test_all_tools_count_and_names() {
         let tools = all_tools();
-        assert_eq!(tools.len(), 18);
+        assert_eq!(tools.len(), TOOL_COUNT);
+        assert_eq!(TOOL_NAMES.len(), TOOL_COUNT);
         for expected_name in TOOL_NAMES {
             assert!(
                 tools.iter().any(|t| t.name == expected_name),
@@ -873,30 +977,48 @@ mod tests {
     }
 
     #[test]
-    fn test_export_antigravity_schemas() {
-        let dest = std::path::Path::new("C:/Users/Diwa/.gemini/antigravity/mcp/knox");
-        if dest.exists() {
-            for tool in all_tools() {
-                let schema_obj = json!({
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.input_schema,
-                });
-                let file_path = dest.join(format!("{}.json", tool.name));
-                let _ = std::fs::write(
-                    file_path,
-                    serde_json::to_string_pretty(&schema_obj).unwrap(),
-                );
-            }
-            let instructions = r#"# Knox MCP Best Practices for AI Agents
+    fn test_export_antigravity_schemas_to_temp_dir() {
+        // Never write outside the repository: export into an isolated temp dir.
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("knox");
+        std::fs::create_dir_all(&dest).unwrap();
 
-1. **Smart Auto-Sessions**: You do NOT need to call `knox_start_session` before logging actions. Knox will automatically reuse your active session or spawn one transparently.
-2. **Pre-flight Guardrail Check**: Before modifying critical files or architecture, call `knox_check_guardrails` with `files: ["path/to/file"]` to inspect active architectural decisions and avoid repeating superseded patterns.
-3. **Graph Lineage & Impact**: Use `knox_get_lineage` to trace the causal chain of decisions and code modifications, and `knox_get_impact` to assess downstream implications of changing a file or decision.
-4. **Batch Operations**: When performing multiple atomic steps, use `knox_record_batch` with `link_to_previous: true` to record an interconnected causal chain in a single turn.
-5. **Rich Relations & Symbols**: When recording actions, specify `symbols: ["fn_name", "StructName"]` and `relations: [{"target_id": "...", "relation_type": "implements"}]` to enrich Knox's petgraph knowledge graph.
-"#;
-            let _ = std::fs::write(dest.join("instructions.md"), instructions);
+        for tool in all_tools() {
+            let schema_obj = json!({
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.input_schema,
+            });
+            let file_path = dest.join(format!("{}.json", tool.name));
+            std::fs::write(
+                file_path,
+                serde_json::to_string_pretty(&schema_obj).unwrap(),
+            )
+            .unwrap();
+        }
+        let instructions = "# Knox MCP Best Practices for AI Agents\n";
+        std::fs::write(dest.join("instructions.md"), instructions).unwrap();
+
+        assert_eq!(
+            std::fs::read_dir(&dest).unwrap().count(),
+            TOOL_COUNT + 1,
+            "expected one schema per tool plus instructions.md"
+        );
+    }
+
+    #[test]
+    fn test_documented_tool_count_matches_constant() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for doc in ["README.md", "knox.md"] {
+            let path = root.join(doc);
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let expected = format!("{TOOL_COUNT} tools");
+            assert!(
+                content.contains(&expected),
+                "{doc} must state \"{expected}\" to match TOOL_COUNT"
+            );
         }
     }
 }

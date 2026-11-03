@@ -42,7 +42,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
     >
       {(language || copyable) && (
         <div className="flex items-center justify-between px-3 py-1.5 border-b border-border-subtle bg-card">
-          <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
+          <span className="text-xs font-mono text-muted-foreground">
             {language || "text"}
           </span>
           {copyable && (

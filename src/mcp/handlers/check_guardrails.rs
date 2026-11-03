@@ -2,10 +2,12 @@
 
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::HashSet;
 
 use crate::core::error::{KnoxError, KnoxResult};
+use crate::core::ids::ActionId;
 use crate::core::types::{KnoxAction, QueryFilter};
-use crate::ingest::summary::normalize_file_path;
+use crate::ingest::summary::normalize_file_path_with_root;
 use crate::storage::db::KnoxDb;
 
 /// Input parameters for `knox_check_guardrails`.
@@ -15,13 +17,173 @@ pub struct CheckGuardrailsParams {
     pub files: Vec<String>,
     /// Optional proposed action description to test against rejected alternatives.
     pub proposed_action: Option<String>,
-    /// Whether to enforce strict checking (flagging any related superseded patterns as failure).
+    /// Whether to fail on any violation rather than only high-confidence ones.
     pub strict: Option<bool>,
     /// Optional project scope.
     #[serde(default)]
     pub project: Option<String>,
+    /// Optional code symbols touched by the proposed change. Constraints
+    /// recorded against these symbols are included even for new files.
+    #[serde(default)]
+    pub symbols: Vec<String>,
     /// Output representation format ("markdown" | "json", defaults to "markdown").
     pub format: Option<String>,
+}
+
+/// A rejected-alternative match, with the evidence needed to judge it.
+#[derive(Debug, Clone, serde::Serialize)]
+struct Violation {
+    message: String,
+    alternative: String,
+    decision_id: String,
+    decision_summary: String,
+    confidence: f64,
+    matched_span: String,
+}
+
+/// Splits text into lowercase content tokens, dropping punctuation and stopwords.
+fn content_tokens(text: &str) -> Vec<String> {
+    const STOPWORDS: &[&str] = &[
+        "a", "an", "the", "to", "of", "in", "on", "for", "and", "or", "is", "are", "be", "with",
+        "by", "as", "at", "from", "that", "this", "it", "we", "i", "you", "use", "using", "used",
+    ];
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .filter(|t| !STOPWORDS.contains(t))
+        .map(|t| t.to_string())
+        .collect()
+}
+
+/// Returns `(confidence, evidence)` when `proposal` meaningfully restates a
+/// rejected alternative.
+///
+/// Replaces bidirectional substring containment, where an alternative such as
+/// "React" matched nearly every proposal. Requires a threshold of the
+/// alternative's content tokens and ignores explicitly negated proposals.
+fn match_rejected_alternative(proposal: &str, alternative: &str) -> Option<(f64, String)> {
+    let alt_tokens = content_tokens(alternative);
+    if alt_tokens.is_empty() {
+        return None;
+    }
+
+    let proposal_tokens = content_tokens(proposal);
+    if proposal_tokens.is_empty() {
+        return None;
+    }
+    let proposal_set: HashSet<&str> = proposal_tokens.iter().map(String::as_str).collect();
+
+    // A single short token is too ambiguous to flag on its own.
+    if alt_tokens.len() == 1 && alt_tokens[0].len() < 4 {
+        return None;
+    }
+
+    let matched: Vec<&String> = alt_tokens
+        .iter()
+        .filter(|t| proposal_set.contains(t.as_str()))
+        .collect();
+    if matched.is_empty() {
+        return None;
+    }
+
+    let coverage = matched.len() as f64 / alt_tokens.len() as f64;
+    let required = if alt_tokens.len() == 1 { 1.0 } else { 0.6 };
+    if coverage < required {
+        return None;
+    }
+
+    // If the proposal negates the match ("do not use X"), it is not a violation.
+    let first_match = proposal_tokens
+        .iter()
+        .position(|t| matched.iter().any(|m| *m == t));
+    if let Some(idx) = first_match {
+        const NEGATIONS: &[&str] = &[
+            "not", "no", "never", "without", "avoid", "dont", "doesnt", "isnt", "wont", "nor",
+        ];
+        let start = idx.saturating_sub(3);
+        if proposal_tokens[start..idx]
+            .iter()
+            .any(|t| NEGATIONS.contains(&t.as_str()))
+        {
+            return None;
+        }
+    }
+
+    let evidence = matched
+        .iter()
+        .map(|t| t.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some((coverage, evidence))
+}
+
+/// Builds the scopes a guardrail lookup should cover: the file itself, each
+/// ancestor directory, and any explicitly supplied symbols.
+fn guardrail_scopes(norm_files: &[String]) -> Vec<(String, bool)> {
+    let mut scopes: Vec<(String, bool)> = Vec::new();
+    for file in norm_files {
+        scopes.push((file.clone(), false));
+        let mut current = file.as_str();
+        while let Some(idx) = current.rfind('/') {
+            let parent = &current[..idx];
+            if parent.is_empty() {
+                break;
+            }
+            scopes.push((parent.to_string(), true));
+            current = parent;
+        }
+    }
+    scopes.sort();
+    scopes.dedup();
+    scopes
+}
+
+/// Unions decisions/doubts across file scopes and symbols.
+fn query_scoped_actions(
+    db: &KnoxDb,
+    scopes: &[(String, bool)],
+    symbols: &[String],
+    project: Option<&str>,
+    action_type: &str,
+    current_only: bool,
+) -> KnoxResult<Vec<KnoxAction>> {
+    let mut out: Vec<KnoxAction> = Vec::new();
+    let mut seen: HashSet<ActionId> = HashSet::new();
+
+    for (path, exact) in scopes {
+        let filter = QueryFilter {
+            file_path: Some(path.clone()),
+            file_path_exact: *exact,
+            action_type: Some(action_type.to_string()),
+            current_only,
+            project: project.map(str::to_string),
+            limit: 50,
+            ..Default::default()
+        };
+        for action in crate::storage::queries::query_actions(db, &filter)?.results {
+            if seen.insert(action.id.clone()) {
+                out.push(action);
+            }
+        }
+    }
+
+    for symbol in symbols {
+        let filter = QueryFilter {
+            symbols: vec![symbol.clone()],
+            action_type: Some(action_type.to_string()),
+            current_only,
+            project: project.map(str::to_string),
+            limit: 50,
+            ..Default::default()
+        };
+        for action in crate::storage::queries::query_actions(db, &filter)?.results {
+            if seen.insert(action.id.clone()) {
+                out.push(action);
+            }
+        }
+    }
+
+    Ok(out)
 }
 
 /// Handles the `knox_check_guardrails` tool invocation.
@@ -29,82 +191,102 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
     let input: CheckGuardrailsParams = serde_json::from_value(params)
         .map_err(|e| KnoxError::InvalidInput(format!("Invalid check_guardrails params: {e}")))?;
 
-    let mut active_decisions: Vec<KnoxAction> = Vec::new();
-    let mut stale_decisions: Vec<KnoxAction> = Vec::new();
-    let mut open_doubts: Vec<KnoxAction> = Vec::new();
+    let project_root = if let Some(project) = input.project.as_deref() {
+        crate::storage::sessions::resolve_project_identifier(db, project)?
+            .and_then(|id| {
+                crate::storage::nodes::get_project(db, &crate::core::ids::ProjectId::from(id))
+                    .ok()
+                    .flatten()
+            })
+            .map(|project| project.path)
+    } else {
+        Some(
+            std::env::current_dir()
+                .map_err(|e| KnoxError::InvalidInput(format!("Unable to resolve current project root: {e}")))?
+                .to_string_lossy()
+                .to_string(),
+        )
+    };
+    let norm_files: Vec<String> = input
+        .files
+        .iter()
+        .map(|file| normalize_file_path_with_root(file, project_root.as_deref()))
+        .collect();
+    let scopes = guardrail_scopes(&norm_files);
 
-    let norm_files: Vec<String> = input.files.iter().map(|f| normalize_file_path(f)).collect();
+    // Active decisions applying to any touched file, ancestor directory or symbol.
+    let active_decisions = query_scoped_actions(
+        db,
+        &scopes,
+        &input.symbols,
+        input.project.as_deref(),
+        "decide",
+        true,
+    )?;
 
-    for file in &norm_files {
-        // Query active decisions
-        let active_filter = QueryFilter {
-            file_path: Some(file.clone()),
-            action_type: Some("decide".to_string()),
-            current_only: true,
-            project: input.project.clone(),
-            limit: 20,
-            ..Default::default()
-        };
-        let active_res = crate::storage::queries::query_actions(db, &active_filter)?;
-        for a in active_res.results {
-            if !active_decisions.iter().any(|d| d.id == a.id) {
-                active_decisions.push(a);
-            }
-        }
+    // Every decision in scope, so superseded patterns can be reported without
+    // letting them influence the pass/fail outcome.
+    let all_decisions = query_scoped_actions(
+        db,
+        &scopes,
+        &input.symbols,
+        input.project.as_deref(),
+        "decide",
+        false,
+    )?;
+    let stale_decisions: Vec<KnoxAction> = all_decisions
+        .into_iter()
+        .filter(|a| !a.is_current)
+        .collect();
 
-        // Query superseded/stale decisions
-        let stale_filter = QueryFilter {
-            file_path: Some(file.clone()),
-            action_type: Some("decide".to_string()),
-            current_only: false,
-            project: input.project.clone(),
-            limit: 20,
-            ..Default::default()
-        };
-        let stale_res = crate::storage::queries::query_actions(db, &stale_filter)?;
-        for a in stale_res.results {
-            if !a.is_current && !stale_decisions.iter().any(|d| d.id == a.id) {
-                stale_decisions.push(a);
-            }
-        }
-
-        // Query open doubts / questions on target files
-        let doubt_filter = QueryFilter {
-            file_path: Some(file.clone()),
-            action_type: Some("doubt".to_string()),
-            current_only: true,
-            project: input.project.clone(),
-            limit: 20,
-            ..Default::default()
-        };
-        let doubt_res = crate::storage::queries::query_actions(db, &doubt_filter)?;
-        for a in doubt_res.results {
-            if a.is_resolved != Some(true) && !open_doubts.iter().any(|d| d.id == a.id) {
-                open_doubts.push(a);
-            }
-        }
-    }
+    // Open doubts / questions in the same scope.
+    let open_doubts: Vec<KnoxAction> = query_scoped_actions(
+        db,
+        &scopes,
+        &input.symbols,
+        input.project.as_deref(),
+        "doubt",
+        true,
+    )?
+    .into_iter()
+    .filter(|a| a.is_resolved != Some(true))
+    .collect();
 
     let mut violations: Vec<String> = Vec::new();
+    let mut violation_details: Vec<Violation> = Vec::new();
     if let Some(ref prop) = input.proposed_action {
-        let prop_lower = prop.to_lowercase();
         for d in &active_decisions {
             for alt in &d.rejected_alternatives {
-                let alt_lower = alt.trim().to_lowercase();
-                if !alt_lower.is_empty()
-                    && (prop_lower.contains(&alt_lower) || alt_lower.contains(&prop_lower))
-                {
-                    violations.push(format!(
+                if let Some((confidence, matched_span)) = match_rejected_alternative(prop, alt) {
+                    let message = format!(
                         "Proposed action matches rejected alternative '{}' in decision `{}` ('{}')",
                         alt, d.id, d.summary
-                    ));
+                    );
+                    violations.push(message.clone());
+                    violation_details.push(Violation {
+                        message,
+                        alternative: alt.clone(),
+                        decision_id: d.id.to_string(),
+                        decision_summary: d.summary.clone(),
+                        confidence,
+                        matched_span,
+                    });
                 }
             }
         }
     }
 
+    // Non-strict mode only fails on high-confidence matches; strict mode fails
+    // on any match. Superseded decisions never affect the outcome.
+    const HIGH_CONFIDENCE: f64 = 0.8;
     let strict = input.strict.unwrap_or(false);
-    let pass = violations.is_empty() && (!strict || stale_decisions.is_empty());
+    let pass = if strict {
+        violations.is_empty()
+    } else {
+        !violation_details
+            .iter()
+            .any(|v| v.confidence >= HIGH_CONFIDENCE)
+    };
     let decision_count = active_decisions.len();
 
     let format_mode = input
@@ -118,6 +300,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
             "pass": pass,
             "violations_count": violations.len(),
             "violations": violations,
+            "violation_details": violation_details,
             "decision_count": decision_count,
             "open_doubts_count": open_doubts.len(),
             "open_doubts": open_doubts,
@@ -138,6 +321,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
             "pass": pass,
             "violations_count": violations.len(),
             "violations": violations,
+            "violation_details": violation_details,
             "decision_count": decision_count,
             "open_doubts_count": open_doubts.len(),
             "open_doubts": open_doubts,

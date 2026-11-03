@@ -61,6 +61,8 @@ pub fn record_quick_thought_impl(
         significance: Some(significance),
         is_resolved: Some(is_resolved),
         resolution_note: None,
+        commit_sha: None,
+        delta_summary: None,
     };
 
     insert_action(db, &action).map_err(|e| e.to_string())?;

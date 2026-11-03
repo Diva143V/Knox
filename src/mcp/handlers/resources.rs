@@ -95,7 +95,7 @@ pub fn handle_resources_read(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         uri if uri.starts_with("knox://context/") => {
             let file_path = uri.strip_prefix("knox://context/").unwrap_or("");
             let filter = QueryFilter {
-                file_path: Some(crate::ingest::summary::normalize_file_path(file_path)),
+                file_path: Some(crate::ingest::summary::normalize_query_file_path(file_path)),
                 current_only: true,
                 limit: 20,
                 ..Default::default()

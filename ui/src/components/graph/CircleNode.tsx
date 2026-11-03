@@ -1,29 +1,26 @@
-import { memo } from "react";
+import React, { memo } from "react";
 import { Handle, Position } from "@xyflow/react";
-import { useKnoxStore } from "@/store/useKnoxStore";
-import type { KnoxAction } from "@/types/knox";
-import { cn } from "@/lib/cn";
 import {
   FolderGit2,
   FileCode,
-  Zap,
-  Compass,
   Scale,
+  Compass,
+  Zap,
   Bug,
   Layers,
 } from "lucide-react";
+import { useKnoxStore } from "@/store/useKnoxStore";
+import type { KnoxAction } from "@/types/knox";
+import { cn } from "@/lib/cn";
 
 export interface CircleNodeData {
-  kind: "action" | "project" | "file";
+  kind: "project" | "file" | "action";
   title: string;
   subtitle?: string;
   action?: KnoxAction;
-  filePath?: string;
-  actionCount?: number;
-  fileCount?: number;
-  isHighlighted?: boolean;
+  project?: import("@/types/knox").Project;
   isDimmed?: boolean;
-  selected?: boolean;
+  isHighlighted?: boolean;
   [key: string]: unknown;
 }
 
@@ -31,7 +28,6 @@ interface RoleVisual {
   color: string;
   border: string;
   bg: string;
-  glow: string;
   ring: string;
   text: string;
   Icon: React.ComponentType<{ className?: string }>;
@@ -41,87 +37,80 @@ interface RoleVisual {
 function getVisual(kind: CircleNodeData["kind"], action?: KnoxAction): RoleVisual {
   if (kind === "project") {
     return {
-      color: "#38bdf8",
-      border: "border-sky-400/70",
-      bg: "bg-sky-500/20",
-      glow: "shadow-[0_0_22px_rgba(56,189,248,0.4)]",
-      ring: "ring-sky-400",
-      text: "text-sky-300",
+      color: "var(--primary)",
+      border: "border-primary/60",
+      bg: "bg-primary/15",
+      ring: "ring-primary",
+      text: "text-primary",
       Icon: FolderGit2,
-      radius: 26, // 52px diameter
+      radius: 26,
     };
   }
 
   if (kind === "file") {
     return {
-      color: "#94a3b8",
-      border: "border-slate-400/60",
-      bg: "bg-slate-500/20",
-      glow: "shadow-[0_0_12px_rgba(148,163,184,0.25)]",
-      ring: "ring-slate-400",
-      text: "text-slate-300",
+      color: "var(--muted-foreground)",
+      border: "border-border",
+      bg: "bg-muted/50",
+      ring: "ring-muted-foreground",
+      text: "text-muted-foreground",
       Icon: FileCode,
-      radius: 18, // 36px diameter
+      radius: 18,
     };
   }
 
   const type = (action?.action_type || "").toLowerCase();
   if (type.includes("decide")) {
     return {
-      color: "#f59e0b",
-      border: "border-amber-400/80",
-      bg: "bg-amber-500/20",
-      glow: "shadow-[0_0_20px_rgba(245,158,11,0.45)]",
-      ring: "ring-amber-400",
-      text: "text-amber-300",
+      color: "var(--warning)",
+      border: "border-warning/70",
+      bg: "bg-warning/15",
+      ring: "ring-warning",
+      text: "text-warning",
       Icon: Scale,
-      radius: 23, // 46px diameter
+      radius: 23,
     };
   }
   if (type.includes("plan")) {
     return {
-      color: "#06b6d4",
-      border: "border-cyan-400/70",
-      bg: "bg-cyan-500/20",
-      glow: "shadow-[0_0_18px_rgba(6,182,212,0.35)]",
-      ring: "ring-cyan-400",
-      text: "text-cyan-300",
+      color: "var(--primary)",
+      border: "border-primary/60",
+      bg: "bg-primary/15",
+      ring: "ring-primary",
+      text: "text-primary",
       Icon: Compass,
       radius: 21,
     };
   }
   if (type.includes("write")) {
     return {
-      color: "#10b981",
-      border: "border-emerald-400/70",
-      bg: "bg-emerald-500/20",
-      glow: "shadow-[0_0_18px_rgba(16,185,129,0.35)]",
-      ring: "ring-emerald-400",
-      text: "text-emerald-300",
+      color: "var(--success)",
+      border: "border-success/60",
+      bg: "bg-success/15",
+      ring: "ring-success",
+      text: "text-success",
       Icon: Zap,
       radius: 21,
     };
   }
   if (type.includes("debug")) {
     return {
-      color: "#ef4444",
-      border: "border-rose-400/70",
-      bg: "bg-rose-500/20",
-      glow: "shadow-[0_0_18px_rgba(239,68,68,0.35)]",
-      ring: "ring-rose-400",
-      text: "text-rose-300",
+      color: "var(--danger)",
+      border: "border-danger/60",
+      bg: "bg-danger/15",
+      ring: "ring-danger",
+      text: "text-danger",
       Icon: Bug,
       radius: 21,
     };
   }
 
   return {
-    color: "#6366f1",
-    border: "border-indigo-400/60",
-    bg: "bg-indigo-500/20",
-    glow: "shadow-[0_0_16px_rgba(99,102,241,0.35)]",
-    ring: "ring-indigo-400",
-    text: "text-indigo-300",
+    color: "var(--primary)",
+    border: "border-primary/50",
+    bg: "bg-primary/10",
+    ring: "ring-primary",
+    text: "text-primary",
     Icon: Layers,
     radius: 20,
   };
@@ -138,6 +127,9 @@ export const CircleNode = memo(({ data }: { data: CircleNodeData }) => {
   const IconComponent = visual.Icon;
   const diameter = visual.radius * 2;
 
+  let delaySeed = 0;
+  for (let i = 0; i < title.length; i++) delaySeed += title.charCodeAt(i);
+
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (kind === "action" && action) {
@@ -147,11 +139,12 @@ export const CircleNode = memo(({ data }: { data: CircleNodeData }) => {
 
   return (
     <div
+      data-ui="graph-node"
       onClick={handleClick}
       className={cn(
         "relative flex flex-col items-center justify-center group cursor-pointer select-none",
         "focus-visible:outline-none",
-        data.isDimmed && !isSelected && !isHighlighted && "opacity-25 transition-opacity duration-300"
+        data.isDimmed && !isSelected && !isHighlighted && "opacity-25 transition-opacity duration-200"
       )}
       style={{ width: diameter + 40, minHeight: diameter + 32 }}
       role="button"
@@ -182,29 +175,29 @@ export const CircleNode = memo(({ data }: { data: CircleNodeData }) => {
         className="!size-2 !bg-primary/80 !border-0 !opacity-0 group-hover:!opacity-100 transition-opacity"
       />
 
-      {/* Outer Pulse/Selection Ring */}
+      {/* Outer Selection Ring */}
       <div
         className={cn(
-          "rounded-full flex items-center justify-center transition-all duration-300 relative",
+          "obsidian-orbit rounded-full flex items-center justify-center relative transition-transform duration-150",
           visual.border,
           visual.bg,
-          visual.glow,
-          "border-2 backdrop-blur-xs",
-          isSelected && `ring-4 ${visual.ring} scale-110`,
-          isHighlighted && !isSelected && "ring-3 ring-primary animate-pulse scale-105"
+          "border",
+          isSelected && `ring-2 ${visual.ring} scale-105`,
+          isHighlighted && !isSelected && "ring-1 ring-primary scale-105"
         )}
         style={{
           width: diameter,
           height: diameter,
-        }}
+          "--globe-delay": `-${delaySeed % 8}s`,
+        } as React.CSSProperties}
       >
         {/* Inner Lucide Glyph */}
-        <IconComponent className={cn("size-5 transition-transform duration-200 group-hover:scale-115", visual.text)} />
+        <IconComponent className={cn("size-4 transition-transform duration-150 group-hover:scale-110", visual.text)} />
 
         {/* Small badge for relations or files count */}
         {action && action.relations && action.relations.length > 0 && (
           <span
-            className="absolute -top-1 -right-1 size-4 rounded-full bg-primary text-primary-foreground text-[9px] font-mono font-bold flex items-center justify-center border border-background shadow-xs"
+            className="absolute -top-1 -right-1 size-3.5 rounded-full bg-primary text-primary-foreground text-[8px] font-mono font-medium flex items-center justify-center border border-background"
             title={`${action.relations.length} relations`}
           >
             {action.relations.length}
@@ -212,27 +205,25 @@ export const CircleNode = memo(({ data }: { data: CircleNodeData }) => {
         )}
 
         {kind === "project" && (
-          <span
-            className="absolute -bottom-1 -right-1 px-1 rounded-sm bg-sky-600 text-white text-[9px] font-mono font-bold border border-background shadow-xs"
-          >
+          <span className="absolute -bottom-1 -right-1 px-1 rounded-xs bg-muted text-foreground text-[8px] font-mono border border-border">
             PKG
           </span>
         )}
       </div>
 
       {/* Floating Ambient Label */}
-      <div className="mt-1.5 flex flex-col items-center text-center max-w-[140px] pointer-events-none">
+      <div className="mt-1 flex flex-col items-center text-center max-w-[130px] pointer-events-none">
         <span
           className={cn(
-            "text-[11px] font-medium leading-tight line-clamp-2 px-1 rounded-sm transition-colors",
-            isSelected ? "text-primary font-semibold bg-primary/10" : "text-foreground/90 group-hover:text-foreground"
+            "text-3xs font-normal leading-tight line-clamp-2 px-1 rounded-xs transition-colors",
+            isSelected ? "text-primary font-medium bg-primary-muted" : "text-foreground/90 group-hover:text-foreground"
           )}
           title={title}
         >
           {title}
         </span>
         {subtitle && (
-          <span className="text-[9px] font-mono text-muted-foreground truncate max-w-[120px] mt-0.5">
+          <span className="text-[9px] font-mono text-muted-foreground truncate max-w-[110px] mt-0.5">
             {subtitle}
           </span>
         )}

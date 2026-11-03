@@ -8,7 +8,7 @@ use crate::core::ids::ActionId;
 use crate::core::types::QueryFilter;
 use crate::graph::loader::load_subgraph;
 use crate::graph::traversal::path_between;
-use crate::ingest::summary::normalize_file_path;
+use crate::ingest::summary::normalize_query_file_path;
 use crate::storage::db::KnoxDb;
 
 /// Input parameters for `knox_get_path`.
@@ -38,7 +38,7 @@ pub fn handle_get_path(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let from_id = if let Some(ref id_str) = input.from_action_id {
         ActionId::from(id_str.trim())
     } else if let Some(ref fp) = input.from_file {
-        let norm = normalize_file_path(fp);
+        let norm = normalize_query_file_path(fp);
         let filter = QueryFilter {
             file_path: Some(norm),
             current_only: true,
@@ -62,7 +62,7 @@ pub fn handle_get_path(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let to_id = if let Some(ref id_str) = input.to_action_id {
         ActionId::from(id_str.trim())
     } else if let Some(ref fp) = input.to_file {
-        let norm = normalize_file_path(fp);
+        let norm = normalize_query_file_path(fp);
         let filter = QueryFilter {
             file_path: Some(norm),
             current_only: true,

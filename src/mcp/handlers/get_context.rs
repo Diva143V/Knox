@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::ids::SessionId;
 use crate::core::types::QueryFilter;
-use crate::ingest::summary::normalize_file_path;
+use crate::ingest::summary::normalize_query_file_path;
 use crate::storage::db::KnoxDb;
 
 /// Input parameters for `knox_get_context`.
@@ -65,7 +65,8 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     };
 
     let filter = QueryFilter {
-        file_path: input.file_path.as_deref().map(normalize_file_path),
+        file_path: input.file_path.as_deref().map(normalize_query_file_path),
+        file_path_exact: false,
         project: input.project.clone(),
         session_id: input.session_id.map(SessionId::from),
         actor: input.actor,

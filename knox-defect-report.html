@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Knox v1.2.1 &mdash; Defect Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --bg:#f2f5f8; --surface:#ffffff; --surface-2:#e9eef4; --recess:#f7f9fb;
+  --grid:rgba(30,58,95,.05);
+  --border:rgba(24,44,70,.13); --border-strong:rgba(24,44,70,.26);
+  --text:#141d27; --text-dim:#5b6b7c; --text-bright:#0b1219;
+  --ink:#1e3a5f; --ink-dim:rgba(30,58,95,.08);
+  --crit:#8c2f2f; --crit-bg:rgba(140,47,47,.07);
+  --high:#a4600c; --high-bg:rgba(164,96,12,.08);
+  --med:#1d6a7a; --med-bg:rgba(29,106,122,.08);
+  --low:#5b6b7c; --low-bg:rgba(91,107,124,.08);
+  --ok:#256b45;
+  --font-body:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;
+  --font-mono:'IBM Plex Mono','SF Mono',Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0d131a; --surface:#141c25; --surface-2:#1a242f; --recess:#101821;
+    --grid:rgba(150,190,230,.05);
+    --border:rgba(190,215,240,.12); --border-strong:rgba(190,215,240,.26);
+    --text:#dde6ef; --text-dim:#8b9cae; --text-bright:#f2f7fc;
+    --ink:#8fb6de; --ink-dim:rgba(143,182,222,.1);
+    --crit:#e08585; --crit-bg:rgba(224,133,133,.1);
+    --high:#e0a860; --high-bg:rgba(224,168,96,.1);
+    --med:#6fc3d4; --med-bg:rgba(111,195,212,.1);
+    --low:#93a3b4; --low-bg:rgba(147,163,180,.1);
+    --ok:#69c08d;
+  }
+}
+html{scroll-behavior:smooth}
+body{
+  margin:0; color:var(--text); font-family:var(--font-body);
+  font-size:15.5px; line-height:1.62; overflow-wrap:break-word;
+  background-color:var(--bg);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:34px 34px;
+}
+a{color:var(--ink);text-decoration:underline;text-underline-offset:2px}
+code{font-family:var(--font-mono);font-size:.87em;background:var(--ink-dim);color:var(--ink);
+  padding:1px 4px;border-radius:3px;overflow-wrap:anywhere}
+.wrap{display:grid;grid-template-columns:214px minmax(0,1fr);gap:44px;max-width:1220px;
+  margin:0 auto;padding:0 30px 90px}
+/* masthead */
+.masthead{grid-column:1/-1;padding:52px 0 26px;border-bottom:2px solid var(--border-strong)}
+.eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:2.4px;text-transform:uppercase;
+  color:var(--ink);display:flex;align-items:center;gap:9px;margin-bottom:16px}
+.eyebrow::before{content:'';width:9px;height:9px;background:var(--ink);display:inline-block}
+h1{font-size:clamp(30px,4.4vw,46px);line-height:1.05;letter-spacing:-1.4px;margin:0 0 12px;
+  font-weight:600;color:var(--text-bright);max-width:20ch}
+.masthead p.lead{font-size:17px;line-height:1.6;color:var(--text-dim);max-width:64ch;margin:0 0 22px}
+.meta{display:flex;flex-wrap:wrap;gap:10px 26px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-dim)}
+.meta b{color:var(--text);font-weight:500}
+/* kpi */
+.kpis{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:26px 0 8px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-top:3px solid var(--k,var(--ink));
+  padding:14px 16px}
+.kpi__n{font-family:var(--font-mono);font-size:30px;line-height:1;font-weight:600;color:var(--k,var(--ink));
+  font-variant-numeric:tabular-nums}
+.kpi__l{font-family:var(--font-mono);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;
+  color:var(--text-dim);margin-top:7px}
+/* toc */
+aside{position:sticky;top:22px;align-self:start;padding-top:30px}
+.toc__label{font-family:var(--font-mono);font-size:10px;letter-spacing:1.8px;text-transform:uppercase;
+  color:var(--text-dim);padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:10px}
+.toc a{display:flex;gap:9px;align-items:baseline;padding:5px 0;font-size:12.6px;color:var(--text-dim);
+  text-decoration:none;border-left:2px solid transparent;padding-left:9px;margin-left:-11px;transition:color .15s,border-color .15s}
+.toc a:hover,.toc a:focus{color:var(--text-bright);border-left-color:var(--ink)}
+.toc a span{font-family:var(--font-mono);font-size:10.5px;opacity:.65}
+main{min-width:0;padding-top:30px}
+section{padding:34px 0 6px;border-bottom:1px solid var(--border)}
+section:last-child{border-bottom:none}
+h2{font-size:22px;letter-spacing:-.5px;margin:0 0 6px;color:var(--text-bright);font-weight:600;
+  display:flex;align-items:baseline;gap:12px}
+h2 .num{font-family:var(--font-mono);font-size:11px;letter-spacing:1.6px;color:var(--ink);opacity:.85}
+.sec-intro{color:var(--text-dim);font-size:14.4px;margin:0 0 22px;max-width:74ch}
+/* finding */
+.finding{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--b,var(--ink));
+  padding:18px 22px 20px;margin-bottom:16px}
+.finding--critical{--b:var(--crit)}
+.finding--high{--b:var(--high)}
+.finding--medium{--b:var(--med)}
+.finding__head{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:9px}
+.fid{font-family:var(--font-mono);font-size:10.5px;font-weight:600;letter-spacing:1px;color:var(--b,var(--ink));
+  border:1px solid currentColor;padding:2px 6px;border-radius:2px}
+.fid--sm{font-size:9.5px;padding:1px 4px}
+.sev{font-family:var(--font-mono);font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;
+  padding:3px 7px;border-radius:2px;font-weight:600}
+.sev--sm{font-size:9px;padding:2px 5px}
+.sev--critical{background:var(--crit-bg);color:var(--crit)}
+.sev--high{background:var(--high-bg);color:var(--high)}
+.sev--medium{background:var(--med-bg);color:var(--med)}
+.sev--low{background:var(--low-bg);color:var(--low)}
+.floc{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-left:auto}
+.finding h3{font-size:16.5px;line-height:1.35;margin:0 0 8px;font-weight:600;color:var(--text-bright);letter-spacing:-.2px}
+.finding__body p{margin:0 0 12px;font-size:14.6px}
+/* code */
+.codefile{border:1px solid var(--border);background:var(--recess);margin:0 0 14px;overflow:hidden}
+.codefile__h{display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border);
+  background:var(--surface-2);font-family:var(--font-mono);font-size:11px}
+.codelang{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink);
+  border:1px solid currentColor;padding:1px 5px;border-radius:2px}
+.codeloc{color:var(--text-dim)}
+pre.code{margin:0;padding:12px 0;overflow-x:auto;font-family:var(--font-mono);font-size:12.4px;
+  line-height:1.66;white-space:pre;background:transparent}
+pre.code code{background:none;padding:0;color:var(--text);font-size:inherit}
+.ln{display:inline-block;width:3.1em;text-align:right;padding-right:14px;color:var(--text-dim);opacity:.55;
+  user-select:none;font-variant-numeric:tabular-nums}
+pre.code .hl{background:var(--b,var(--crit));color:#fff;display:inline-block;width:calc(100% - 3.1em);
+  padding-left:0;box-shadow:inset 3px 0 0 rgba(0,0,0,.35)}
+.finding--high pre.code .hl{background:var(--high)}
+.finding--medium pre.code .hl{background:var(--med)}
+.finding--low pre.code .hl{background:var(--low)}
+.codenote{font-size:12.4px;color:var(--text-dim);padding:9px 12px;border-top:1px dashed var(--border);
+  font-style:italic}
+/* split effect/fix */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);margin-top:14px}
+.split__col{padding:12px 15px;min-width:0}
+.split__col+.split__col{border-left:1px solid var(--border);background:var(--recess)}
+.split__label{font-family:var(--font-mono);font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--text-dim);margin-bottom:6px}
+.split p{margin:0;font-size:13.6px;line-height:1.55}
+/* tables */
+.tablewrap{overflow-x:auto;border:1px solid var(--border);background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:13.4px}
+thead th{position:sticky;top:0;background:var(--surface-2);font-family:var(--font-mono);font-size:10px;
+  letter-spacing:1.2px;text-transform:uppercase;color:var(--text-dim);text-align:left;padding:10px 12px;
+  border-bottom:1px solid var(--border-strong);white-space:nowrap;z-index:2}
+tbody td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--ink-dim)}
+.c-loc code{font-size:11.4px}
+.c-desc strong{display:block;font-weight:600;margin-bottom:3px;font-size:13.4px}
+.muted{display:block;color:var(--text-dim);font-size:12.8px;margin-bottom:7px}
+.c-desc .codefile{margin:8px 0 0}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+/* callout */
+.callout{border:1px solid var(--border);border-left:3px solid var(--ink);background:var(--surface);
+  padding:15px 18px;margin:18px 0}
+.callout__t{font-family:var(--font-mono);font-size:10px;letter-spacing:1.6px;text-transform:uppercase;
+  color:var(--ink);margin-bottom:7px}
+.callout p{margin:0;font-size:14px;color:var(--text)}
+.callout p+p{margin-top:8px}
+footer{grid-column:1/-1;padding:28px 0 0;color:var(--text-dim);font-size:12.4px;
+  font-family:var(--font-mono);border-top:1px solid var(--border);margin-top:26px}
+@media (max-width:960px){
+  .wrap{grid-template-columns:1fr;gap:0;padding:0 18px 60px}
+  aside{position:sticky;top:0;z-index:20;background:var(--bg);padding:10px 0;margin:0 -18px;
+    padding-left:18px;padding-right:18px;border-bottom:1px solid var(--border)}
+  .toc{display:flex;gap:16px;overflow-x:auto;padding-bottom:2px}
+  .toc__label{display:none}
+  .toc a{white-space:nowrap;border-left:none;border-bottom:2px solid transparent;padding:3px 0;margin:0}
+  .toc a:hover{border-left-color:transparent;border-bottom-color:var(--ink)}
+  main{padding-top:18px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .split{grid-template-columns:1fr}
+  .split__col+.split__col{border-left:none;border-top:1px solid var(--border)}
+  .floc{margin-left:0;width:100%}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <div class="eyebrow">Defect report &middot; static review</div>
+  <h1>Knox fails open, and nothing measures it</h1>
+  <p class="lead">Twenty-six defects in <code>Diva143V/Knox</code> at <code>main</code>, each traced to the exact
+  file and line. Four are critical: they make the knowledge graph return a confident empty answer, which an agent
+  reads as permission to proceed.</p>
+  <div class="meta">
+    <span><b>Repository</b> Diva143V/Knox</span>
+    <span><b>Version</b> 1.2.1</span>
+    <span><b>Reviewed</b> 3 Nov 2026</span>
+    <span><b>Source</b> 13,427 lines Rust &middot; 18,411 lines TS</span>
+    <span><b>Method</b> static + SQL replay</span>
+  </div>
+</header>
+
+<div class="kpis">
+  <div class="kpi" style="--k:var(--crit)"><div class="kpi__n">4</div><div class="kpi__l">Critical</div></div>
+  <div class="kpi" style="--k:var(--high)"><div class="kpi__n">5</div><div class="kpi__l">High</div></div>
+  <div class="kpi" style="--k:var(--med)"><div class="kpi__n">8</div><div class="kpi__l">Medium</div></div>
+  <div class="kpi" style="--k:var(--low)"><div class="kpi__n">9</div><div class="kpi__l">Low</div></div>
+</div>
+
+<aside>
+  <div class="toc__label">Contents</div>
+  <nav class="toc">
+<a href="#s1"><span>01</span>Summary</a>
+<a href="#s2"><span>02</span>Critical</a>
+<a href="#s3"><span>03</span>High</a>
+<a href="#s4"><span>04</span>Medium</a>
+<a href="#s5"><span>05</span>Low &amp; hygiene</a>
+<a href="#s6"><span>06</span>Fix map</a>
+<a href="#s7"><span>07</span>Reproduction</a>
+  </nav>
+</aside>
+
+<main>
+
+<section id="s1">
+  <h2><span class="num">01</span>Summary</h2>
+  <p class="sec-intro">The defects cluster into one pattern. Knox stores what an agent tells it to store, keyed by
+  strings the agent chooses. Nothing validates that those strings describe the same file or the same project twice
+  in a row, and nothing checks whether a read ever returned anything. The critical four are all instances of that
+  single weakness.</p>
+  <div class="callout">
+    <div class="callout__t">The failure mode</div>
+    <p>A guardrail call that should return three architectural constraints returns zero rows, formatted correctly,
+    with <code>"pass": true</code>. The agent proceeds. No log records the empty result, no counter moves, and the
+    desktop UI shows a healthy database. This is why the defects below matter more than their count suggests.</p>
+  </div>
+  <div class="callout">
+    <div class="callout__t">Verification method</div>
+    <p>Every snippet on this page was read out of the repository at build time, so the line numbers are the real
+    ones. Two behaviours (D-01, D-02, D-03) were reproduced by porting the functions line for line into Python and
+    running them against the project's own schema and SQL - see section 07. The crate was not compiled: no Rust
+    toolchain was available, so no claim here rests on running Knox itself.</p>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="num">02</span>Critical</h2>
+  <p class="sec-intro">These four produce wrong answers that look right. Each one alone is enough to make the graph
+  untrustworthy for file-scoped questions.</p>
+
+<article class="finding finding--critical" id="D-01">
+  <div class="finding__head">
+    <span class="fid">D-01</span>
+    <span class="sev sev--critical">Critical</span>
+    <span class="floc">src/ingest/summary.rs:230</span>
+  </div>
+  <h3>Path normaliser hard-codes the name of this project</h3>
+  <div class="finding__body"><p>Every file-scoped write and read passes through <code>normalize_file_path</code>. Line 231 scans the
+path segments for a directory literally called <code>knox</code> and, if it finds one, throws away everything
+before it. That makes the author's own repository work and corrupts everyone else's.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/ingest/summary.rs:230&ndash;235</span></div><pre class="code"><code><span class="ln">230</span><span>    // If &#x27;knox&#x27; appears as a folder component, take relative path after it</span>
+<span class="ln">231</span><span class="hl">    if let Some(pos) = segments.iter().position(|s| s.eq_ignore_ascii_case(&quot;knox&quot;)) {</span>
+<span class="ln">232</span><span>        if pos + 1 &lt; segments.len() {</span>
+<span class="ln">233</span><span class="hl">            return segments[pos + 1..].join(&quot;/&quot;);</span>
+<span class="ln">234</span><span>        }</span>
+<span class="ln">235</span><span>    }</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>A project at <code>/home/diva/knox/app/src/main.rs</code> is stored as <code>app/src/main.rs</code>.
+A project at <code>/home/diva/projects/payments-api/knox/src/lib.rs</code> is stored as <code>src/lib.rs</code> -
+and now collides with every other <code>src/lib.rs</code> in the database.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Delete the block. Path identity belongs in a typed constructor that resolves against a known project
+root, not in a string cleaner that guesses at one.</p></div>
+  </div>
+</article>
+<article class="finding finding--critical" id="D-02">
+  <div class="finding__head">
+    <span class="fid">D-02</span>
+    <span class="sev sev--critical">Critical</span>
+    <span class="floc">src/ingest/summary.rs:218</span>
+  </div>
+  <h3>Absolute POSIX paths can never match relative queries</h3>
+  <div class="finding__body"><p>The same function strips a Windows drive letter but nothing else. On macOS and Linux there is no
+colon, so the leading slash is dropped and the entire directory chain is kept: an absolute path becomes
+<code>home/diva/projects/api/src/lib.rs</code> while a relative query becomes <code>src/lib.rs</code>.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/ingest/summary.rs:218&ndash;228</span></div><pre class="code"><code><span class="ln">218</span><span>pub fn normalize_file_path(path: &amp;str) -&gt; String {</span>
+<span class="ln">219</span><span>    let replaced = path.replace(&#x27;\\&#x27;, &quot;/&quot;);</span>
+<span class="ln">220</span><span class="hl">    let without_drive = match replaced.find(&#x27;:&#x27;) {</span>
+<span class="ln">221</span><span class="hl">        Some(idx) if idx &lt;= 2 =&gt; &amp;replaced[idx + 1..],</span>
+<span class="ln">222</span><span>        _ =&gt; &amp;replaced[..],</span>
+<span class="ln">223</span><span>    };</span>
+<span class="ln">224</span><span></span>
+<span class="ln">225</span><span>    let segments: Vec&lt;&amp;str&gt; = without_drive</span>
+<span class="ln">226</span><span>        .split(&#x27;/&#x27;)</span>
+<span class="ln">227</span><span>        .filter(|s| !s.is_empty() &amp;&amp; *s != &quot;.&quot;)</span>
+<span class="ln">228</span><span>        .collect();</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>The two never match. Replayed against the real <code>action_files</code> lookup, a file recorded by
+absolute path returns zero rows to a relative-path query - so <code>knox_check_guardrails</code> reports
+<code>pass: true</code> with no constraints on a file that has them. The safety check fails open.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Canonicalise against the project root and store <code>rel_path</code> and <code>abs_path</code> as separate
+columns, so either spelling resolves to the same row.</p></div>
+  </div>
+</article>
+<article class="finding finding--critical" id="D-03">
+  <div class="finding__head">
+    <span class="fid">D-03</span>
+    <span class="sev sev--critical">Critical</span>
+    <span class="floc">src/storage/sessions.rs:24</span>
+  </div>
+  <h3>Project lookup matches on a display name, so a name resolves to an arbitrary repo</h3>
+  <div class="finding__body"><p>The tool schema advertises <code>project</code> as an "identifier, name, or path". The resolver honours all
+three in one <code>WHERE</code> clause, so passing a bare name such as <code>"knox"</code> matches whichever row
+happens to carry that <code>name</code> first.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/storage/sessions.rs:24&ndash;28</span></div><pre class="code"><code><span class="ln">24</span><span>    let mut stmt = conn</span>
+<span class="ln">25</span><span class="hl">        .prepare(&quot;SELECT id FROM projects WHERE id = ?1 OR name = ?1 OR path = ?1 OR path = ?2&quot;)?;</span>
+<span class="ln">26</span><span>    let mut rows = stmt.query(params![clean_path, verbatim_path])?;</span>
+<span class="ln">27</span><span>    if let Some(row) = rows.next()? {</span>
+<span class="ln">28</span><span>        Ok(row.get(0)?)</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>With two repositories both named <code>knox</code> on disk, <code>project: "knox"</code> silently binds
+to one of them. Every subsequent write lands in the wrong graph, and the other repository becomes unreachable
+through any project-filtered query.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Match on canonical path only, keep <code>name</code> for display, and return
+<code>InvalidInput</code> when the value is not an existing absolute path.</p></div>
+  </div>
+</article>
+<article class="finding finding--critical" id="D-04">
+  <div class="finding__head">
+    <span class="fid">D-04</span>
+    <span class="sev sev--critical">Critical</span>
+    <span class="floc">src/storage/migrations.rs:66 &middot; src/storage/queries.rs:325</span>
+  </div>
+  <h3>Actions have no project column, so session-less writes are invisible</h3>
+  <div class="finding__body"><p>The <code>actions</code> table has no <code>project_id</code>. Project scoping is a join through
+<code>sessions</code>, and anything written without a session - the git hook, <code>knox scan</code>, transcript
+ingestion - is therefore invisible to every project-filtered query.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/storage/migrations.rs:66&ndash;80</span></div><pre class="code"><code><span class="ln">66</span><span>CREATE TABLE IF NOT EXISTS actions (</span>
+<span class="ln">67</span><span>    id               TEXT PRIMARY KEY,</span>
+<span class="ln">68</span><span>    actor            TEXT NOT NULL,</span>
+<span class="ln">69</span><span>    action_type      TEXT NOT NULL,</span>
+<span class="ln">70</span><span>    summary          TEXT NOT NULL,</span>
+<span class="ln">71</span><span>    confidence       REAL,</span>
+<span class="ln">72</span><span>    timestamp        TEXT NOT NULL,</span>
+<span class="ln">73</span><span class="hl">    session_id       TEXT,</span>
+<span class="ln">74</span><span class="hl">    parent_action_id TEXT,</span>
+<span class="ln">75</span><span>    superseded_by    TEXT,</span>
+<span class="ln">76</span><span>    is_current       INTEGER NOT NULL DEFAULT 1,</span>
+<span class="ln">77</span><span>    FOREIGN KEY (session_id) REFERENCES sessions(id),</span>
+<span class="ln">78</span><span>    FOREIGN KEY (parent_action_id) REFERENCES actions(id),</span>
+<span class="ln">79</span><span>    FOREIGN KEY (superseded_by) REFERENCES actions(id)</span>
+<span class="ln">80</span><span>);</span></code></pre></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/storage/queries.rs:325&ndash;331</span></div><pre class="code"><code><span class="ln">325</span><span>fn append_project_filter(clauses: &amp;mut Vec&lt;String&gt;, params: &amp;mut Vec&lt;SqlParam&gt;, project: &amp;str) {</span>
+<span class="ln">326</span><span>    clauses.push(</span>
+<span class="ln">327</span><span class="hl">        &quot;EXISTS (SELECT 1 FROM sessions s LEFT JOIN projects p ON s.project_id = p.id WHERE s.id = a.session_id AND (s.project_id = ? OR p.name = ? OR p.path = ?))&quot;</span>
+<span class="ln">328</span><span>            .to_string(),</span>
+<span class="ln">329</span><span>    );</span>
+<span class="ln">330</span><span>    params.push(SqlParam::Text(project.to_string()));</span>
+<span class="ln">331</span><span>    params.push(SqlParam::Text(project.to_string()));</span></code></pre><div class="codenote">The filter only ever reaches an action through its session.</div></div>
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>One database holds two populations: rows that answer project queries, and rows that exist but can
+never be retrieved. The hook's entire purpose - recording human edits - produces the second kind.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Add <code>actions.project_id</code> in migration v4 and populate it on every write path, including the
+hook and ingest.</p></div>
+  </div>
+</article>
+</section>
+
+<section id="s3">
+  <h2><span class="num">03</span>High</h2>
+  <p class="sec-intro">These corrupt history or invert the meaning of a query. They are not visible in the UI
+  because the UI reads the same damaged data.</p>
+
+<article class="finding finding--high" id="D-05">
+  <div class="finding__head">
+    <span class="fid">D-05</span>
+    <span class="sev sev--high">High</span>
+    <span class="floc">src/mcp/handlers/record_action.rs:103</span>
+  </div>
+  <h3>Session reuse ignores the project when the caller omits it</h3>
+  <div class="finding__body"><p>Auto-session resolution scans the twenty most recent sessions and reuses the first open one belonging to
+the same actor. The project is compared only when the caller supplied one; when <code>project</code> is
+<code>None</code> - which the schema permits - any open session for that actor is adopted.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/mcp/handlers/record_action.rs:103&ndash;114</span></div><pre class="code"><code><span class="ln">103</span><span>    // Try finding the most recent open session for this actor</span>
+<span class="ln">104</span><span>    let recent = crate::storage::sessions::list_recent_sessions(db, 20)?;</span>
+<span class="ln">105</span><span>    for s in recent {</span>
+<span class="ln">106</span><span>        if s.is_open &amp;&amp; s.actor == actor {</span>
+<span class="ln">107</span><span>            if let Some(p) = project {</span>
+<span class="ln">108</span><span>                if s.project.as_deref() == Some(p) {</span>
+<span class="ln">109</span><span>                    return Ok((s.id, true)); // implicit reused session</span>
+<span class="ln">110</span><span>                }</span>
+<span class="ln">111</span><span class="hl">            } else {</span>
+<span class="ln">112</span><span class="hl">                return Ok((s.id, true));</span>
+<span class="ln">113</span><span>            }</span>
+<span class="ln">114</span><span>        }</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>An agent working in repository B, having omitted <code>project</code>, appends its actions to the
+session that repository A still has open. Sessions stop representing work, and every per-session metric in the
+UI becomes meaningless.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Require the pair <code>(actor, project_id)</code> for reuse and create a new session when either differs.</p></div>
+  </div>
+</article>
+<article class="finding finding--high" id="D-06">
+  <div class="finding__head">
+    <span class="fid">D-06</span>
+    <span class="sev sev--high">High</span>
+    <span class="floc">src/storage/nodes.rs:30</span>
+  </div>
+  <h3>A single action is written in five statements with no transaction</h3>
+  <div class="finding__body"><p><code>insert_action</code> inserts the row, marks the superseded predecessor, then writes files, tags,
+relations and symbols as separate statements on a bare connection. There is no <code>BEGIN</code> anywhere in the
+crate outside the migrations.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/storage/nodes.rs:30&ndash;34</span></div><pre class="code"><code><span class="ln">30</span><span class="hl">    conn.execute(</span>
+<span class="ln">31</span><span>        &quot;INSERT INTO actions (</span>
+<span class="ln">32</span><span>            id, actor, action_type, summary, confidence, timestamp,</span>
+<span class="ln">33</span><span>            session_id, parent_action_id, superseded_by, is_current,</span>
+<span class="ln">34</span><span>            rationale, context_summary, rejected_alternatives,</span></code></pre></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/storage/nodes.rs:57&ndash;62</span></div><pre class="code"><code><span class="ln">57</span><span>    if let Some(ref old_id) = action.supersedes {</span>
+<span class="ln">58</span><span>        mark_superseded(db, old_id, &amp;action.id)?;</span>
+<span class="ln">59</span><span>    }</span>
+<span class="ln">60</span><span></span>
+<span class="ln">61</span><span class="hl">    insert_action_files_and_tags(conn, &amp;action.id, &amp;action.files, &amp;action.tags)?;</span>
+<span class="ln">62</span><span class="hl">    insert_action_relations_and_symbols(conn, &amp;action.id, &amp;action.relations, &amp;action.symbols)?;</span></code></pre><div class="codenote">Each call issues its own statements; a failure here leaves the row half-written.</div></div>
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>A constraint recorded as a decision can exist without its files. Guardrails then look for decisions
+on a file and find none - the same fail-open outcome as D-01, from a different direction.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Add <code>KnoxDb::with_tx</code> and thread <code>&Transaction</code> through the insert path.</p></div>
+  </div>
+</article>
+<article class="finding finding--high" id="D-07">
+  <div class="finding__head">
+    <span class="fid">D-07</span>
+    <span class="sev sev--high">High</span>
+    <span class="floc">src/mcp/tools.rs:291</span>
+  </div>
+  <h3>The batch tool promises atomicity the code does not provide</h3>
+  <div class="finding__body"><p>The description an agent reads says "Atomically records multiple related actions and decisions in a
+single round trip". The handler loops over the items calling <code>insert_action</code> once per item, with no
+transaction wrapping the loop.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/mcp/tools.rs:289&ndash;292</span></div><pre class="code"><code><span class="ln">289</span><span>    ToolDescription::new(</span>
+<span class="ln">290</span><span>        &quot;knox_record_batch&quot;,</span>
+<span class="ln">291</span><span class="hl">        &quot;Atomically records multiple related actions and decisions in a single round trip.&quot;,</span>
+<span class="ln">292</span><span>        json!({</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>A batch that fails on its third item leaves two committed actions and no record of the failure. The
+graph is now wrong in a way that looks exactly like a correct history.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>One transaction for the loop, so the description becomes true - or change the description, which is the
+weaker option.</p></div>
+  </div>
+</article>
+<article class="finding finding--high" id="D-08">
+  <div class="finding__head">
+    <span class="fid">D-08</span>
+    <span class="sev sev--high">High</span>
+    <span class="floc">src/graph/loader.rs:39</span>
+  </div>
+  <h3>Relations are directional in the schema and undirected in the traversal</h3>
+  <div class="finding__body"><p>Relation types carry direction - <code>depends_on</code>, <code>implements</code>, <code>reverts</code>.
+The recursive CTE that loads a subgraph matches them in both directions, so the component it returns cannot
+distinguish what an action points at from what points at it.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/graph/loader.rs:34&ndash;44</span></div><pre class="code"><code><span class="ln">34</span><span>            JOIN actions a ON (</span>
+<span class="ln">35</span><span>                a.parent_action_id = c.action_id</span>
+<span class="ln">36</span><span>                OR a.id = (SELECT parent_action_id FROM actions WHERE id = c.action_id)</span>
+<span class="ln">37</span><span>                OR a.superseded_by = c.action_id</span>
+<span class="ln">38</span><span>                OR a.id = (SELECT superseded_by FROM actions WHERE id = c.action_id)</span>
+<span class="ln">39</span><span>                OR EXISTS (</span>
+<span class="ln">40</span><span>                    SELECT 1 FROM action_relations ar</span>
+<span class="ln">41</span><span class="hl">                    WHERE (ar.from_action_id = c.action_id AND ar.to_action_id = a.id)</span>
+<span class="ln">42</span><span class="hl">                       OR (ar.from_action_id = a.id AND ar.to_action_id = c.action_id)</span>
+<span class="ln">43</span><span>                )</span>
+<span class="ln">44</span><span>            )</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p><code>knox_get_impact</code> - "what does this break?" - returns the things this action depends on,
+which is the opposite answer. An agent that trusts it refactors the wrong side of the dependency.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Two directional CTEs: upstream follows outgoing semantic edges, downstream follows incoming ones.</p></div>
+  </div>
+</article>
+<article class="finding finding--high" id="D-09">
+  <div class="finding__head">
+    <span class="fid">D-09</span>
+    <span class="sev sev--high">High</span>
+    <span class="floc">src/graph/traversal.rs:30</span>
+  </div>
+  <h3>Lineage walks only parent_action_id and ignores semantic edges</h3>
+  <div class="finding__body"><p><code>causal_chain</code> walks <code>parent_action_id</code> and falls back to "any incoming edge".
+Semantic relations are never followed, so <code>knox_get_lineage</code> cannot answer "why is this code here?"
+when the reason was recorded as <code>implements</code> rather than as a parent link.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/graph/traversal.rs:30&ndash;37</span></div><pre class="code"><code><span class="ln">30</span><span>        // Find parent action: look for incoming edge with type &quot;parent&quot; or match parent_action_id</span>
+<span class="ln">31</span><span class="hl">        let parent_id_opt = graph[idx].parent_action_id.clone();</span>
+<span class="ln">32</span><span>        current_idx = if let Some(ref pid) = parent_id_opt {</span>
+<span class="ln">33</span><span>            find_node_index(graph, pid)</span>
+<span class="ln">34</span><span>        } else {</span>
+<span class="ln">35</span><span>            // Alternatively check incoming edges</span>
+<span class="ln">36</span><span class="hl">            graph.neighbors_directed(idx, Direction::Incoming).next()</span>
+<span class="ln">37</span><span>        };</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>The handler loads the full connected component from SQLite first
+(<code>get_lineage.rs:55</code>) and then discards everything except the parent chain: the expensive part of the
+query is used for nothing, and the feature advertised in the README does not exist.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Walk <code>parent_action_id</code> plus outgoing <code>implements</code>, <code>depends_on</code> and
+<code>verifies</code>; drop the in-memory graph from the read path.</p></div>
+  </div>
+</article>
+</section>
+
+<section id="s4">
+  <h2><span class="num">04</span>Medium</h2>
+  <p class="sec-intro">Integration and precision problems: the hook, concurrency, the protocol handshake, and a
+  matcher that will be switched off by its own users.</p>
+
+<article class="finding finding--medium" id="D-10">
+  <div class="finding__head">
+    <span class="fid">D-10</span>
+    <span class="sev sev--medium">Medium</span>
+    <span class="floc">src/mcp/handlers/check_guardrails.rs:94</span>
+  </div>
+  <h3>Guardrail matching is bidirectional substring containment</h3>
+  <div class="finding__body"><p>A proposed action is flagged if it contains a rejected alternative <i>or</i> the alternative contains it.
+No tokenisation, no negation handling, no threshold.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/mcp/handlers/check_guardrails.rs:92&ndash;96</span></div><pre class="code"><code><span class="ln">92</span><span>            for alt in &amp;d.rejected_alternatives {</span>
+<span class="ln">93</span><span>                let alt_lower = alt.trim().to_lowercase();</span>
+<span class="ln">94</span><span>                if !alt_lower.is_empty()</span>
+<span class="ln">95</span><span class="hl">                    &amp;&amp; (prop_lower.contains(&amp;alt_lower) || alt_lower.contains(&amp;prop_lower))</span>
+<span class="ln">96</span><span>                {</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>A rejected alternative of "React" or "use a cache" matches almost any proposal. The guardrail
+cries wolf, gets disabled, and the true positives go with it.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Weighted token overlap with a threshold, negation handling, and the matched span returned as evidence.</p></div>
+  </div>
+</article>
+<article class="finding finding--medium" id="D-11">
+  <div class="finding__head">
+    <span class="fid">D-11</span>
+    <span class="sev sev--medium">Medium</span>
+    <span class="floc">src/mcp/handlers/check_guardrails.rs:107</span>
+  </div>
+  <h3>Strict mode fails whenever any superseded decision exists</h3>
+  <div class="finding__body"><p><code>strict</code> is defined as "no violations <i>and</i> no stale decisions on this file". A file
+with any superseded history can therefore never pass strict, regardless of the proposal.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/mcp/handlers/check_guardrails.rs:106&ndash;107</span></div><pre class="code"><code><span class="ln">106</span><span>    let strict = input.strict.unwrap_or(false);</span>
+<span class="ln">107</span><span class="hl">    let pass = violations.is_empty() &amp;&amp; (!strict || stale_decisions.is_empty());</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>The flag is unusable on exactly the files that have the most history - the mature ones where
+constraints matter most.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Redefine strict as "fail on a high-confidence violation".</p></div>
+  </div>
+</article>
+<article class="finding finding--medium" id="D-12">
+  <div class="finding__head">
+    <span class="fid">D-12</span>
+    <span class="sev sev--medium">Medium</span>
+    <span class="floc">src/mcp/handlers/check_guardrails.rs:38</span>
+  </div>
+  <h3>Guardrails search one exact file path and ignore symbols</h3>
+  <div class="finding__body"><p>The query is scoped to <code>file_path</code> equality per file, with the decision type hard-coded to
+<code>decide</code>. A constraint recorded against a symbol, or against the parent directory, is never returned.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/mcp/handlers/check_guardrails.rs:38&ndash;46</span></div><pre class="code"><code><span class="ln">38</span><span>    for file in &amp;norm_files {</span>
+<span class="ln">39</span><span>        // Query active decisions</span>
+<span class="ln">40</span><span>        let active_filter = QueryFilter {</span>
+<span class="ln">41</span><span class="hl">            file_path: Some(file.clone()),</span>
+<span class="ln">42</span><span class="hl">            action_type: Some(&quot;decide&quot;.to_string()),</span>
+<span class="ln">43</span><span>            current_only: true,</span>
+<span class="ln">44</span><span>            project: input.project.clone(),</span>
+<span class="ln">45</span><span>            limit: 20,</span>
+<span class="ln">46</span><span>            ..Default::default()</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>A rule written once for <code>src/storage/db.rs</code> does not protect the new file added beside it,
+which is the case where a reviewer most wants it.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Search file, directory prefix and shared symbols; union the results before evaluating.</p></div>
+  </div>
+</article>
+<article class="finding finding--medium" id="D-13">
+  <div class="finding__head">
+    <span class="fid">D-13</span>
+    <span class="sev sev--medium">Medium</span>
+    <span class="floc">src/commands/hook.rs:28</span>
+  </div>
+  <h3>The hook installer overwrites an existing pre-commit hook</h3>
+  <div class="finding__body"><p><code>fs::write</code> replaces <code>.git/hooks/pre-commit</code> unconditionally, and
+<code>cmd_hook_uninstall</code> deletes the file outright.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/commands/hook.rs:27&ndash;28</span></div><pre class="code"><code><span class="ln">27</span><span>    let hook_path = hooks_dir.join(&quot;pre-commit&quot;);</span>
+<span class="ln">28</span><span class="hl">    fs::write(&amp;hook_path, PRE_COMMIT_SCRIPT)?;</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>A husky, lint-staged or hand-written hook is destroyed by an install command, with no warning and no
+backup. The user's next commit silently loses their checks.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Append inside a marked block, back up any existing file, restore it on uninstall.</p></div>
+  </div>
+</article>
+<article class="finding finding--medium" id="D-14">
+  <div class="finding__head">
+    <span class="fid">D-14</span>
+    <span class="sev sev--medium">Medium</span>
+    <span class="floc">src/commands/hook.rs:9</span>
+  </div>
+  <h3>The installed hook can block every commit</h3>
+  <div class="finding__body"><p>The generated script runs <code>knox scan --project .</code> with no PATH fallback and no failure
+guard. If <code>knox</code> is not on the PATH of the process running git - an IDE, a GUI client - the hook exits
+non-zero.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/commands/hook.rs:9&ndash;12</span></div><pre class="code"><code><span class="ln">9</span><span>const PRE_COMMIT_SCRIPT: &amp;str = r#&quot;#!/bin/sh</span>
+<span class="ln">10</span><span># Knox Git Hook — automatically scans staged changes and records human edits</span>
+<span class="ln">11</span><span class="hl">knox scan --project .</span>
+<span class="ln">12</span><span>&quot;#;</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>Commits fail from the IDE while succeeding in the terminal: the hardest kind of bug to attribute, and
+it is caused by the tool that was supposed to be helpful.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Resolve the binary by absolute path at install time and end the script with a success exit.</p></div>
+  </div>
+</article>
+<article class="finding finding--medium" id="D-15">
+  <div class="finding__head">
+    <span class="fid">D-15</span>
+    <span class="sev sev--medium">Medium</span>
+    <span class="floc">src/storage/db.rs:40</span>
+  </div>
+  <h3>Four processes write to one SQLite file with no retry</h3>
+  <div class="finding__body"><p>The connection sets WAL, foreign keys and <code>synchronous=NORMAL</code>, and nothing else. No explicit
+busy timeout, no retry, no checkpoint policy.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/storage/db.rs:40&ndash;43</span></div><pre class="code"><code><span class="ln">40</span><span>        let conn = Connection::open(path)?;</span>
+<span class="ln">41</span><span class="hl">        let _: String = conn.query_row(&quot;PRAGMA journal_mode = WAL&quot;, [], |r| r.get(0))?;</span>
+<span class="ln">42</span><span>        conn.pragma_update(None, &quot;foreign_keys&quot;, &quot;ON&quot;)?;</span>
+<span class="ln">43</span><span>        conn.pragma_update(None, &quot;synchronous&quot;, &quot;NORMAL&quot;)?;</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>The desktop app, one server per agent, the CLI and the hook all write here. WAL allows one writer;
+rusqlite's five-second default means a blocked write stalls a tool call and can still fail with
+<code>SQLITE_BUSY</code>, which surfaces to the agent as a generic internal error.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Set the timeout deliberately, retry with jitter, map busy to a retryable error with a hint.</p></div>
+  </div>
+</article>
+<article class="finding finding--medium" id="D-16">
+  <div class="finding__head">
+    <span class="fid">D-16</span>
+    <span class="sev sev--medium">Medium</span>
+    <span class="floc">src/mcp/handlers/mod.rs:129</span>
+  </div>
+  <h3>The handshake never tells the agent how to use the tool</h3>
+  <div class="finding__body"><p><code>initialize</code> always answers <code>2024-11-05</code> regardless of the client's request, and
+returns no <code>instructions</code> field. The mandatory protocol lives in a <code>knox.md</code> file that most
+clients never show the model.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/mcp/handlers/mod.rs:125&ndash;139</span></div><pre class="code"><code><span class="ln">125</span><span>fn handle_initialize(id: Option&lt;Value&gt;) -&gt; McpResponse {</span>
+<span class="ln">126</span><span>    McpResponse::success(</span>
+<span class="ln">127</span><span>        id,</span>
+<span class="ln">128</span><span>        json!({</span>
+<span class="ln">129</span><span class="hl">            &quot;protocolVersion&quot;: &quot;2024-11-05&quot;,</span>
+<span class="ln">130</span><span>            &quot;capabilities&quot;: {</span>
+<span class="ln">131</span><span>                &quot;tools&quot;: {},</span>
+<span class="ln">132</span><span>                &quot;resources&quot;: {},</span>
+<span class="ln">133</span><span>                &quot;prompts&quot;: {}</span>
+<span class="ln">134</span><span>            },</span>
+<span class="ln">135</span><span>            &quot;serverInfo&quot;: {</span>
+<span class="ln">136</span><span>                &quot;name&quot;: &quot;knox&quot;,</span>
+<span class="ln">137</span><span>                &quot;version&quot;: env!(&quot;CARGO_PKG_VERSION&quot;)</span>
+<span class="ln">138</span><span>            }</span>
+<span class="ln">139</span><span>        }),</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>Whether Knox is used at all depends on the model reading a file nobody guaranteed it would read. The one
+channel that always reaches the model is empty.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Echo the client's version when supported, otherwise <code>2025-06-18</code>; put the protocol in
+<code>instructions</code>.</p></div>
+  </div>
+</article>
+<article class="finding finding--medium" id="D-17">
+  <div class="finding__head">
+    <span class="fid">D-17</span>
+    <span class="sev sev--medium">Medium</span>
+    <span class="floc">src/graph/loader.rs:19</span>
+  </div>
+  <h3>Node lookup is a linear scan called inside loops</h3>
+  <div class="finding__body"><p><code>find_node_index</code> walks every node to find one id. It is called once per hop in
+<code>causal_chain</code> and once per neighbour in the ancestor walks.</p></div>
+  <div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/graph/loader.rs:19&ndash;23</span></div><pre class="code"><code><span class="ln">19</span><span>pub fn find_node_index(graph: &amp;KnoxGraph, action_id: &amp;ActionId) -&gt; Option&lt;NodeIndex&gt; {</span>
+<span class="ln">20</span><span>    graph</span>
+<span class="ln">21</span><span class="hl">        .node_indices()</span>
+<span class="ln">22</span><span class="hl">        .find(|&amp;idx| graph[idx].id == *action_id)</span>
+<span class="ln">23</span><span>}</span></code></pre></div>
+
+  <div class="split">
+    <div class="split__col"><div class="split__label">Effect</div><p>Traversal cost is quadratic in graph size. It is invisible at a few hundred actions and becomes the
+reason lineage times out at a few thousand.</p></div>
+    <div class="split__col"><div class="split__label">Fix</div><p>Build an <code>ActionId &rarr; NodeIndex</code> map once when the graph is loaded.</p></div>
+  </div>
+</article>
+</section>
+
+<section id="s5">
+  <h2><span class="num">05</span>Low and hygiene</h2>
+  <p class="sec-intro">Individually survivable, collectively the reason the product feels unreliable: noise in the
+  graph, dead settings, and documentation that disagrees with the code.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>ID</th><th>Sev</th><th>Location</th><th>Issue</th></tr></thead>
+      <tbody>
+<tr>
+  <td class="c-id"><span class="fid fid--sm">D-18</span></td>
+  <td><span class="sev sev--low sev--sm">Low</span></td>
+  <td class="c-loc"><code>src/storage/queries.rs:238</code></td>
+  <td class="c-desc"><strong>Search fetches each hit with a separate query</strong><span class="muted">A loop of <code>get_action</code> calls after the FTS query; each one issues five statements. Use one <code>WHERE id IN (...)</code> fetch.</span><div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/storage/queries.rs:238&ndash;243</span></div><pre class="code"><code><span class="ln">238</span><span>    let mut actions = Vec::with_capacity(action_ids.len());</span>
+<span class="ln">239</span><span>    for id in action_ids {</span>
+<span class="ln">240</span><span>        if let Some(act) = super::nodes::get_action(db, &amp;id)? {</span>
+<span class="ln">241</span><span>            actions.push(act);</span>
+<span class="ln">242</span><span>        }</span>
+<span class="ln">243</span><span>    }</span></code></pre></div></td>
+</tr>
+<tr>
+  <td class="c-id"><span class="fid fid--sm">D-19</span></td>
+  <td><span class="sev sev--low sev--sm">Low</span></td>
+  <td class="c-loc"><code>src/ingest/action_group.rs:172</code></td>
+  <td class="c-desc"><strong>Ingested doubts carry no files</strong><span class="muted">Every human input is stored with <code>files: Vec::new()</code>, so an ingested doubt can never surface in a file-scoped guardrail.</span><div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/ingest/action_group.rs:167&ndash;173</span></div><pre class="code"><code><span class="ln">167</span><span>        let human_plan = KnoxAction {</span>
+<span class="ln">168</span><span>            id: ActionId::new(),</span>
+<span class="ln">169</span><span>            actor: &quot;human&quot;.to_string(),</span>
+<span class="ln">170</span><span>            action_type,</span>
+<span class="ln">171</span><span>            summary: plan_summary,</span>
+<span class="ln">172</span><span>            files: Vec::new(),</span>
+<span class="ln">173</span><span>            tags,</span></code></pre></div></td>
+</tr>
+<tr>
+  <td class="c-id"><span class="fid fid--sm">D-20</span></td>
+  <td><span class="sev sev--low sev--sm">Low</span></td>
+  <td class="c-loc"><code>src/ingest/summary.rs:46</code></td>
+  <td class="c-desc"><strong>Ingest classification is keyword matching</strong><span class="muted">Anything containing <code>?</code> becomes an open doubt; "can you ..." becomes a plan; acknowledgements become <code>dialogue</code> nodes that pollute context reads.</span><div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/ingest/summary.rs:46&ndash;57</span></div><pre class="code"><code><span class="ln">46</span><span>    let lower = clean.to_ascii_lowercase();</span>
+<span class="ln">47</span><span></span>
+<span class="ln">48</span><span>    // Check for explicit commands or slash commands</span>
+<span class="ln">49</span><span>    if lower.contains(&quot;/goal&quot;)</span>
+<span class="ln">50</span><span>        || lower.contains(&quot;/plan&quot;)</span>
+<span class="ln">51</span><span>        || lower.contains(&quot;/fix&quot;)</span>
+<span class="ln">52</span><span>        || lower.contains(&quot;/build&quot;)</span>
+<span class="ln">53</span><span>        || lower.starts_with(&quot;implement&quot;)</span>
+<span class="ln">54</span><span>        || lower.starts_with(&quot;build&quot;)</span>
+<span class="ln">55</span><span>        || lower.starts_with(&quot;create&quot;)</span>
+<span class="ln">56</span><span>        || lower.starts_with(&quot;add &quot;)</span>
+<span class="ln">57</span><span>        || lower.starts_with(&quot;refactor&quot;)</span></code></pre></div></td>
+</tr>
+<tr>
+  <td class="c-id"><span class="fid fid--sm">D-21</span></td>
+  <td><span class="sev sev--low sev--sm">Low</span></td>
+  <td class="c-loc"><code>src/mcp/handlers/record_action.rs:198</code></td>
+  <td class="c-desc"><strong>Every action is significance "major" by default</strong><span class="muted">Architectural decisions and typo fixes are indistinguishable, so any major-only view shows all of it.</span><div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/mcp/handlers/record_action.rs:196&ndash;198</span></div><pre class="code"><code><span class="ln">196</span><span>    let is_doubt = normalized_action_type == &quot;doubt&quot; || normalized_action_type == &quot;question&quot;;</span>
+<span class="ln">197</span><span>    let is_resolved = input.is_resolved.or(Some(!is_doubt));</span>
+<span class="ln">198</span><span>    let significance = input.significance.or_else(|| Some(&quot;major&quot;.to_string()));</span></code></pre></div></td>
+</tr>
+<tr>
+  <td class="c-id"><span class="fid fid--sm">D-22</span></td>
+  <td><span class="sev sev--low sev--sm">Low</span></td>
+  <td class="c-loc"><code>src/mcp/handlers/record_action.rs:191</code></td>
+  <td class="c-desc"><strong>"question" is not normalised to "doubt"</strong><span class="muted">Only "decision" is rewritten; a question is stored as <code>question</code> while guardrails query <code>doubt</code>.</span><div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/mcp/handlers/record_action.rs:191&ndash;197</span></div><pre class="code"><code><span class="ln">191</span><span>    let normalized_action_type = match input.action_type.trim().to_lowercase().as_str() {</span>
+<span class="ln">192</span><span>        &quot;decision&quot; =&gt; &quot;decide&quot;.to_string(),</span>
+<span class="ln">193</span><span>        other =&gt; other.to_string(),</span>
+<span class="ln">194</span><span>    };</span>
+<span class="ln">195</span><span></span>
+<span class="ln">196</span><span>    let is_doubt = normalized_action_type == &quot;doubt&quot; || normalized_action_type == &quot;question&quot;;</span>
+<span class="ln">197</span><span>    let is_resolved = input.is_resolved.or(Some(!is_doubt));</span></code></pre></div></td>
+</tr>
+<tr>
+  <td class="c-id"><span class="fid fid--sm">D-23</span></td>
+  <td><span class="sev sev--low sev--sm">Low</span></td>
+  <td class="c-loc"><code>src/core/config.rs:31</code></td>
+  <td class="c-desc"><strong>global_mode is plumbed but never read</strong><span class="muted">The setting reaches the UI and the config struct; no storage or query path consults it. Toggling it changes nothing.</span><div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/core/config.rs:31&ndash;31</span></div><pre class="code"><code><span class="ln">31</span><span>    pub global_mode: bool,</span></code></pre></div></td>
+</tr>
+<tr>
+  <td class="c-id"><span class="fid fid--sm">D-24</span></td>
+  <td><span class="sev sev--low sev--sm">Low</span></td>
+  <td class="c-loc"><code>src/mcp/tools.rs:877</code></td>
+  <td class="c-desc"><strong>A test writes outside the repository</strong><span class="muted">A schema-export test targets a hard-coded <code>C:/Users/Diwa/...</code> path, so on that machine running tests mutates the author's real MCP config.</span><div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/mcp/tools.rs:877&ndash;877</span></div><pre class="code"><code><span class="ln">877</span><span>        let dest = std::path::Path::new(&quot;C:/Users/Diwa/.gemini/antigravity/mcp/knox&quot;);</span></code></pre></div></td>
+</tr>
+<tr>
+  <td class="c-id"><span class="fid fid--sm">D-25</span></td>
+  <td><span class="sev sev--low sev--sm">Low</span></td>
+  <td class="c-loc"><code>README.md / knox.md / src/mcp/tools.rs</code></td>
+  <td class="c-desc"><strong>The tool count is stated three different ways</strong><span class="muted">README says 14, <code>knox.md</code> says 17 and lists 17, the code defines 18. An agent reading the project file is working from a stale contract.</span></td>
+</tr>
+<tr>
+  <td class="c-id"><span class="fid fid--sm">D-26</span></td>
+  <td><span class="sev sev--low sev--sm">Low</span></td>
+  <td class="c-loc"><code>src/storage/queries.rs:82</code></td>
+  <td class="c-desc"><strong>Ordering relies on lexicographic text timestamps</strong><span class="muted">RFC 3339 strings with variable fractional digits do not sort reliably as text; use an epoch column or fixed precision.</span><div class="codefile"><div class="codefile__h"><span class="codelang">rust</span> <span class="codeloc">src/storage/queries.rs:82&ndash;82</span></div><pre class="code"><code><span class="ln">82</span><span>         FROM actions a WHERE {where_clause} ORDER BY a.timestamp DESC LIMIT {limit}&quot;</span></code></pre></div></td>
+</tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="s6">
+  <h2><span class="num">06</span>Fix map</h2>
+  <p class="sec-intro">Grouped by change rather than by defect, because several defects share one fix. Order is
+  dependency order: nothing later works until the path and project work.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Defects</th><th>Change</th><th>Files</th><th>Effort</th></tr></thead>
+      <tbody>
+<tr><td class="c-id"><code>D-01, D-02</code></td><td>Replace the normaliser with a typed <code>ProjectPath</code> that canonicalises against a project root and stores <code>rel_path</code> + <code>abs_path</code></td><td class="c-loc"><code>src/ingest/summary.rs, src/storage/nodes.rs, migration v4</code></td><td class="num">1 day</td></tr>
+<tr><td class="c-id"><code>D-03, D-04, D-05</code></td><td>Canonical-path-only project resolution; add <code>actions.project_id</code>; scope session reuse to (actor, project)</td><td class="c-loc"><code>src/storage/sessions.rs, src/mcp/handlers/record_action.rs, migration v4</code></td><td class="num">2 days</td></tr>
+<tr><td class="c-id"><code>D-06, D-07</code></td><td>Add <code>with_tx</code>; run <code>insert_action</code> and <code>record_batch</code> inside one transaction</td><td class="c-loc"><code>src/storage/db.rs, nodes.rs, record_batch.rs</code></td><td class="num">1 day</td></tr>
+<tr><td class="c-id"><code>D-08, D-09, D-17</code></td><td>Two directional CTEs; follow semantic edges in lineage; index nodes by id</td><td class="c-loc"><code>src/graph/loader.rs, traversal.rs, get_lineage.rs</code></td><td class="num">3 days</td></tr>
+<tr><td class="c-id"><code>D-10, D-11, D-12</code></td><td>Token-overlap matcher with negation and thresholds; redefine strict; widen scope to directory and symbols</td><td class="c-loc"><code>src/mcp/handlers/check_guardrails.rs</code></td><td class="num">3 days</td></tr>
+<tr><td class="c-id"><code>D-13, D-14</code></td><td>Marked-block append, backup, restore on uninstall, absolute binary path, fail open</td><td class="c-loc"><code>src/commands/hook.rs</code></td><td class="num">half day</td></tr>
+<tr><td class="c-id"><code>D-15</code></td><td>Explicit busy timeout, bounded retry with jitter, retryable error mapping, checkpoint policy</td><td class="c-loc"><code>src/storage/db.rs</code></td><td class="num">1 day</td></tr>
+<tr><td class="c-id"><code>D-16</code></td><td>Negotiate protocolVersion; return the protocol in <code>instructions</code></td><td class="c-loc"><code>src/mcp/handlers/mod.rs</code></td><td class="num">half day</td></tr>
+<tr><td class="c-id"><code>D-18 to D-26</code></td><td>Batch fetch, file attribution for doubts, classifier accuracy stated in the README, single tool-count constant, generated docs</td><td class="c-loc"><code>src/storage/queries.rs, src/ingest/, README.md</code></td><td class="num">2 days</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="s7">
+  <h2><span class="num">07</span>Reproduction</h2>
+  <p class="sec-intro">The two behaviours that decide the verdict were replayed against SQLite using the project's
+  own schema and SQL, ported line for line. Both run in under a second.</p>
+
+  <h3 class="sub">Path normalisation and the file lookup</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Input</th><th>Stored or queried as</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><code>C:/Users/Diwa/Knox/src/storage/db.rs</code></td><td><code>src/storage/db.rs</code></td><td>Works only because the folder is named Knox</td></tr>
+        <tr><td><code>/home/diva/knox/app/src/main.rs</code></td><td><code>app/src/main.rs</code></td><td>Truncated at the folder named knox</td></tr>
+        <tr><td><code>/home/diva/projects/api/src/main.rs</code></td><td><code>home/diva/projects/api/src/main.rs</code></td><td>Leading slash dropped, prefix kept</td></tr>
+        <tr><td>query <code>src/lib.rs</code> against the row above</td><td>no match</td><td><span class="sev sev--critical sev--sm">fails open</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub">Project resolution</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Call</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><code>project = "/home/diva/work/knox"</code></td><td>Creates project A</td></tr>
+        <tr><td><code>project = "/home/diva/clients/knox"</code></td><td>Creates project B &mdash; correct, the paths differ</td></tr>
+        <tr><td><code>project = "knox"</code></td><td>Matches whichever row carries that name first &mdash; silently the wrong repository</td></tr>
+        <tr><td><code>project = "home/diva/work/knox"</code></td><td>Third duplicate row for the same repository; the graph splits</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="callout__t">What this does not cover</div>
+    <p>No runtime profiling, no concurrency soak, and no assessment of the React UI beyond its size and test
+    coverage. The defects listed are those visible from source; a running system would likely surface more in the
+    ingest parsers, which depend on third-party transcript formats that change without notice.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  Knox v1.2.1 &middot; defect report &middot; 26 findings &middot; line numbers extracted from source at build time
+</footer>
+</div>
+</body>
+</html>

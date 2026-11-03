@@ -28,6 +28,31 @@ export interface KnoxAction {
   significance?: "major" | "minor" | string;
   is_resolved?: boolean;
   resolution_note?: string | null;
+  // V4 Causal Code Delta Fields
+  commit_sha?: string | null;
+  delta_summary?: DeltaSummary | null;
+}
+
+export interface DeltaSummary {
+  total_files: number;
+  lines_added: number;
+  lines_deleted: number;
+}
+
+export type DeltaChangeType = "added" | "modified" | "deleted" | "renamed";
+
+export interface ActionDelta {
+  id: string;
+  action_id: string;
+  file_path: string;
+  change_type: DeltaChangeType | string;
+  old_path?: string | null;
+  lines_added: number;
+  lines_deleted: number;
+  diff_hunk?: string | null;
+  deleted_code?: string | null;
+  deletion_reason?: string | null;
+  created_at: string;
 }
 
 export interface Session {
@@ -129,6 +154,8 @@ export interface UserSettings {
   theme: "dark" | "light" | "system";
   uiDensity: "comfortable" | "compact";
   enableGlowFx: boolean;
+  /** Custom accent (#rrggbb); null follows the theme's own accent. */
+  accentColor: string | null;
   defaultStartupView: ViewTab;
 
   // Graph Engine
@@ -168,6 +195,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   theme: "dark",
   uiDensity: "comfortable",
   enableGlowFx: true,
+  accentColor: null,
   defaultStartupView: "dashboard",
 
   defaultGraphMode: "cards",

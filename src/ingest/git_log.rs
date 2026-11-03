@@ -97,6 +97,7 @@ impl TranscriptMapper for GitLogMapper {
                 confidence: Some(1.0),
                 timestamp: commit.timestamp,
                 session_id: None,
+                project_id: None,
                 parent_action_id: previous_action_id.clone(),
                 files: commit.files.clone(),
                 tags: vec!["git-commit".to_string()],
@@ -114,6 +115,8 @@ impl TranscriptMapper for GitLogMapper {
                 significance: Some("major".to_string()),
                 is_resolved: Some(true),
                 resolution_note: None,
+                commit_sha: Some(commit.hash.clone()),
+                delta_summary: None,
             };
 
             actions.push(plan_action);
@@ -133,6 +136,7 @@ impl TranscriptMapper for GitLogMapper {
                     confidence: Some(1.0),
                     timestamp: commit.timestamp,
                     session_id: None,
+                    project_id: None,
                     parent_action_id: Some(plan_id.clone()),
                     files: commit.files.clone(),
                     tags: vec!["git-write".to_string()],
@@ -149,6 +153,8 @@ impl TranscriptMapper for GitLogMapper {
                     significance: Some("minor".to_string()),
                     is_resolved: Some(true),
                     resolution_note: None,
+                    commit_sha: Some(commit.hash.clone()),
+                    delta_summary: None,
                 };
                 actions.push(write_action);
                 previous_action_id = Some(write_id);

@@ -6,15 +6,27 @@ use rusqlite::params;
 use super::db::KnoxDb;
 use crate::core::error::KnoxResult;
 use crate::core::ids::{ActionId, ProjectId, SessionId};
-use crate::core::types::{ActionRelation, KnoxAction, Project, RelationType, UpdateActionParams};
+use crate::core::types::{
+    ActionDelta, ActionRelation, DeltaChangeType, DeltaSummary, KnoxAction, Project, RelationType,
+    UpdateActionParams,
+};
 
 pub use super::queries::query_actions;
 
 /// Inserts a new `KnoxAction` into the database, populating files, tags,
 /// relations, symbols, and handling supersede relationships.
+///
+/// The whole write runs in one transaction so a failure cannot leave an action
+/// row without its files, tags, relations or symbols.
 pub fn insert_action(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<ActionId> {
-    let conn = db.conn();
+    db.with_tx(|conn| insert_action_conn(conn, action))
+}
 
+/// Inserts an action using an existing transaction/connection.
+pub(crate) fn insert_action_conn(
+    conn: &rusqlite::Connection,
+    action: &KnoxAction,
+) -> KnoxResult<ActionId> {
     let rejected_alt_json = if action.rejected_alternatives.is_empty() {
         None
     } else {
@@ -32,8 +44,9 @@ pub fn insert_action(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<ActionId> {
             id, actor, action_type, summary, confidence, timestamp,
             session_id, parent_action_id, superseded_by, is_current,
             rationale, context_summary, rejected_alternatives,
-            significance, is_resolved, resolution_note
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            significance, is_resolved, resolution_note, commit_sha,
+            project_id, timestamp_ms
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         params![
             action.id.as_str(),
             action.actor.as_str(),
@@ -51,11 +64,14 @@ pub fn insert_action(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<ActionId> {
             significance_str,
             is_resolved_int,
             action.resolution_note.as_deref(),
+            action.commit_sha.as_deref(),
+            action.project_id.as_ref().map(|p| p.as_str()),
+            action.timestamp.timestamp_millis(),
         ],
     )?;
 
     if let Some(ref old_id) = action.supersedes {
-        mark_superseded(db, old_id, &action.id)?;
+        mark_superseded_conn(conn, old_id, &action.id)?;
     }
 
     insert_action_files_and_tags(conn, &action.id, &action.files, &action.tags)?;
@@ -173,7 +189,7 @@ fn fetch_action_relations_and_symbols(
     Ok((relations, symbols))
 }
 
-/// Retrieves an action by its unique identifier, including associated files, tags, relations, and symbols.
+/// Retrieves an action by its unique identifier, including associated files, tags, relations, symbols, commit SHA, and delta summary.
 pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> {
     let conn = db.conn();
 
@@ -181,7 +197,7 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
         "SELECT id, actor, action_type, summary, confidence, timestamp,
                 session_id, parent_action_id, superseded_by, is_current,
                 rationale, context_summary, rejected_alternatives,
-                significance, is_resolved, resolution_note
+                significance, is_resolved, resolution_note, commit_sha, project_id
          FROM actions WHERE id = ?1",
     )?;
 
@@ -203,6 +219,8 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
         let significance: Option<String> = row.get(13)?;
         let is_resolved_int: Option<i32> = row.get(14)?;
         let resolution_note: Option<String> = row.get(15)?;
+        let commit_sha: Option<String> = row.get(16)?;
+        let project_id: Option<String> = row.get(17)?;
 
         let timestamp = DateTime::parse_from_rfc3339(&timestamp_str)
             .map(|dt| dt.with_timezone(&Utc))
@@ -210,6 +228,7 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
 
         let (files, tags) = fetch_action_files_and_tags(conn, id)?;
         let (relations, symbols) = fetch_action_relations_and_symbols(conn, id)?;
+        let delta_summary = fetch_action_delta_summary(conn, id)?;
 
         let rejected_alternatives = rejected_str
             .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
@@ -225,6 +244,7 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
             confidence,
             timestamp,
             session_id: session_id.map(SessionId::from),
+            project_id: project_id.map(ProjectId::from),
             parent_action_id: parent_action_id.map(ActionId::from),
             supersedes: None,
             is_current: is_current_int == 1 && superseded_by.is_none(),
@@ -236,6 +256,8 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
             significance: significance.or_else(|| Some("major".to_string())),
             is_resolved: is_resolved_int.map(|v| v == 1),
             resolution_note,
+            commit_sha,
+            delta_summary,
         }))
     } else {
         Ok(None)
@@ -244,7 +266,16 @@ pub fn get_action(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<KnoxAction>> 
 
 /// Marks an existing action as superseded by a newer action.
 pub fn mark_superseded(db: &KnoxDb, old_id: &ActionId, new_id: &ActionId) -> KnoxResult<()> {
-    db.conn().execute(
+    mark_superseded_conn(db.conn(), old_id, new_id)
+}
+
+/// Connection-scoped variant of [`mark_superseded`], safe to call inside a transaction.
+pub(crate) fn mark_superseded_conn(
+    conn: &rusqlite::Connection,
+    old_id: &ActionId,
+    new_id: &ActionId,
+) -> KnoxResult<()> {
+    conn.execute(
         "UPDATE actions SET superseded_by = ?1, is_current = 0 WHERE id = ?2",
         params![new_id.as_str(), old_id.as_str()],
     )?;
@@ -575,6 +606,269 @@ pub fn update_action(db: &KnoxDb, params: &UpdateActionParams) -> KnoxResult<Kno
         .ok_or_else(|| crate::core::error::KnoxError::ActionNotFound(params.id.to_string()))
 }
 
+/// Inserts associated delta records for an action into SQLite.
+pub fn insert_deltas(db: &KnoxDb, deltas: &[ActionDelta]) -> KnoxResult<()> {
+    db.with_tx(|conn| insert_deltas_conn(conn, deltas))
+}
+
+/// Connection-scoped variant of [`insert_deltas`], safe inside a transaction.
+pub(crate) fn insert_deltas_conn(
+    conn: &rusqlite::Connection,
+    deltas: &[ActionDelta],
+) -> KnoxResult<()> {
+    let mut stmt = conn.prepare_cached(
+        "INSERT OR REPLACE INTO action_deltas (
+            id, action_id, file_path, change_type, old_path,
+            lines_added, lines_deleted, diff_hunk, deleted_code,
+            deletion_reason, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+    )?;
+
+    for delta in deltas {
+        let delta_id = if delta.id.is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            delta.id.clone()
+        };
+        stmt.execute(params![
+            delta_id,
+            delta.action_id.as_str(),
+            delta.file_path.as_str(),
+            delta.change_type.to_string(),
+            delta.old_path.as_deref(),
+            delta.lines_added as i64,
+            delta.lines_deleted as i64,
+            delta.diff_hunk.as_deref(),
+            delta.deleted_code.as_deref(),
+            delta.deletion_reason.as_deref(),
+            delta.created_at.to_rfc3339(),
+        ])?;
+    }
+    Ok(())
+}
+
+/// Inserts an action and its deltas atomically.
+pub fn insert_action_with_deltas(
+    db: &KnoxDb,
+    action: &KnoxAction,
+    deltas: &[ActionDelta],
+) -> KnoxResult<ActionId> {
+    db.with_tx(|conn| {
+        let id = insert_action_conn(conn, action)?;
+        insert_deltas_conn(conn, deltas)?;
+        Ok(id)
+    })
+}
+
+/// Aggregates code change metrics for a given action ID.
+pub fn fetch_action_delta_summary(
+    conn: &rusqlite::Connection,
+    id: &ActionId,
+) -> KnoxResult<Option<DeltaSummary>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT COUNT(DISTINCT file_path), COALESCE(SUM(lines_added), 0), COALESCE(SUM(lines_deleted), 0)
+         FROM action_deltas WHERE action_id = ?1",
+    )?;
+    let mut rows = stmt.query(params![id.as_str()])?;
+    if let Some(row) = rows.next()? {
+        let files_changed: i64 = row.get(0)?;
+        let total_added: i64 = row.get(1)?;
+        let total_deleted: i64 = row.get(2)?;
+        if files_changed > 0 || total_added > 0 || total_deleted > 0 {
+            return Ok(Some(DeltaSummary {
+                total_files: files_changed as usize,
+                lines_added: total_added.max(0) as u32,
+                lines_deleted: total_deleted.max(0) as u32,
+            }));
+        }
+    }
+    Ok(None)
+}
+
+/// Retrieves all code deltas recorded for a specific action.
+pub fn get_deltas_by_action(
+    db: &KnoxDb,
+    action_id: &ActionId,
+) -> KnoxResult<Vec<ActionDelta>> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, action_id, file_path, change_type, old_path,
+                lines_added, lines_deleted, diff_hunk, deleted_code,
+                deletion_reason, created_at
+         FROM action_deltas WHERE action_id = ?1 ORDER BY created_at ASC",
+    )?;
+    let rows = stmt.query_map(params![action_id.as_str()], map_delta_row)?;
+    let mut deltas = Vec::new();
+    for row in rows {
+        deltas.push(row?);
+    }
+    Ok(deltas)
+}
+
+/// Retrieves recent code deltas affecting a specific file path.
+pub fn get_deltas_by_file(
+    db: &KnoxDb,
+    file_path: &str,
+    limit: usize,
+) -> KnoxResult<Vec<ActionDelta>> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, action_id, file_path, change_type, old_path,
+                lines_added, lines_deleted, diff_hunk, deleted_code,
+                deletion_reason, created_at
+         FROM action_deltas WHERE file_path = ?1 ORDER BY created_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![file_path, limit as i64], map_delta_row)?;
+    let mut deltas = Vec::new();
+    for row in rows {
+        deltas.push(row?);
+    }
+    Ok(deltas)
+}
+
+/// Finds an action by commit hash (exact match or prefix match).
+pub fn find_action_by_commit(db: &KnoxDb, commit_sha: &str) -> KnoxResult<Option<KnoxAction>> {
+    let conn = db.conn();
+    let prefix = format!("{}%", commit_sha.trim());
+    let mut stmt = conn.prepare(
+        "SELECT id FROM actions
+         WHERE commit_sha = ?1 OR commit_sha LIKE ?2
+         ORDER BY COALESCE(timestamp_ms, 0) DESC LIMIT 1",
+    )?;
+    let mut rows = stmt.query(params![commit_sha.trim(), prefix])?;
+    if let Some(row) = rows.next()? {
+        let action_id = ActionId::from(row.get::<_, String>(0)?);
+        return get_action(db, &action_id);
+    }
+    Ok(None)
+}
+
+/// Parses the line range from a unified diff hunk header (`+start,count`).
+pub fn parse_hunk_line_range(hunk: &str) -> Option<(u32, u32)> {
+    for line in hunk.lines() {
+        if line.starts_with("@@") {
+            if let Some(plus_idx) = line.find('+') {
+                let rest = &line[plus_idx + 1..];
+                let end_idx = rest.find(' ').or_else(|| rest.find('@')).unwrap_or(rest.len());
+                let range_str = &rest[..end_idx];
+                let mut parts = range_str.split(',');
+                if let Some(start_str) = parts.next() {
+                    if let Ok(start) = start_str.trim().parse::<u32>() {
+                        let count = parts
+                            .next()
+                            .and_then(|c| c.trim().parse::<u32>().ok())
+                            .unwrap_or(1);
+                        return Some((start, count));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Finds the most relevant causal action and optional code delta responsible for a given file and line number.
+///
+/// Precedence order:
+/// 1. Exact or prefix match on Git commit SHA in `actions`.
+/// 2. Code delta hunk overlapping the target line number in `action_deltas`.
+/// 3. Most recent action touching `file_path` in `action_files`.
+pub fn find_causal_action_by_file_and_commit(
+    db: &KnoxDb,
+    file_path: &str,
+    commit_sha: Option<&str>,
+    line_number: u32,
+) -> KnoxResult<Option<(KnoxAction, Option<ActionDelta>)>> {
+    let conn = db.conn();
+
+    // 1. Commit SHA match
+    if let Some(sha) = commit_sha.map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        if let Some(action) = find_action_by_commit(db, sha)? {
+            let deltas = get_deltas_by_action(db, &action.id)?;
+            let matched_delta = deltas.into_iter().find(|d| {
+                if d.file_path != file_path {
+                    return false;
+                }
+                if let Some(ref hunk) = d.diff_hunk {
+                    if let Some((start, count)) = parse_hunk_line_range(hunk) {
+                        return line_number >= start && line_number < start + count.max(1);
+                    }
+                }
+                true
+            });
+            return Ok(Some((action, matched_delta)));
+        }
+    }
+
+    // 2. Line range overlap in recent action_deltas for this file
+    let file_deltas = get_deltas_by_file(db, file_path, 20)?;
+    for delta in &file_deltas {
+        if let Some(ref hunk) = delta.diff_hunk {
+            if let Some((start, count)) = parse_hunk_line_range(hunk) {
+                if line_number >= start && line_number < start + count.max(1) {
+                    if let Some(action) = get_action(db, &delta.action_id)? {
+                        return Ok(Some((action, Some(delta.clone()))));
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Fallback: most recent action touching the file
+    let mut stmt_fallback = conn.prepare(
+        "SELECT af.action_id FROM action_files af
+         JOIN actions a ON af.action_id = a.id
+         WHERE af.file_path = ?1
+         ORDER BY COALESCE(a.timestamp_ms, 0) DESC LIMIT 1",
+    )?;
+    let mut rows_fallback = stmt_fallback.query(params![file_path])?;
+    if let Some(row) = rows_fallback.next()? {
+        let action_id = ActionId::from(row.get::<_, String>(0)?);
+        if let Some(action) = get_action(db, &action_id)? {
+            let latest_delta = file_deltas.into_iter().next();
+            return Ok(Some((action, latest_delta)));
+        }
+    }
+
+    Ok(None)
+}
+
+fn map_delta_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ActionDelta> {
+    let id: String = row.get(0)?;
+    let action_id_str: String = row.get(1)?;
+    let file_path: String = row.get(2)?;
+    let change_type_str: String = row.get(3)?;
+    let old_path: Option<String> = row.get(4)?;
+    let lines_added: i64 = row.get(5)?;
+    let lines_deleted: i64 = row.get(6)?;
+    let diff_hunk: Option<String> = row.get(7)?;
+    let deleted_code: Option<String> = row.get(8)?;
+    let deletion_reason: Option<String> = row.get(9)?;
+    let created_at_str: String = row.get(10)?;
+
+    let change_type = change_type_str
+        .parse::<DeltaChangeType>()
+        .unwrap_or(DeltaChangeType::Modified);
+
+    let created_at = DateTime::parse_from_rfc3339(&created_at_str)
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now());
+
+    Ok(ActionDelta {
+        id,
+        action_id: ActionId::from(action_id_str),
+        file_path,
+        change_type,
+        old_path,
+        lines_added: lines_added.max(0) as u32,
+        lines_deleted: lines_deleted.max(0) as u32,
+        diff_hunk,
+        deleted_code,
+        deletion_reason,
+        created_at,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -751,5 +1045,87 @@ mod tests {
         )
         .unwrap();
         assert_eq!(updated2.relations.len(), 0);
+    }
+
+    #[test]
+    fn test_insert_and_query_deltas() {
+        let db = KnoxDb::open_memory().unwrap();
+        let action = KnoxAction {
+            id: ActionId::new(),
+            actor: "antigravity".to_string(),
+            action_type: "write".to_string(),
+            summary: "Added delta support".to_string(),
+            files: vec!["src/storage/nodes.rs".to_string()],
+            commit_sha: Some("abcdef1234567890".to_string()),
+            ..Default::default()
+        };
+        insert_action(&db, &action).unwrap();
+
+        let deltas = vec![ActionDelta {
+            id: "delta-1".to_string(),
+            action_id: action.id.clone(),
+            file_path: "src/storage/nodes.rs".to_string(),
+            change_type: DeltaChangeType::Modified,
+            old_path: None,
+            lines_added: 25,
+            lines_deleted: 5,
+            diff_hunk: Some("@@ -10,5 +10,25 @@\n+added code".to_string()),
+            deleted_code: Some("old code".to_string()),
+            deletion_reason: Some("Refactored".to_string()),
+            created_at: Utc::now(),
+        }];
+
+        insert_deltas(&db, &deltas).unwrap();
+
+        let fetched_deltas = get_deltas_by_action(&db, &action.id).unwrap();
+        assert_eq!(fetched_deltas.len(), 1);
+        assert_eq!(fetched_deltas[0].file_path, "src/storage/nodes.rs");
+        assert_eq!(fetched_deltas[0].lines_added, 25);
+        assert_eq!(fetched_deltas[0].lines_deleted, 5);
+        assert_eq!(fetched_deltas[0].change_type, DeltaChangeType::Modified);
+
+        let fetched_action = get_action(&db, &action.id).unwrap().expect("action exists");
+        assert_eq!(fetched_action.commit_sha.as_deref(), Some("abcdef1234567890"));
+        let summary = fetched_action.delta_summary.expect("delta summary exists");
+        assert_eq!(summary.total_files, 1);
+        assert_eq!(summary.lines_added, 25);
+        assert_eq!(summary.lines_deleted, 5);
+
+        // Test causal resolution
+        // 1. By commit SHA
+        let (causal1, delta1) = find_causal_action_by_file_and_commit(
+            &db,
+            "src/storage/nodes.rs",
+            Some("abcdef12"),
+            15,
+        )
+        .unwrap()
+        .expect("causal action found by commit");
+        assert_eq!(causal1.id, action.id);
+        assert!(delta1.is_some());
+
+        // 2. By line overlap (no commit)
+        let (causal2, delta2) = find_causal_action_by_file_and_commit(
+            &db,
+            "src/storage/nodes.rs",
+            None,
+            20,
+        )
+        .unwrap()
+        .expect("causal action found by line");
+        assert_eq!(causal2.id, action.id);
+        assert!(delta2.is_some());
+
+        // 3. Line outside delta hunk falls back to file match
+        let (causal3, delta3) = find_causal_action_by_file_and_commit(
+            &db,
+            "src/storage/nodes.rs",
+            None,
+            999,
+        )
+        .unwrap()
+        .expect("causal action fallback to file");
+        assert_eq!(causal3.id, action.id);
+        assert!(delta3.is_some());
     }
 }

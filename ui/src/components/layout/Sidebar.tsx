@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Network,
@@ -8,15 +8,16 @@ import {
   ShieldCheck,
   PlugZap,
   FolderGit2,
-  Database,
   RefreshCw,
   Compass,
   SlidersHorizontal,
+  BookOpen,
+  PlusCircle,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { cn } from "@/lib/cn";
 import { NAV_GROUPS, type NavItemDef } from "@/lib/navigation";
-import { Button } from "@/components/ui/Button";
+import { QuickThoughtModal } from "@/components/modals/QuickThoughtModal";
 
 const ICONS: Record<NavItemDef["icon"], React.ReactNode> = {
   dashboard: <LayoutDashboard className="size-4" />,
@@ -29,6 +30,13 @@ const ICONS: Record<NavItemDef["icon"], React.ReactNode> = {
   workspace: <FolderGit2 className="size-4" />,
 };
 
+const RAIL_ITEM =
+  "group relative flex h-full flex-1 md:h-9 md:w-9 md:flex-none cursor-pointer select-none items-center justify-center gap-1 px-0.5 md:px-0 transition-colors duration-100";
+
+/**
+ * Icon rail on desktop, labelled bottom bar under 768px. Selection is a 2px
+ * accent line on the rail's border (top edge in the bottom bar) — never a fill.
+ */
 export const Sidebar: React.FC = () => {
   const {
     activeTab,
@@ -38,146 +46,164 @@ export const Sidebar: React.FC = () => {
     refreshData,
     openTour,
     openSettings,
+    setOnboardingOpen,
   } = useKnoxStore();
+
+  const [isThoughtModalOpen, setIsThoughtModalOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === "n" || e.key === "N")) {
+        e.preventDefault();
+        setIsThoughtModalOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const utilities = [
+    {
+      id: "refresh",
+      label: "Refresh graph",
+      icon: (
+        <RefreshCw
+          className={cn("size-3.5", isLoading && "animate-spin text-primary")}
+        />
+      ),
+      onClick: () => refreshData(),
+      disabled: isLoading,
+    },
+    {
+      id: "thought",
+      label: "Record thought (Ctrl+Alt+N)",
+      icon: <PlusCircle className="size-3.5" />,
+      onClick: () => setIsThoughtModalOpen(true),
+    },
+    {
+      id: "tour",
+      label: "Getting started tour",
+      icon: <Compass className="size-3.5" />,
+      onClick: () => openTour(),
+    },
+    {
+      id: "setup",
+      label: "Setup guide",
+      icon: <BookOpen className="size-3.5" />,
+      onClick: () => setOnboardingOpen(true),
+    },
+    {
+      id: "settings",
+      label: "Settings (Ctrl+,)",
+      icon: <SlidersHorizontal className="size-3.5" />,
+      onClick: () => openSettings(),
+    },
+  ];
 
   return (
     <aside
-      className={cn(
-        "shrink-0 border-r border-border bg-sidebar flex flex-col select-none",
-        "w-14 lg:w-56 transition-[width] duration-150"
-      )}
+      className="z-20 flex h-14 w-full shrink-0 select-none flex-row border-t border-border bg-sidebar pb-[env(safe-area-inset-bottom)] md:h-auto md:w-14 md:flex-col md:border-t-0 md:border-r md:pb-0"
       aria-label="Primary navigation"
     >
-      <nav className="flex-1 overflow-y-auto p-2 space-y-4">
-        {NAV_GROUPS.map((group) => (
-          <div key={group.id} className="space-y-1">
-            <div className="px-2.5 py-1 text-overline hidden lg:block">
-              {group.label}
-            </div>
-            <div className="space-y-0.5" role="list">
-              {group.items.map((item) => {
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="listitem"
-                    onClick={() => setActiveTab(item.id)}
-                    title={`${item.fullLabel} (${item.shortcut})`}
-                    aria-current={isActive ? "page" : undefined}
-                    aria-label={item.fullLabel}
+      <nav
+        className="flex min-w-0 flex-1 flex-row items-stretch gap-0 overflow-x-auto px-1 [scrollbar-width:none] md:flex-col md:items-center md:gap-0.5 md:overflow-visible md:px-0 md:py-2 [&::-webkit-scrollbar]:hidden"
+        aria-label="Views"
+      >
+        {NAV_GROUPS.map((group, groupIdx) => (
+          <React.Fragment key={group.id}>
+            {groupIdx > 0 && (
+              <div
+                className="my-1 h-5 w-px shrink-0 self-center bg-border md:my-1.5 md:h-px md:w-5"
+                aria-hidden
+              />
+            )}
+            {group.items.map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveTab(item.id)}
+                  title={`${item.fullLabel} (${item.shortcut})`}
+                  aria-current={isActive ? "page" : undefined}
+                  aria-label={item.fullLabel}
+                  className={cn(
+                    RAIL_ITEM,
+                    "flex-col md:flex-row",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring",
+                    isActive
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:bg-white/[0.03] hover:text-foreground"
+                  )}
+                >
+                  <span
                     className={cn(
-                      "group relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors duration-100 cursor-pointer",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
-                      isActive
-                        ? "bg-primary-muted text-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                      "shrink-0 transition-colors",
+                      isActive && "text-primary"
                     )}
                   >
-                    {/* Teal active rail */}
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full transition-opacity",
-                        isActive ? "bg-primary opacity-100" : "opacity-0"
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        "shrink-0",
-                        isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
-                      )}
-                    >
-                      {ICONS[item.icon]}
-                    </span>
-                    <span className="hidden lg:inline truncate flex-1 text-left">
-                      {item.label}
-                    </span>
-                    <kbd
-                      className={cn(
-                        "hidden lg:inline font-mono text-xs px-1 py-0.5 rounded-sm shrink-0",
-                        isActive
-                          ? "text-primary/80 bg-primary/10"
-                          : "text-muted-foreground/50"
-                      )}
-                    >
-                      {item.shortcut}
-                    </kbd>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+                    {ICONS[item.icon]}
+                  </span>
+                  <span
+                    className={cn(
+                      "max-w-full truncate text-[10px] leading-none md:hidden",
+                      isActive ? "text-foreground" : "text-muted-foreground"
+                    )}
+                  >
+                    {item.label}
+                  </span>
+
+                  {isActive && (
+                    <>
+                      {/* Desktop: 2px line on the rail's border */}
+                      <span
+                        aria-hidden
+                        className="absolute -right-[11px] top-1.5 bottom-1.5 hidden w-0.5 rounded-full bg-primary md:block"
+                      />
+                      {/* Narrow: line under the label */}
+                      <span
+                        aria-hidden
+                        className="absolute left-1/2 top-0 h-0.5 w-6 -translate-x-1/2 rounded-full bg-primary md:hidden"
+                      />
+                    </>
+                  )}
+                </button>
+              );
+            })}
+          </React.Fragment>
         ))}
       </nav>
 
-      {/* Status footer */}
-      <div className="p-2.5 border-t border-border space-y-2">
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Database className="size-3.5 text-success shrink-0" aria-hidden />
-            <span className="hidden lg:inline truncate">SQLite</span>
-          </div>
-          <Button
+      {/* Utilities: rail bottom on desktop, compact row appended on narrow */}
+      <div className="flex shrink-0 items-center gap-0.5 border-l border-border px-1 md:w-full md:flex-col md:gap-1 md:border-l-0 md:border-t md:px-0 md:py-2">
+        {utilities.map((util) => (
+          <button
+            key={util.id}
             type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => refreshData()}
-            disabled={isLoading}
-            aria-label="Refresh knowledge graph"
-            title="Refresh knowledge graph"
-            className="size-7"
+            onClick={util.onClick}
+            disabled={util.disabled}
+            aria-label={util.label}
+            title={
+              util.id === "refresh" && status
+                ? `Refresh graph (${status.total_actions} actions)`
+                : util.label
+            }
+            className={cn(
+              "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-card)] text-muted-foreground transition-colors",
+              "hover:bg-white/[0.04] hover:text-foreground",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring",
+              "disabled:cursor-progress disabled:opacity-60"
+            )}
           >
-            <RefreshCw
-              className={cn("size-3", isLoading && "animate-spin text-primary")}
-            />
-          </Button>
-        </div>
-
-        {status && (
-          <div className="hidden lg:block text-xs text-muted-foreground font-mono space-y-0.5 px-0.5">
-            <div className="flex justify-between gap-2">
-              <span>Actions</span>
-              <span className="text-foreground font-semibold">
-                {status.total_actions}
-              </span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span>Sessions</span>
-              <span className="text-foreground">{status.total_sessions}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span>Projects</span>
-              <span className="text-foreground">{status.projects_tracked}</span>
-            </div>
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={() => openTour()}
-          className="w-full flex items-center justify-center lg:justify-start gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
-          title="Welcome & Getting Started Tour"
-          aria-label="Welcome and getting started tour"
-        >
-          <Compass className="size-3.5 text-primary shrink-0" />
-          <span className="hidden lg:inline truncate">Getting Started Tour</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => openSettings()}
-          className="w-full flex items-center justify-center lg:justify-start gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
-          title="Overall Settings (Ctrl+,)"
-          aria-label="Open overall settings"
-        >
-          <SlidersHorizontal className="size-3.5 text-primary shrink-0" />
-          <span className="hidden lg:inline truncate flex-1 text-left">Settings</span>
-          <kbd className="hidden lg:inline font-mono text-3xs text-muted-foreground/60 px-1 py-0.5 rounded-xs bg-muted/60 border border-border/50">
-            Ctrl+,
-          </kbd>
-        </button>
+            {util.icon}
+          </button>
+        ))}
       </div>
+
+      <QuickThoughtModal
+        isOpen={isThoughtModalOpen}
+        onClose={() => setIsThoughtModalOpen(false)}
+      />
     </aside>
   );
 };

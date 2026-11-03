@@ -57,13 +57,11 @@ fn extract_project_name(path: &Path) -> String {
 
 /// Computes the SQLite database location based on global vs per-project configuration.
 fn determine_db_path(project_path: &Path, config: &KnoxConfig) -> KnoxResult<PathBuf> {
-    if config.global_mode {
-        Ok(config.kg_path.clone())
-    } else {
-        let dot_knox = project_path.join(".knox");
-        fs::create_dir_all(&dot_knox)?;
-        Ok(dot_knox.join("knox.db"))
+    let db_path = config.resolve_db_path_for(project_path);
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent)?;
     }
+    Ok(db_path)
 }
 
 /// Fetches existing project record or creates and inserts a new one.
@@ -110,6 +108,7 @@ tools_registered:\n\
   - knox_record_doubt\n\
   - knox_resolve_doubt\n\
   - knox_record_batch\n\
+  - knox_update_action\n\
   - knox_get_context\n\
   - knox_get_history\n\
   - knox_get_lineage\n\
@@ -120,6 +119,9 @@ tools_registered:\n\
   - knox_list_stale\n\
   - knox_scan_staged\n\
   - knox_ingest\n\
+  - knox_diff_inspect\n\
+  - knox_blame_causal\n\
+  - knox_verify_drift\n\
 resources_available:\n\
   - knox://project/overview\n\
   - knox://decisions/active\n\
@@ -187,12 +189,15 @@ Before touching files:
 - Use `knox_get_lineage` to trace the causal origin of a bug or architecture ("Why is this code here?").
 - Use `knox_get_impact` to assess downstream dependencies before refactoring.
 - Use `knox_get_path` to find the shortest causal bridge between two decisions or actions.
+- Use `knox_diff_inspect` to inspect granular code diff hunks, deleted code, and deletion rationales.
+- Use `knox_blame_causal` to pinpoint the causal AI decision and code delta responsible for a specific line of code.
+- Use `knox_verify_drift` to detect untracked or uncommitted workspace drift against recorded actions.
 
 ---
 
 ## 3. MCP Tool Reference & Schemas
 
-Knox exposes 17 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
+Knox exposes 21 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
 
 ### 3.1 `knox_check_guardrails`
 Pre-flight safety inspection for target files. Returns active decisions and superseded anti-patterns.
@@ -205,7 +210,7 @@ Pre-flight safety inspection for target files. Returns active decisions and supe
 ```
 
 ### 3.2 `knox_record_action`
-Records a code change, plan, debug investigation, review, or verification. `session_id` is optional (auto-inferred).
+Records a code change, plan, debug investigation, review, or verification. Automatically captures bounded working tree git diffs and scrubs credentials. `session_id` is optional (auto-inferred).
 ```json
 // Request
 {
@@ -213,6 +218,8 @@ Records a code change, plan, debug investigation, review, or verification. `sess
   "action_type": "write",
   "summary": "Implemented bounded BFS traversal for MCP lineage",
   "files": ["src/graph/loader.rs"],
+  "commit_sha": "a1b2c3d4",
+  "auto_git_diff": true,
   "symbols": ["load_subgraph", "build_subgraph_cte_sql"],
   "rationale": "Bound graph loading memory consumption under 50MB",
   "relations": [
@@ -366,15 +373,57 @@ Ingests conversational transcripts, chat logs, or raw conversation text into the
 }
 ```
 
-### 3.14 `knox_start_session` & 3.15 `knox_end_session`
+### 3.14 `knox_update_action`
+Updates summary, action_type, relations, symbols, rationale, significance, or doubt resolution status of an existing action node.
+```json
+// Request
+{
+  "id": "a-91dc8f72",
+  "summary": "Updated architecture with bounded diffs",
+  "is_resolved": true,
+  "resolution_note": "Integrated into core runtime"
+}
+```
+
+### 3.15 `knox_diff_inspect`
+Inspects granular code deltas, unified diff hunks, and deleted code snippets associated with an action.
+```json
+// Request
+{
+  "action_id": "a-91dc8f72",
+  "file_path": "src/storage/nodes.rs"
+}
+```
+
+### 3.16 `knox_blame_causal`
+Resolves the causal AI or human decision and code delta responsible for a specific line of code.
+```json
+// Request
+{
+  "file_path": "src/storage/nodes.rs",
+  "line_number": 42,
+  "commit_sha": "a1b2c3d4"
+}
+```
+
+### 3.17 `knox_verify_drift`
+Verifies workspace drift between Knox recorded actions and actual working tree files/git modifications.
+```json
+// Request
+{
+  "project_path": "."
+}
+```
+
+### 3.18 `knox_start_session` & 3.19 `knox_end_session`
 Explicit session boundary management (optional; sessions auto-manage if omitted).
 
-### 3.15 Native MCP Resources (`resources/*`)
+### 3.20 Native MCP Resources (`resources/*`)
 - `knox://project/overview` — High-level knowledge graph metrics, action counts, and recent activity.
 - `knox://decisions/active` — Live architectural constraints, design decisions, and rationales.
 - `knox://context/{file_path}` — Non-superseded context for any file in the workspace.
 
-### 3.16 Native MCP Prompts (`prompts/*`)
+### 3.21 Native MCP Prompts (`prompts/*`)
 - `architectural-audit` — Guided audit of active decisions, stale patterns, and constraint compliance.
 - `session-handover` — Synthesized context digest for handing over work to the next agent.
 

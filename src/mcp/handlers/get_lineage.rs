@@ -6,9 +6,9 @@ use serde_json::{Value, json};
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::ids::ActionId;
 use crate::core::types::QueryFilter;
-use crate::graph::loader::load_subgraph;
+use crate::graph::loader::{SubgraphDirection, load_subgraph_directional};
 use crate::graph::traversal::causal_chain;
-use crate::ingest::summary::normalize_file_path;
+use crate::ingest::summary::normalize_query_file_path;
 use crate::storage::db::KnoxDb;
 
 /// Input parameters for `knox_get_lineage`.
@@ -32,7 +32,7 @@ pub fn handle_get_lineage(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let target_id = if let Some(ref id_str) = input.action_id {
         ActionId::from(id_str.trim())
     } else if let Some(ref fp) = input.file_path {
-        let norm = normalize_file_path(fp);
+        let norm = normalize_query_file_path(fp);
         let filter = QueryFilter {
             file_path: Some(norm),
             current_only: true,
@@ -52,7 +52,12 @@ pub fn handle_get_lineage(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     };
 
     let max_depth = input.max_depth.unwrap_or(10);
-    let graph = load_subgraph(db, std::slice::from_ref(&target_id), max_depth)?;
+    let graph = load_subgraph_directional(
+        db,
+        std::slice::from_ref(&target_id),
+        max_depth,
+        SubgraphDirection::Ancestors,
+    )?;
     let chain = causal_chain(&graph, &target_id);
 
     let format_mode = input

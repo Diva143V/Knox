@@ -11,6 +11,7 @@ import {
   type Node,
   type Edge,
   type ReactFlowInstance,
+  useNodesInitialized,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -53,6 +54,34 @@ import {
   LayoutGrid,
 } from "lucide-react";
 import type { KnoxAction, Project } from "@/types/knox";
+
+const NODE_DIMENSIONS: Record<string, { width: number; height: number }> = {
+  projectRootNode: { width: 288, height: 150 },
+  actionNode: { width: 240, height: 130 },
+  fileNode: { width: 200, height: 32 },
+  circleNode: { width: 80, height: 96 },
+};
+
+/**
+ * Fixed sizes give React Flow finite bounds before the first measurement pass,
+ * which is what the minimap needs; without them its viewBox is NaN.
+ */
+function withNodeDimensions(list: Node[]): Node[] {
+  return list.map((node) => {
+    const dims = NODE_DIMENSIONS[node.type ?? ""];
+    if (!dims) return node;
+    const width = node.width ?? dims.width;
+    const height = node.height ?? dims.height;
+    // Seed `measured` too: React Flow derives its bounds (and the minimap
+    // viewBox) from measured sizes, and NaN bounds reach the SVG before its
+    // ResizeObserver has run. These sizes are authoritative for our nodes.
+    const measured =
+      node.measured?.width === width && node.measured?.height === height
+        ? node.measured
+        : { width, height };
+    return { ...node, width, height, measured };
+  });
+}
 
 const nodeTypes = {
   projectRootNode: ProjectRootNode,
@@ -105,15 +134,45 @@ const MARKER = {
   supersedes: { type: MarkerType.ArrowClosed, color: "var(--warning)", width: 16, height: 16 },
   targets: { type: MarkerType.ArrowClosed, color: "var(--plan)", width: 16, height: 16 },
   project: { type: MarkerType.ArrowClosed, color: "var(--info, #38bdf8)", width: 16, height: 16 },
-  contains: { type: MarkerType.ArrowClosed, color: "var(--success, #10b981)", width: 16, height: 16 },
-  origin: { type: MarkerType.ArrowClosed, color: "var(--purple, #8b5cf6)", width: 16, height: 16 },
-  depends_on: { type: MarkerType.ArrowClosed, color: "var(--warning, #f59e0b)", width: 16, height: 16 },
-  implements: { type: MarkerType.ArrowClosed, color: "var(--success, #10b981)", width: 16, height: 16 },
+  contains: { type: MarkerType.ArrowClosed, color: "var(--success)", width: 16, height: 16 },
+  origin: { type: MarkerType.ArrowClosed, color: "var(--primary)", width: 16, height: 16 },
+  depends_on: { type: MarkerType.ArrowClosed, color: "var(--warning)", width: 16, height: 16 },
+  implements: { type: MarkerType.ArrowClosed, color: "var(--success)", width: 16, height: 16 },
   verifies: { type: MarkerType.ArrowClosed, color: "var(--plan, #06b6d4)", width: 16, height: 16 },
   relates_to: { type: MarkerType.ArrowClosed, color: "var(--muted-foreground, #94a3b8)", width: 16, height: 16 },
-  reverts: { type: MarkerType.ArrowClosed, color: "var(--danger, #ef4444)", width: 16, height: 16 },
+  reverts: { type: MarkerType.ArrowClosed, color: "var(--danger)", width: 16, height: 16 },
 } as const;
 
+/**
+ * The minimap derives its viewBox from the store's measured node bounds. Before
+ * measurement those are NaN, and React Flow writes them straight into the SVG
+ * (MNaN,NaN… / viewBox="NaN NaN NaN NaN"). Rendering it only once every node
+ * is measured keeps the SVG valid. This component sits inside ReactFlow, so
+ * the store hook is available here.
+ */
+const GraphMiniMap: React.FC<{ visible: boolean }> = ({ visible }) => {
+  const initialized = useNodesInitialized();
+  if (!visible || !initialized) return null;
+  return (
+    <MiniMap
+      position="bottom-right"
+      nodeColor={(n) =>
+        n.type === "circleNode"
+          ? "var(--warning)"
+          : n.type === "actionNode"
+          ? "var(--primary)"
+          : "var(--plan)"
+      }
+      maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
+      className="!shadow-sm !m-0 !bottom-3 !right-3"
+      // Numeric sizes only: MiniMap divides its bounding box by these values to
+      // derive the viewBox, so a CSS min()/vh string yields NaN for every bound.
+      style={{ width: 176, height: 116 }}
+      pannable
+      zoomable
+    />
+  );
+};
 export const KnoxGraphCanvas: React.FC = () => {
   const {
     actions,
@@ -174,9 +233,15 @@ export const KnoxGraphCanvas: React.FC = () => {
     });
   };
   const rfRef = useRef<ReactFlowInstance | null>(null);
+  // Store selectors are recreated per render; hold them in refs so the
+  // graph rebuild effect only runs when the graph content actually changes.
+  const getProjectForActionRef = useRef(getProjectForAction);
   const [isFiltersOpen, setIsFiltersOpen] = useState<boolean>(false);
   const [isLayoutOpen, setIsLayoutOpen] = useState<boolean>(false);
   const toolbarContainerRef = useRef<HTMLDivElement | null>(null);
+  // Guards the rebuild effect: React Flow state changes (physics commits,
+  // hover, selection) must not re-run the layout and throw positions away.
+  const lastBuildSigRef = useRef<string>("")
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -205,6 +270,10 @@ export const KnoxGraphCanvas: React.FC = () => {
     };
   }, [isFiltersOpen, isLayoutOpen]);
 
+  useEffect(() => {
+    getProjectForActionRef.current = getProjectForAction;
+  }, [getProjectForAction]);
+
   type ViewMode = "cards" | "cosmos";
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     try {
@@ -219,7 +288,7 @@ export const KnoxGraphCanvas: React.FC = () => {
       const saved = localStorage.getItem("knox_graph_live_physics");
       if (saved !== null) return saved === "true";
     } catch {}
-    return false;
+    return true;
   });
 
   const handleToggleViewMode = (mode: ViewMode) => {
@@ -251,6 +320,27 @@ export const KnoxGraphCanvas: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
+  const flowWrapRef = useRef<HTMLDivElement | null>(null);
+
+  const clientToWorld = useCallback(
+    (clientX: number, clientY: number) => {
+      const instance = rfRef.current;
+      const wrap = flowWrapRef.current;
+      if (!instance || !wrap) return null;
+      const rect = wrap.getBoundingClientRect();
+      if (
+        clientX < rect.left ||
+        clientX > rect.right ||
+        clientY < rect.top ||
+        clientY > rect.bottom
+      ) {
+        return null;
+      }
+      return instance.screenToFlowPosition({ x: clientX, y: clientY });
+    },
+    []
+  );
+
   const {
     isRunning: isPhysicsRunning,
     reheat,
@@ -265,6 +355,8 @@ export const KnoxGraphCanvas: React.FC = () => {
     chargeStrength: viewMode === "cosmos" ? -340 : -450,
     linkDistance: viewMode === "cosmos" ? 110 : 180,
     collisionPadding: viewMode === "cosmos" ? 22 : 35,
+    containerRef: flowWrapRef,
+    clientToWorld,
   });
 
   const availableActors = useMemo(() => {
@@ -389,6 +481,20 @@ export const KnoxGraphCanvas: React.FC = () => {
     let isCancelled = false;
 
     const buildAndLayoutGraph = async () => {
+      const buildSig = [
+        viewMode,
+        layoutEngine,
+        actorFilter,
+        typeFilter,
+        currentOnly,
+        showFileNodes,
+        searchHighlight,
+        selectedAction?.id ?? "",
+        actions.map((a) => a.id).join(","),
+        projects.map((proj) => proj.id).join(","),
+      ].join("::");
+      if (lastBuildSigRef.current === buildSig) return;
+
       const rawNodes: Node[] = [];
       const rawEdges: Edge[] = [];
 
@@ -492,7 +598,7 @@ export const KnoxGraphCanvas: React.FC = () => {
       activeProjects.forEach((p) => projectActionMap.set(p.path, []));
 
       filteredActions.forEach((action) => {
-        const ownerProj = getProjectForAction(action);
+        const ownerProj = getProjectForActionRef.current(action);
         const targetProj =
           ownerProj && projectActionMap.has(ownerProj.path)
             ? ownerProj
@@ -730,8 +836,11 @@ export const KnoxGraphCanvas: React.FC = () => {
 
       const positioned = await applyLayout(rawNodes, rawEdges, layoutEngine);
       if (!isCancelled) {
-        setNodes(positioned);
+        setNodes(withNodeDimensions(positioned));
         setEdges(rawEdges);
+        // Recorded after the commit: a cancelled (StrictMode) first pass must
+        // not block the pass that actually renders.
+        lastBuildSigRef.current = buildSig;
         if (!hasInitialFitView.current) {
           requestAnimationFrame(() => {
             if (!isCancelled) {
@@ -747,13 +856,13 @@ export const KnoxGraphCanvas: React.FC = () => {
 
     return () => {
       isCancelled = true;
+      lastBuildSigRef.current = "";
     };
   }, [
     actions,
     activeProjectScope,
     projects,
     selectedProject?.path,
-    getProjectForAction,
     recentProjects,
     config?.kg_path,
     currentOnly,
@@ -811,7 +920,7 @@ export const KnoxGraphCanvas: React.FC = () => {
     void (async () => {
       if (nodes.length === 0) return;
       const positioned = await applyLayout(nodes, edges, layoutEngine);
-      setNodes(positioned);
+      setNodes(withNodeDimensions(positioned));
       requestAnimationFrame(() =>
         rfRef.current?.fitView({ padding: 0.18, duration: 200 })
       );
@@ -1411,7 +1520,7 @@ export const KnoxGraphCanvas: React.FC = () => {
               <span className="text-muted-foreground">project branch</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-4 h-px bg-[var(--purple,#8b5cf6)] shrink-0" />
+              <span className="w-4 h-px bg-primary shrink-0" />
               <span className="text-muted-foreground">branch origin</span>
             </div>
           </div>
@@ -1471,7 +1580,40 @@ export const KnoxGraphCanvas: React.FC = () => {
         </div>
       )}
 
-      <div className="flex-1 w-full h-full">
+      <div ref={flowWrapRef} className="relative flex-1 w-full h-full">
+        {nodes.length > 0 && (
+          <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-card/90 px-1.5 py-1 shadow-sm backdrop-blur-md">
+            <button
+              type="button"
+              onClick={handleTogglePhysics}
+              aria-pressed={livePhysics}
+              title="Toggle the force simulation"
+              className={cn(
+                "flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-2xs font-medium transition-colors",
+                livePhysics
+                  ? "bg-warning/15 text-warning"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Atom
+                className={cn("size-3", livePhysics && isPhysicsRunning && "animate-spin")}
+              />
+              <span>{livePhysics ? "Live physics" : "Physics off"}</span>
+            </button>
+            {livePhysics && (
+              <button
+                type="button"
+                onClick={() => reheat(0.55)}
+                aria-label="Shake simulation"
+                title="Shake the graph"
+                className="flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <Flame className="size-3" />
+                <span>Shake</span>
+              </button>
+            )}
+          </div>
+        )}
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -1490,7 +1632,6 @@ export const KnoxGraphCanvas: React.FC = () => {
           fitView
           minZoom={0.05}
           maxZoom={4}
-          proOptions={{ hideAttribution: true }}
           deleteKeyCode={null}
           multiSelectionKeyCode={null}
         >
@@ -1505,26 +1646,7 @@ export const KnoxGraphCanvas: React.FC = () => {
             showInteractive={false}
             className="!shadow-sm !m-0 !bottom-3 !left-3"
           />
-          {showMinimap && (
-            <MiniMap
-              position="bottom-right"
-              nodeColor={(n) =>
-                n.type === "circleNode"
-                  ? "var(--warning)"
-                  : n.type === "actionNode"
-                  ? "var(--primary)"
-                  : "var(--plan)"
-              }
-              maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
-              className="!shadow-sm !m-0 !bottom-3 !right-3"
-              style={{
-                width: "min(180px, 30vw)",
-                height: "min(120px, 20vh)",
-              }}
-              pannable
-              zoomable
-            />
-          )}
+          <GraphMiniMap visible={showMinimap && nodes.length > 0} />
         </ReactFlow>
       </div>
     </div>

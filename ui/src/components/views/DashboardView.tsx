@@ -1,30 +1,215 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   Activity,
-  Clock,
-  FolderGit2,
-  Calendar,
   ArrowRight,
-  Database,
-  Terminal,
-  Shield,
-  Search,
-  PlusCircle,
+  CircleHelp,
+  FileCode,
   Network,
-  PlugZap,
-  HelpCircle,
+  Search,
+  ShieldCheck,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
-import { KpiCard } from "@/components/ui/KpiCard";
-import { ActionRow } from "@/components/ui/ActionRow";
-import { KnoxLogo } from "@/components/ui/KnoxLogo";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { ActionRow, ACTION_ROW_GRID } from "@/components/ui/ActionRow";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { SkeletonKpi, SkeletonRow } from "@/components/ui/Skeleton";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { SkeletonRow } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import { cn } from "@/lib/cn";
 import { APP_VERSION } from "@/lib/navigation";
+import type { KnoxAction } from "@/types/knox";
+
+const numberFormat = new Intl.NumberFormat();
+const relativeFormat = new Intl.RelativeTimeFormat(undefined, {
+  numeric: "auto",
+});
+const dayLabelFormat = new Intl.DateTimeFormat(undefined, {
+  weekday: "short",
+});
+const dayDateFormat = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+});
+
+/** "just now" / "4 minutes ago" / "yesterday" — never a raw ISO string. */
+function formatAge(iso?: string | null): string {
+  if (!iso) return "no activity yet";
+  const time = new Date(iso).getTime();
+  if (Number.isNaN(time)) return "no activity yet";
+
+  const deltaSeconds = (time - Date.now()) / 1000;
+  const magnitude = Math.abs(deltaSeconds);
+  if (magnitude < 60) return "just now";
+  if (magnitude < 3600)
+    return relativeFormat.format(Math.round(deltaSeconds / 60), "minute");
+  if (magnitude < 86400)
+    return relativeFormat.format(Math.round(deltaSeconds / 3600), "hour");
+  return relativeFormat.format(Math.round(deltaSeconds / 86400), "day");
+}
+
+interface DayBucket {
+  label: string;
+  date: string;
+  count: number;
+  isToday: boolean;
+}
+
+/** Seven daily columns with a real value scale and dates under each bar. */
+const WeekActivity: React.FC<{ actions: KnoxAction[] }> = ({ actions }) => {
+  const days = useMemo<DayBucket[]>(() => {
+    const buckets: DayBucket[] = [];
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+
+    for (let offset = 6; offset >= 0; offset--) {
+      const dayStart = new Date(start);
+      dayStart.setDate(dayStart.getDate() - offset);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
+      const count = actions.filter((action) => {
+        const at = new Date(action.timestamp).getTime();
+        return at >= dayStart.getTime() && at < dayEnd.getTime();
+      }).length;
+
+      buckets.push({
+        label: offset === 0 ? "Today" : dayLabelFormat.format(dayStart),
+        date: dayDateFormat.format(dayStart),
+        count,
+        isToday: offset === 0,
+      });
+    }
+    return buckets;
+  }, [actions]);
+
+  const peak = Math.max(...days.map((day) => day.count), 1);
+  const total = days.reduce((sum, day) => sum + day.count, 0);
+  const mid = Math.round(peak / 2);
+
+  return (
+    <div className="flex gap-3">
+      <div className="flex w-6 shrink-0 flex-col justify-between pb-9 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
+        <span>{peak}</span>
+        <span>{mid}</span>
+        <span>0</span>
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="relative h-32">
+          {[0, 0.5, 1].map((ratio) => (
+            <div
+              key={ratio}
+              aria-hidden
+              className={cn(
+                "absolute inset-x-0 border-t",
+                ratio === 1 ? "border-border" : "border-rule"
+              )}
+              style={{ top: `${ratio * 100}%` }}
+            />
+          ))}
+
+          <div
+            className="absolute inset-0 flex items-end gap-2"
+            role="img"
+            aria-label={`Daily activity for the last 7 days, total ${total} actions, busiest day ${peak}.`}
+          >
+            {days.map((day) => {
+              const height =
+                day.count > 0 ? `${Math.max((day.count / peak) * 100, 6)}%` : "2px";
+              return (
+                <div
+                  key={day.date}
+                  className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1"
+                >
+                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                    {day.count}
+                  </span>
+                  <div
+                    className={cn(
+                      "w-full rounded-[2px] transition-[height] duration-200",
+                      day.count === 0
+                        ? "bg-muted-foreground/30"
+                        : day.isToday
+                        ? "bg-primary"
+                        : "bg-foreground/25"
+                    )}
+                    style={{ height }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-1.5 flex gap-1 border-t border-rule pt-1.5 sm:gap-2">
+          {days.map((day) => (
+            <div key={day.date} className="min-w-0 flex-1 text-center">
+              <div
+                className={cn(
+                  "truncate text-[11px] leading-tight",
+                  day.isToday ? "text-foreground" : "text-muted-foreground"
+                )}
+              >
+                {day.label}
+              </div>
+              <div className="truncate font-mono text-[10px] leading-tight text-muted-foreground/70 sm:text-[11px]">
+                {day.date}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const Metric: React.FC<{
+  label: string;
+  value: number | string;
+  note: string;
+  suffix?: string;
+  tone?: "default" | "warning";
+  onClick: () => void;
+}> = ({ label, value, note, suffix, tone = "default", onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      "flex min-w-0 cursor-pointer flex-col bg-card px-4 py-3.5 text-left transition-colors duration-100 hover:bg-raised",
+      "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus-ring"
+    )}
+  >
+    <span className="truncate text-xs text-muted-foreground">{label}</span>
+    <span className="mt-2 flex items-baseline gap-1.5">
+      <span className="font-mono text-[22px] leading-none tabular-nums tracking-tight text-foreground">
+        {typeof value === "number" ? numberFormat.format(value) : value}
+      </span>
+      {suffix && (
+        <span className="font-mono text-[11px] text-muted-foreground">
+          {suffix}
+        </span>
+      )}
+    </span>
+    <span
+      className={cn(
+        "mt-2 truncate text-[11px]",
+        tone === "warning" ? "text-warning" : "text-muted-foreground"
+      )}
+    >
+      {note}
+    </span>
+  </button>
+);
+
+const Fact: React.FC<{ label: string; children: React.ReactNode }> = ({
+  label,
+  children,
+}) => (
+  <div className="px-3 py-2.5">
+    <dt className="truncate text-[11px] text-muted-foreground">{label}</dt>
+    <dd className="mt-1 truncate font-mono text-xs tabular-nums text-foreground">
+      {children}
+    </dd>
+  </div>
+);
 
 export const DashboardView: React.FC = () => {
   const {
@@ -35,244 +220,455 @@ export const DashboardView: React.FC = () => {
     setActiveTab,
     selectedAction,
     setSelectedAction,
+    activeProjectScope,
   } = useKnoxStore();
 
-  let lastUpdateStr = "No records yet";
-  if (status?.last_action_timestamp) {
-    try {
-      const d = new Date(status.last_action_timestamp);
-      if (!isNaN(d.getTime())) {
-        lastUpdateStr = d.toLocaleString(undefined, {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-      }
-    } catch {
-      lastUpdateStr = "No records yet";
-    }
-  }
+  const scopeName = activeProjectScope
+    ? activeProjectScope.replace(/\\/g, "/").split("/").filter(Boolean).pop() ||
+      activeProjectScope
+    : "Global knowledge graph";
 
   const openDoubts = actions.filter(
-    (a) =>
-      (a.action_type === "doubt" || a.action_type === "question") &&
-      !a.is_resolved
+    (action) =>
+      (action.action_type === "doubt" || action.action_type === "question") &&
+      !action.is_resolved
   );
+  const staleActions = actions.filter((action) => !action.is_current);
 
-  const recentActions = actions.slice(0, 15);
-  const topActors = Object.entries(status?.actions_by_actor || {})
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4);
+  const recentActions = actions.slice(0, 8);
+  const latest = actions[0];
+
+  const weekCount = useMemo(() => {
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return actions.filter(
+      (action) => new Date(action.timestamp).getTime() >= weekAgo
+    ).length;
+  }, [actions]);
+
+  const agents = Object.keys(status?.actions_by_actor ?? {}).length;
+  const totalActions = status?.total_actions ?? 0;
+
+  const agentShares = useMemo(() => {
+    const entries = Object.entries(status?.actions_by_actor ?? {}).sort(
+      (a, b) => b[1] - a[1]
+    );
+    const top = Math.max(totalActions, 1);
+    return entries.slice(0, 4).map(([actor, count]) => ({
+      actor,
+      count,
+      share: Math.round((count / top) * 100),
+    }));
+  }, [status?.actions_by_actor, totalActions]);
+  const databaseName = config?.kg_path
+    ? config.kg_path.replace(/\\/g, "/").split("/").pop()
+    : "knox.db";
+
+  const attentionCount = openDoubts.length + staleActions.length;
 
   return (
-    <div className="p-5 sm:p-6 space-y-5 max-w-7xl mx-auto overflow-y-auto h-full">
-      <PageHeader
-        title="Welcome to Knox"
-        description="Persistent context, causal graph memory, and cross-session audit trail for AI coding agents."
-        icon={<KnoxLogo size={28} variant="card" />}
-        actions={
-          <>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-6xl space-y-5 px-4 py-5 sm:px-6 sm:py-6">
+        {/* Title row: scope, health pill, provenance, one primary action */}
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h1 className="text-xl font-medium tracking-tight text-wrap-balance text-foreground">
+                {scopeName}
+              </h1>
+              <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                <span
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    isLoading
+                      ? "bg-warning"
+                      : status
+                      ? "bg-success"
+                      : "bg-muted-foreground"
+                  )}
+                  aria-hidden
+                />
+                {isLoading ? "Syncing…" : status ? `Synced · v${APP_VERSION}` : "Database unavailable"}
+              </span>
+            </div>
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+              <span translate="no" title={config?.kg_path || "knox.db"}>
+                {databaseName}
+              </span>
+              <span aria-hidden className="text-border">/</span>
+              <span translate="no">stdio</span>
+              <span aria-hidden className="text-border">/</span>
+              <span>updated {formatAge(status?.last_action_timestamp)}</span>
+            </p>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Button
               variant="primary"
-              size="sm"
+              size="md"
               onClick={() => setActiveTab("graph")}
+              className="gap-1.5 whitespace-nowrap"
             >
-              <Network className="size-3.5" />
-              Open Graph
-              <ArrowRight className="size-3" />
+              <Network className="size-3.5" aria-hidden />
+              Open graph
             </Button>
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="md"
               onClick={() => setActiveTab("query")}
+              className="gap-1.5 whitespace-nowrap"
             >
-              <Search className="size-3.5" />
-              Search
+              <Search className="size-3.5" aria-hidden />
+              Query
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setActiveTab("workspace")}
-            >
-              <PlusCircle className="size-3.5" />
-              Workspace
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setActiveTab("mcp")}
-            >
-              <PlugZap className="size-3.5" />
-              MCP
-            </Button>
-          </>
-        }
-      />
-
-      {/* Compact status strip — real status fields only */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 rounded-md border border-border bg-card text-sm font-mono text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <span className="size-1.5 rounded-full bg-success" aria-hidden />
-          <span className="text-foreground font-medium">Knox v{APP_VERSION}</span>
-        </span>
-        <span className="hidden sm:inline text-border">|</span>
-        <span>
-          Actions{" "}
-          <span className="text-foreground font-semibold">
-            {status?.total_actions ?? "—"}
-          </span>
-        </span>
-        <span>
-          Sessions{" "}
-          <span className="text-foreground font-semibold">
-            {status?.total_sessions ?? "—"}
-          </span>
-        </span>
-        <span>
-          Projects{" "}
-          <span className="text-foreground font-semibold">
-            {status?.projects_tracked ?? "—"}
-          </span>
-        </span>
-        {openDoubts.length > 0 && (
-          <>
-            <span className="hidden sm:inline text-border">|</span>
-            <span className="text-amber-500 font-semibold flex items-center gap-1">
-              <HelpCircle className="size-3" />
-              {openDoubts.length} Open {openDoubts.length === 1 ? "Doubt" : "Doubts"}
-            </span>
-          </>
-        )}
-        <span className="ml-auto truncate max-w-[240px]" title={config?.kg_path}>
-          {config?.kg_path || "knox.db"}
-        </span>
-      </div>
-
-      {/* Open Doubts Alert Panel if any doubts are pending */}
-      {openDoubts.length > 0 && (
-        <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 shadow-xs space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-amber-500">
-              <HelpCircle className="size-4 shrink-0" />
-              <h2 className="text-xs font-bold uppercase tracking-wider font-sans">
-                Open Doubts & Unresolved Questions ({openDoubts.length})
-              </h2>
-            </div>
-            <span className="text-3xs font-mono font-medium px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500 border border-amber-500/30">
-              Pending Resolution
-            </span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {openDoubts.slice(0, 4).map((doubt) => (
-              <div
-                key={doubt.id}
-                onClick={() => setSelectedAction(doubt)}
-                className="p-3 rounded-lg border border-border/80 bg-card hover:border-amber-500/50 hover:bg-accent/40 transition-all cursor-pointer flex flex-col justify-between gap-2 shadow-2xs"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-1 text-3xs font-mono">
-                    <span className="text-muted-foreground">{doubt.actor}</span>
-                    <span className="text-amber-500 font-semibold uppercase">Open</span>
-                  </div>
-                  <p className="text-xs font-medium text-foreground line-clamp-2">
-                    {doubt.summary}
+        </header>
+
+        {/* What is live now: the newest record, with its own facts */}
+        <section
+          className="overflow-hidden rounded-[var(--radius-card)] border border-border bg-card"
+          aria-labelledby="latest-memory-heading"
+        >
+          <div className="flex flex-col lg:flex-row">
+            <div className="min-w-0 flex-1 p-4 lg:p-5">
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                <Activity className="size-3.5" aria-hidden />
+                <h2 id="latest-memory-heading" className="font-normal">
+                  Latest recorded memory
+                </h2>
+                {latest && (
+                  <>
+                    <span aria-hidden className="text-border">/</span>
+                    <span className="font-mono">{formatAge(latest.timestamp)}</span>
+                  </>
+                )}
+              </div>
+
+              {latest ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedAction(latest)}
+                  className="group mt-2 block w-full min-w-0 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-offset-4 focus-visible:ring-offset-card focus-visible:ring-focus-ring"
+                >
+                  <p className="line-clamp-2 text-base font-semibold leading-snug text-foreground underline-offset-4 group-hover:underline decoration-border">
+                    {latest.summary}
+                  </p>
+                  <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+                    <span className="uppercase tracking-[0.06em]">
+                      {latest.action_type}
+                    </span>
+                    <span className="text-border" aria-hidden>/</span>
+                    <span translate="no">{latest.actor}</span>
+                    {latest.commit_sha && (
+                      <>
+                        <span className="text-border" aria-hidden>/</span>
+                        <span translate="no">{latest.commit_sha.slice(0, 7)}</span>
+                      </>
+                    )}
+                    <span className="text-muted-foreground transition-colors group-hover:text-foreground">
+                      Open record
+                    </span>
+                  </span>
+                </button>
+              ) : (
+                <div className="mt-2">
+                  <p className="text-base font-semibold text-foreground">
+                    No memory recorded yet
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Connect an agent over MCP or ingest a transcript to start the graph.
                   </p>
                 </div>
-                <div className="flex items-center justify-between pt-1 border-t border-border/60 text-3xs text-muted-foreground">
-                  <span>{new Date(doubt.timestamp).toLocaleDateString()}</span>
-                  <span className="text-primary hover:underline font-sans font-medium flex items-center gap-0.5">
-                    Inspect & Resolve →
+              )}
+            </div>
+
+            <dl className="grid grid-cols-2 divide-x divide-rule border-t border-border sm:grid-cols-4 lg:w-[25rem] lg:grid-cols-2 lg:border-l lg:border-t-0">
+              <Fact label="Files">{latest?.files?.length ?? 0}</Fact>
+              <Fact label="Symbols">{latest?.symbols?.length ?? 0}</Fact>
+              <Fact label="Lines changed">
+                {latest?.delta_summary &&
+                (latest.delta_summary.lines_added > 0 ||
+                  latest.delta_summary.lines_deleted > 0) ? (
+                  <span className="flex items-baseline gap-1.5">
+                    <span className="text-success">
+                      +{latest.delta_summary.lines_added}
+                    </span>
+                    <span className="text-danger">
+                      -{latest.delta_summary.lines_deleted}
+                    </span>
                   </span>
-                </div>
-              </div>
-            ))}
+                ) : (
+                  "—"
+                )}
+              </Fact>
+              <Fact label="Significance">
+                {latest?.significance ? latest.significance : "—"}
+              </Fact>
+            </dl>
           </div>
+        </section>
+
+        {/* Divided metric strip */}
+        <section
+          className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-card)] border border-border bg-rule lg:grid-cols-4"
+          aria-label="Knowledge graph metrics"
+        >
+          <Metric
+            label="Total actions"
+            value={totalActions}
+            suffix="nodes"
+            note={
+              weekCount > 0
+                ? `+${numberFormat.format(weekCount)} in the last 7 days`
+                : "No activity this week"
+            }
+            onClick={() => setActiveTab("query")}
+          />
+          <Metric
+            label="Sessions"
+            value={status?.total_sessions ?? 0}
+            suffix="recorded"
+            note={`${agents} agent${agents === 1 ? "" : "s"} contributing`}
+            onClick={() => setActiveTab("stats")}
+          />
+          <Metric
+            label="Projects"
+            value={status?.projects_tracked ?? 0}
+            suffix="roots"
+            note="Registered workspaces"
+            onClick={() => setActiveTab("workspace")}
+          />
+          <Metric
+            label="Open doubts"
+            value={openDoubts.length}
+            suffix={openDoubts.length > 0 ? "open" : ""}
+            note={
+              openDoubts.length > 0
+                ? "Needs developer triage"
+                : "Nothing awaiting an answer"
+            }
+            tone={openDoubts.length > 0 ? "warning" : "default"}
+            onClick={() => setActiveTab("query")}
+          />
+        </section>
+
+        {/* Volume over time, beside the block that explains the exceptions */}
+        <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
+          <section
+            className="flex min-w-0 flex-col rounded-[var(--radius-card)] border border-border bg-card p-4 lg:col-span-2"
+            aria-labelledby="activity-heading"
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2
+                id="activity-heading"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Actions recorded, last 7 days
+              </h2>
+              <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                <span className="text-foreground">{weekCount}</span> in 7d
+                <span className="mx-1.5 text-border" aria-hidden>/</span>
+                <span className="text-foreground">
+                  {numberFormat.format(totalActions)}
+                </span>{" "}
+                total
+              </p>
+            </div>
+
+            <div className="mt-4 flex-1">
+              {isLoading && actions.length === 0 ? (
+                <div className="h-32 animate-pulse rounded-[var(--radius-card)] bg-muted/40" />
+              ) : (
+                <WeekActivity actions={actions} />
+              )}
+            </div>
+          </section>
+
+          <section
+            className="flex min-w-0 flex-col rounded-[var(--radius-card)] border border-border bg-card"
+            aria-labelledby="attention-heading"
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-rule px-4 py-3">
+              <h2
+                id="attention-heading"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Needs attention
+              </h2>
+              <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                {attentionCount}
+              </span>
+            </div>
+
+            <div className="flex-1 space-y-2 p-3">
+              {openDoubts.slice(0, 3).map((doubt) => (
+                <button
+                  key={doubt.id}
+                  type="button"
+                  onClick={() => setSelectedAction(doubt)}
+                  className="block w-full min-w-0 cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus-ring"
+                >
+                  <span className="flex items-center gap-1.5 font-mono text-[11px] text-warning">
+                    <CircleHelp className="size-3 shrink-0" aria-hidden />
+                    Open question
+                  </span>
+                  <span className="mt-1 block line-clamp-2 text-[13px] leading-snug text-foreground">
+                    {doubt.summary}
+                  </span>
+                  <span className="mt-1 block font-mono text-[11px] text-muted-foreground">
+                    {doubt.actor} · {formatAge(doubt.timestamp)}
+                  </span>
+                </button>
+              ))}
+
+              {staleActions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("query")}
+                  className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus-ring"
+                >
+                  <span className="text-[13px] text-foreground">
+                    Superseded records
+                  </span>
+                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                    {staleActions.length}
+                  </span>
+                </button>
+              )}
+
+              {attentionCount === 0 && !isLoading && (
+                <div className="space-y-3">
+                  <p className="px-2 py-1.5 text-[13px] leading-relaxed text-muted-foreground">
+                    No open doubts, no superseded decisions.
+                  </p>
+
+                  {agentShares.length > 0 && (
+                    <div className="border-t border-rule px-2 pt-3">
+                      <p className="text-[11px] text-muted-foreground">
+                        Written by, all time
+                      </p>
+                      <ul className="mt-2 space-y-2">
+                        {agentShares.map(({ actor, count, share }) => (
+                          <li key={actor} className="min-w-0">
+                            <div className="flex items-baseline justify-between gap-2 font-mono text-[11px]">
+                              <span className="truncate text-foreground">
+                                {actor}
+                              </span>
+                              <span className="shrink-0 tabular-nums text-muted-foreground">
+                                {count} · {share}%
+                              </span>
+                            </div>
+                            <div
+                              className="mt-2 h-px w-full bg-rule"
+                              role="meter"
+                              aria-label={`${actor} ${share} percent of actions`}
+                              aria-valuenow={share}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                            >
+                              <div
+                                className="h-px bg-muted-foreground/70"
+                                style={{ width: `${Math.max(share, 2)}%` }}
+                              />
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {isLoading && actions.length === 0 && (
+                <div className="space-y-2 px-2 py-1.5">
+                  <div className="h-3 w-3/4 animate-pulse rounded-sm bg-muted/50" />
+                  <div className="h-3 w-1/2 animate-pulse rounded-sm bg-muted/50" />
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-rule p-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setActiveTab("scanner")}
+                className="w-full justify-between gap-2 px-2"
+              >
+                <span className="flex items-center gap-1.5">
+                  <ShieldCheck className="size-3.5" aria-hidden />
+                  Scan staged edits
+                </span>
+                <ArrowRight className="size-3" aria-hidden />
+              </Button>
+            </div>
+          </section>
         </div>
-      )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        {isLoading && !status ? (
-          Array.from({ length: 4 }).map((_, i) => <SkeletonKpi key={i} />)
-        ) : (
-          <>
-            <KpiCard
-              title="Total Actions"
-              value={status?.total_actions ?? 0}
-              subtitle="Indexed in SQLite knowledge graph"
-              icon={<Activity className="text-primary" />}
-              trend={{
-                direction: (status?.total_actions ?? 0) > 0 ? "up" : "neutral",
-                label: "Indexed",
-              }}
-              onClick={() => setActiveTab("query")}
-            />
-            <KpiCard
-              title="Active Sessions"
-              value={status?.total_sessions ?? 0}
-              subtitle="AI & human session logs"
-              icon={<Clock className="text-plan" />}
-              trend={{ direction: "neutral", label: "Tracked" }}
-              onClick={() => setActiveTab("stats")}
-            />
-            <KpiCard
-              title="Projects Tracked"
-              value={status?.projects_tracked ?? 0}
-              subtitle="Registered codebases"
-              icon={<FolderGit2 className="text-primary" />}
-              onClick={() => setActiveTab("workspace")}
-            />
-            <KpiCard
-              title="Last Activity"
-              value={status?.total_actions ? "Active" : "Idle"}
-              subtitle={lastUpdateStr}
-              icon={<Calendar className="text-warning" />}
-              trend={{
-                direction: status?.total_actions ? "up" : "neutral",
-                label: "Status",
-              }}
-            />
-          </>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex-row items-center justify-between space-y-0 pb-0">
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="size-4 text-primary" aria-hidden />
-              Recent Activity
-              <Badge variant="secondary" className="font-mono">
-                {recentActions.length}
-              </Badge>
-            </CardTitle>
+        {/* Ledger: one table, no nested card, capped and linked to the full list */}
+        <section
+          className="overflow-hidden rounded-[var(--radius-card)] border border-border bg-card"
+          aria-labelledby="ledger-heading"
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-rule px-4 py-3">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <h2
+                id="ledger-heading"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Recent activity
+              </h2>
+              <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                {recentActions.length} of {numberFormat.format(totalActions)}
+              </span>
+            </div>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setActiveTab("query")}
-              className="text-primary"
+              className="gap-1 px-2"
             >
               View all
-              <ArrowRight className="size-3" />
+              <ArrowRight className="size-3" aria-hidden />
             </Button>
-          </CardHeader>
-          <CardContent className="pt-4 space-y-1.5">
-            {isLoading && actions.length === 0 ? (
-              Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)
-            ) : recentActions.length === 0 ? (
+          </div>
+
+          {recentActions.length > 0 && (
+            <div
+              className={cn(
+                ACTION_ROW_GRID,
+                "h-8 border-b border-rule px-4 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground"
+              )}
+              aria-hidden
+            >
+              <span className="order-1">Time</span>
+              <span className="order-2 lg:order-4">Summary</span>
+              <span className="order-3 lg:order-3">Type</span>
+              <span className="order-4 hidden lg:order-2 lg:block">Actor</span>
+              <span className="order-5 hidden lg:block">File</span>
+              <span className="order-6 hidden text-right lg:block">Δ</span>
+            </div>
+          )}
+
+          {isLoading && actions.length === 0 ? (
+            <div className="p-4 space-y-2">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <SkeletonRow key={index} />
+              ))}
+            </div>
+          ) : recentActions.length === 0 ? (
+            <div className="p-4">
               <EmptyState
                 compact
-                icon={<Activity />}
+                icon={<FileCode />}
                 title="No graph actions yet"
-                description="Import a transcript or connect an agent via MCP to start building memory."
+                description="Import a transcript or connect an agent over MCP to start building memory."
                 action={
-                  <div className="flex gap-2 justify-center">
+                  <div className="flex justify-center gap-2">
                     <Button
                       variant="primary"
                       size="sm"
                       onClick={() => setActiveTab("ingest")}
                     >
-                      Ingest Transcript
+                      Ingest transcript
                     </Button>
                     <Button
                       variant="outline"
@@ -284,106 +680,20 @@ export const DashboardView: React.FC = () => {
                   </div>
                 }
               />
-            ) : (
-              recentActions.map((action) => (
+            </div>
+          ) : (
+            <div className="divide-y divide-rule">
+              {recentActions.map((action) => (
                 <ActionRow
                   key={action.id}
                   action={action}
                   isSelected={selectedAction?.id === action.id}
-                  onSelect={(act) => setSelectedAction(act)}
+                  onSelect={(record) => setSelectedAction(record)}
                 />
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-0">
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="size-4 text-primary" aria-hidden />
-                Workspace Context
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4 space-y-3 text-xs">
-              <div className="p-3 rounded-md border border-border bg-background space-y-1">
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Database className="size-3.5 text-success" aria-hidden />
-                  <span className="font-medium">Database</span>
-                </div>
-                <p className="font-mono text-foreground break-all text-sm">
-                  {config?.kg_path || "knox.db"}
-                </p>
-              </div>
-
-              <div className="p-3 rounded-md border border-border bg-background space-y-1">
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Terminal className="size-3.5 text-primary" aria-hidden />
-                  <span className="font-medium">MCP transport</span>
-                </div>
-                <p className="font-mono text-foreground text-sm">
-                  knox serve --stdio
-                </p>
-              </div>
-
-              <div className="p-3 rounded-md border border-border bg-background space-y-1.5 text-sm">
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Version</span>
-                  <span className="font-mono text-foreground">
-                    v{APP_VERSION}
-                  </span>
-                </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Engine</span>
-                  <span className="text-foreground">Rust + SQLite</span>
-                </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Session timeout</span>
-                  <span className="font-mono text-foreground">
-                    {config?.session_timeout_seconds
-                      ? `${config.session_timeout_seconds}s`
-                      : "1800s"}
-                  </span>
-                </div>
-              </div>
-
-              {topActors.length > 0 && (
-                <div className="space-y-1.5">
-                  <span className="text-overline">Top actors</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {topActors.map(([actor, count]) => (
-                      <Badge key={actor} variant="secondary">
-                        {actor}
-                        <span className="text-muted-foreground ml-1">
-                          {count}
-                        </span>
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-1 space-y-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => setActiveTab("mcp")}
-                >
-                  MCP Configuration
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => setActiveTab("scanner")}
-                >
-                  Human Edit Scan
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

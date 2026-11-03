@@ -6,42 +6,60 @@ export interface PageHeaderProps {
   description?: string;
   icon?: React.ReactNode;
   actions?: React.ReactNode;
+  /** Secondary mono line under the title (paths, counts, freshness). */
+  meta?: React.ReactNode;
+  /** Small status element rendered beside the title. */
+  status?: React.ReactNode;
   className?: string;
 }
 
 /**
- * Standard view title block. Use instead of ad-hoc h1 stacks.
- * Layout of surrounding screens is unchanged until Phase 5+.
+ * The one view title block. 20/500 title, 13 muted description, actions right,
+ * mono meta line below — the widest type step on a view is always this title.
  */
 export const PageHeader: React.FC<PageHeaderProps> = ({
   title,
   description,
   icon,
   actions,
+  meta,
+  status,
   className,
 }) => {
   return (
     <div
       className={cn(
-        "flex flex-col sm:flex-row sm:items-center justify-between gap-3",
+        "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between",
         className
       )}
     >
       <div className="min-w-0">
-        <h1 className="text-display text-foreground flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {icon && (
-            <span className="text-primary [&_svg]:size-5 shrink-0">{icon}</span>
+            <span className="text-muted-foreground [&_svg]:size-4 shrink-0">
+              {icon}
+            </span>
           )}
-          <span className="truncate">{title}</span>
-        </h1>
+          <h1 className="text-xl font-medium tracking-tight text-foreground text-wrap-balance">
+            {title}
+          </h1>
+          {status}
+        </div>
         {description && (
-          <p className="text-sm text-muted-foreground mt-1.5 max-w-2xl leading-relaxed">
+          <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted-foreground">
             {description}
           </p>
         )}
+        {meta && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+            {meta}
+          </div>
+        )}
       </div>
       {actions && (
-        <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {actions}
+        </div>
       )}
     </div>
   );

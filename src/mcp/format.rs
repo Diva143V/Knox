@@ -47,6 +47,12 @@ fn format_linear_digest(title: &str, actions: &[KnoxAction]) -> String {
             if !act.files.is_empty() {
                 out.push_str(&format!("> - **Files**: {}\n", act.files.join(", ")));
             }
+            if let Some(ref d) = act.delta_summary {
+                out.push_str(&format!(
+                    "> - **Deltas**: {} file(s) (+{} / -{} lines)\n",
+                    d.total_files, d.lines_added, d.lines_deleted
+                ));
+            }
             if !act.symbols.is_empty() {
                 out.push_str(&format!("> - **Symbols**: {}\n", act.symbols.join(", ")));
             }
@@ -86,6 +92,12 @@ fn format_linear_digest(title: &str, actions: &[KnoxAction]) -> String {
                 files_str,
                 act.summary
             ));
+            if let Some(ref d) = act.delta_summary {
+                out.push_str(&format!(
+                    "  *Deltas*: {} file(s) (+{} / -{} lines)\n",
+                    d.total_files, d.lines_added, d.lines_deleted
+                ));
+            }
             if !act.symbols.is_empty() {
                 out.push_str(&format!("  *Symbols*: {}\n", act.symbols.join(", ")));
             }
@@ -204,7 +216,12 @@ fn format_synthesized_digest(title: &str, actions: &[KnoxAction]) -> String {
             } else {
                 format!(" on `{}`", w.files.join(", "))
             };
-            out.push_str(&format!("- **[{}]** {}{}\n", w.id, w.summary, files));
+            let delta_tag = if let Some(ref d) = w.delta_summary {
+                format!(" (+{}/-{} lines)", d.lines_added, d.lines_deleted)
+            } else {
+                String::new()
+            };
+            out.push_str(&format!("- **[{}]** {}{}{}\n", w.id, w.summary, files, delta_tag));
         }
         out.push('\n');
     }

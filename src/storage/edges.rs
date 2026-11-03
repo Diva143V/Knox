@@ -45,7 +45,7 @@ pub fn get_parent_action_id(db: &KnoxDb, id: &ActionId) -> KnoxResult<Option<Act
 pub fn get_child_action_ids(db: &KnoxDb, id: &ActionId) -> KnoxResult<Vec<ActionId>> {
     let conn = db.conn();
     let mut stmt =
-        conn.prepare("SELECT id FROM actions WHERE parent_action_id = ?1 ORDER BY timestamp ASC")?;
+        conn.prepare("SELECT id FROM actions WHERE parent_action_id = ?1 ORDER BY COALESCE(timestamp_ms, 0) ASC")?;
     let rows = stmt.query_map(params![id.as_str()], |r| {
         r.get::<_, String>(0).map(ActionId::from)
     })?;

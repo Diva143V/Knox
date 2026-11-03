@@ -17,6 +17,7 @@ import type {
   DetectedMcpApp,
   McpScanLog,
   UpdateActionPayload,
+  ActionDelta,
 } from "@/types/knox";
 
 const isTauri =
@@ -92,6 +93,13 @@ export const KnoxAPI = {
       return mockActions.find((a) => a.id === id) || null;
     }
     return invoke<KnoxAction | null>("get_action", { id });
+  },
+
+  async getActionDeltas(actionId: string): Promise<ActionDelta[]> {
+    if (!isTauri) {
+      return [];
+    }
+    return invoke<ActionDelta[]>("get_action_deltas", { actionId, action_id: actionId });
   },
 
   async getGraphData(currentOnly?: boolean, limit?: number): Promise<KnoxAction[]> {

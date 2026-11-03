@@ -5,7 +5,15 @@
 pub enum KnoxError {
     /// Errors originating from the SQLite database.
     #[error("Database error: {0}")]
-    Database(#[from] rusqlite::Error),
+    Database(rusqlite::Error),
+
+    /// The database was locked by another writer and the operation may be retried.
+    #[error("Database is busy (another Knox process is writing); retry the operation: {0}")]
+    DatabaseBusy(String),
+
+    /// A project identifier matched more than one project row.
+    #[error("Ambiguous project identifier '{0}': matches multiple projects; pass the absolute path instead")]
+    AmbiguousProject(String),
 
     /// Requested session could not be located.
     #[error("Session not found: {0}")]
@@ -38,6 +46,22 @@ pub enum KnoxError {
     /// Git command or repository inspection failure.
     #[error("Git error: {0}")]
     Git(String),
+}
+
+impl From<rusqlite::Error> for KnoxError {
+    fn from(err: rusqlite::Error) -> Self {
+        match err {
+            rusqlite::Error::SqliteFailure(code, message)
+                if code.code == rusqlite::ErrorCode::DatabaseBusy
+                    || code.code == rusqlite::ErrorCode::DatabaseLocked =>
+            {
+                KnoxError::DatabaseBusy(
+                    message.unwrap_or_else(|| "database is locked".to_string()),
+                )
+            }
+            other => KnoxError::Database(other),
+        }
+    }
 }
 
 /// Convenience result alias for operations returning a `KnoxError`.

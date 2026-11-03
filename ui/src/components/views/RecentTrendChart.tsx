@@ -122,12 +122,12 @@ export const RecentTrendChart: React.FC<RecentTrendChartProps> = ({
               <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop
                   offset="0%"
-                  stopColor="var(--primary)"
+                  stopColor="var(--foreground)"
                   stopOpacity="0.22"
                 />
                 <stop
                   offset="100%"
-                  stopColor="var(--primary)"
+                  stopColor="var(--foreground)"
                   stopOpacity="0"
                 />
               </linearGradient>
@@ -164,8 +164,8 @@ export const RecentTrendChart: React.FC<RecentTrendChartProps> = ({
 
             <polyline
               fill="none"
-              stroke="var(--primary)"
-              strokeWidth="2"
+              stroke="var(--muted-foreground)"
+              strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
               points={polylinePoints}
@@ -191,7 +191,7 @@ export const RecentTrendChart: React.FC<RecentTrendChartProps> = ({
                   cx={p.x}
                   cy={p.y}
                   r={p.data.isToday ? 4.5 : 3.5}
-                  fill="var(--primary)"
+                  fill={p.data.isToday ? "var(--primary)" : "var(--muted-foreground)"}
                   stroke="var(--card)"
                   strokeWidth="2"
                 />

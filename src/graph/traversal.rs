@@ -1,18 +1,46 @@
 //! Traversal algorithms for navigating the Knox causal knowledge graph.
 
 use petgraph::Direction;
-use petgraph::visit::Bfs;
+use petgraph::visit::{Bfs, EdgeRef};
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::loader::{KnoxGraph, find_node_index};
+use super::loader::{KnoxGraph, build_node_index};
 use crate::core::ids::ActionId;
 use crate::core::types::KnoxAction;
 
-/// Walks the direct causal parent links from `action_id` back to the root action.
+/// Edge types that express a cause for the source node. `relates_to` is
+/// associative rather than causal and is deliberately excluded.
+fn is_causal_edge(edge_type: &str) -> bool {
+    matches!(
+        edge_type,
+        "parent" | "supersedes" | "depends_on" | "implements" | "verifies" | "reverts" | "resolves"
+    )
+}
+
+/// Deterministic preference order when several incoming causal edges exist.
+fn causal_priority(edge_type: &str) -> u8 {
+    match edge_type {
+        "parent" => 0,
+        "supersedes" => 1,
+        "implements" => 2,
+        "depends_on" => 3,
+        "verifies" => 4,
+        "reverts" => 5,
+        "resolves" => 6,
+        _ => u8::MAX,
+    }
+}
+
+/// Walks the direct causal links from `action_id` back to the root action.
 /// Returns a sequence starting with the queried action and ending with the root ancestor:
 /// `[queried_action, parent, grandparent, ..., root]`.
+///
+/// Follows `parent_action_id` first and then incoming semantic cause edges
+/// (`implements`, `depends_on`, ...), so lineage works when the reason was
+/// recorded as a relation rather than a parent link.
 pub fn causal_chain(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
-    let Some(start_idx) = find_node_index(graph, action_id) else {
+    let node_index = build_node_index(graph);
+    let Some(&start_idx) = node_index.get(action_id) else {
         return Vec::new();
     };
 
@@ -27,14 +55,24 @@ pub fn causal_chain(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> 
 
         chain.push(graph[idx].clone());
 
-        // Find parent action: look for incoming edge with type "parent" or match parent_action_id
-        let parent_id_opt = graph[idx].parent_action_id.clone();
-        current_idx = if let Some(ref pid) = parent_id_opt {
-            find_node_index(graph, pid)
-        } else {
-            // Alternatively check incoming edges
-            graph.neighbors_directed(idx, Direction::Incoming).next()
-        };
+        let parent_idx = graph[idx]
+            .parent_action_id
+            .as_ref()
+            .and_then(|pid| node_index.get(pid).copied());
+
+        current_idx = parent_idx.or_else(|| {
+            // No explicit parent: follow the highest-priority incoming causal
+            // edge. Ties are broken by node id for deterministic output.
+            graph
+                .edges_directed(idx, Direction::Incoming)
+                .filter(|e| is_causal_edge(&e.weight().edge_type))
+                .min_by(|a, b| {
+                    causal_priority(&a.weight().edge_type)
+                        .cmp(&causal_priority(&b.weight().edge_type))
+                        .then_with(|| graph[a.source()].id.as_str().cmp(graph[b.source()].id.as_str()))
+                })
+                .map(|e| e.source())
+        });
     }
 
     chain
@@ -43,7 +81,8 @@ pub fn causal_chain(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> 
 /// Retrieves all causal descendants (actions caused directly or indirectly by `action_id`).
 /// Uses breadth-first search traversing outgoing edges.
 pub fn descendants(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
-    let Some(start_idx) = find_node_index(graph, action_id) else {
+    let node_index = build_node_index(graph);
+    let Some(&start_idx) = node_index.get(action_id) else {
         return Vec::new();
     };
 
@@ -63,7 +102,8 @@ pub fn descendants(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
 /// Retrieves all causal ancestors (actions that led to `action_id`).
 /// Uses breadth-first search traversing incoming edges.
 pub fn ancestors(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
-    let Some(start_idx) = find_node_index(graph, action_id) else {
+    let node_index = build_node_index(graph);
+    let Some(&start_idx) = node_index.get(action_id) else {
         return Vec::new();
     };
 
@@ -89,8 +129,9 @@ pub fn ancestors(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
 /// Finds the shortest directed path between two actions in the graph.
 /// Returns `Some([from, ..., to])` if connected, or `None` if unreachable.
 pub fn path_between(graph: &KnoxGraph, from: &ActionId, to: &ActionId) -> Option<Vec<KnoxAction>> {
-    let from_idx = find_node_index(graph, from)?;
-    let to_idx = find_node_index(graph, to)?;
+    let node_index = build_node_index(graph);
+    let from_idx = *node_index.get(from)?;
+    let to_idx = *node_index.get(to)?;
 
     if from_idx == to_idx {
         return Some(vec![graph[from_idx].clone()]);
@@ -140,7 +181,7 @@ pub fn path_between(graph: &KnoxGraph, from: &ActionId, to: &ActionId) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::types::KnoxEdge;
+    use crate::core::types::{ActionRelation, KnoxEdge, RelationType};
     use chrono::Utc;
 
     fn mock_action(
@@ -208,5 +249,47 @@ mod tests {
         assert_eq!(path[0].id, plan.id);
         assert_eq!(path[1].id, write.id);
         assert_eq!(path[2].id, debug.id);
+    }
+
+    #[test]
+    fn test_causal_chain_uses_semantic_causes_but_not_associative_edges() {
+        let mut graph = KnoxGraph::new();
+        let cause = mock_action("human", "decide", "Use the safe approach", None);
+        let mut effect = mock_action("agent", "write", "Implement the approach", None);
+        effect.relations.push(ActionRelation {
+            target_id: cause.id.clone(),
+            relation_type: RelationType::Implements,
+        });
+        let unrelated = mock_action("agent", "note", "Unrelated context", None);
+
+        let cause_idx = graph.add_node(cause.clone());
+        let effect_idx = graph.add_node(effect.clone());
+        let unrelated_idx = graph.add_node(unrelated);
+        graph.add_edge(
+            cause_idx,
+            effect_idx,
+            KnoxEdge {
+                edge_type: "implements".to_string(),
+                timestamp: Utc::now(),
+                session_id: None,
+                tool_source: None,
+            },
+        );
+        graph.add_edge(
+            unrelated_idx,
+            effect_idx,
+            KnoxEdge {
+                edge_type: "relates_to".to_string(),
+                timestamp: Utc::now(),
+                session_id: None,
+                tool_source: None,
+            },
+        );
+
+        let chain = causal_chain(&graph, &effect.id);
+        assert_eq!(
+            chain.iter().map(|action| action.id.clone()).collect::<Vec<_>>(),
+            vec![effect.id, cause.id]
+        );
     }
 }

@@ -226,7 +226,7 @@ export const EditNodeModal: React.FC = () => {
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Summary Input */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-normal text-muted-foreground">
               Summary <span className="text-danger">*</span>
             </label>
             <textarea
@@ -242,7 +242,7 @@ export const EditNodeModal: React.FC = () => {
           {/* Action Type & Significance Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <label className="text-xs font-normal text-muted-foreground">
                 Action Type
               </label>
               <select
@@ -259,7 +259,7 @@ export const EditNodeModal: React.FC = () => {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <label className="text-xs font-normal text-muted-foreground">
                 Significance
               </label>
               <div className="flex gap-2 h-9 items-center">
@@ -293,7 +293,7 @@ export const EditNodeModal: React.FC = () => {
 
           {/* Rationale Textarea */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-normal text-muted-foreground">
               Architectural Rationale / Justification
             </label>
             <textarea
@@ -307,7 +307,7 @@ export const EditNodeModal: React.FC = () => {
 
           {/* Context Summary */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <label className="text-xs font-normal text-muted-foreground">
               Context Summary
             </label>
             <input
@@ -323,7 +323,7 @@ export const EditNodeModal: React.FC = () => {
           {(actionType === "doubt" || editingAction.action_type === "doubt" || editingAction.is_resolved !== undefined) && (
             <div className="p-3 rounded-lg border border-border/80 bg-muted/30 space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <span className="text-xs font-normal text-muted-foreground flex items-center gap-1.5">
                   <HelpCircle className="size-3.5 text-warning" /> Doubt Resolution Status
                 </span>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -351,7 +351,7 @@ export const EditNodeModal: React.FC = () => {
           {/* Outgoing Semantic Relations Section */}
           <div className="p-3.5 rounded-lg border border-border/80 bg-muted/20 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <span className="text-xs font-normal text-muted-foreground flex items-center gap-1.5">
                 <LinkIcon className="size-3.5 text-primary" /> Outgoing Semantic Relations ({relations.length})
               </span>
             </div>
@@ -435,7 +435,7 @@ export const EditNodeModal: React.FC = () => {
 
           {/* Files Touched Section */}
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <label className="text-xs font-normal text-muted-foreground flex items-center gap-1.5">
               <FileCode className="size-3 text-plan" /> Touched Files ({files.length})
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -477,7 +477,7 @@ export const EditNodeModal: React.FC = () => {
 
           {/* Code Symbols Section */}
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <label className="text-xs font-normal text-muted-foreground flex items-center gap-1.5">
               <Zap className="size-3 text-warning" /> Code Symbols ({symbols.length})
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -519,7 +519,7 @@ export const EditNodeModal: React.FC = () => {
 
           {/* Tags Section */}
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <label className="text-xs font-normal text-muted-foreground flex items-center gap-1.5">
               <Tag className="size-3 text-primary" /> Tags ({tags.length})
             </label>
             <div className="flex flex-wrap gap-1.5">

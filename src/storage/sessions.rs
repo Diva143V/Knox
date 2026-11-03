@@ -1,7 +1,7 @@
 //! Session lifecycle management and persistence for Knox.
 
 use chrono::{DateTime, Utc};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use std::time::Duration;
 
 use super::db::KnoxDb;
@@ -9,49 +9,102 @@ use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::ids::{ProjectId, SessionId};
 use crate::core::types::{Project, Session};
 
+/// Resolves a project identifier (id, canonical path, or unique display name)
+/// to a project id without ever guessing between two projects that share a name.
+pub fn resolve_project_identifier(db: &KnoxDb, identifier: &str) -> KnoxResult<Option<String>> {
+    resolve_project_identifier_conn(db.conn(), identifier)
+}
+
+fn resolve_project_identifier_conn(
+    conn: &rusqlite::Connection,
+    identifier: &str,
+) -> KnoxResult<Option<String>> {
+    let identifier = identifier.trim();
+    if identifier.is_empty() {
+        return Ok(None);
+    }
+
+    let clean_path = identifier
+        .strip_prefix(r"\\?\")
+        .unwrap_or(identifier)
+        .trim_end_matches(['\\', '/']);
+    let verbatim_path = format!(r"\\?\{clean_path}");
+
+    // 1. Exact project id.
+    let by_id: Option<String> = conn
+        .query_row(
+            "SELECT id FROM projects WHERE id = ?1",
+            params![clean_path],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if by_id.is_some() {
+        return Ok(by_id);
+    }
+
+    // 2. Exact canonical path (with or without the Windows verbatim prefix).
+    let by_path: Option<String> = conn
+        .query_row(
+            "SELECT id FROM projects WHERE path = ?1 OR path = ?2",
+            params![clean_path, verbatim_path],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if by_path.is_some() {
+        return Ok(by_path);
+    }
+
+    // 3. Display name, but only when it identifies exactly one project.
+    let mut stmt = conn.prepare("SELECT id FROM projects WHERE name = ?1")?;
+    let matches = stmt
+        .query_map(params![clean_path], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    match matches.len() {
+        0 => Ok(None),
+        1 => Ok(matches.into_iter().next()),
+        _ => Err(KnoxError::AmbiguousProject(clean_path.to_string())),
+    }
+}
+
 /// Resolves an existing project ID or creates a new project entry.
 fn resolve_project_id(
     conn: &rusqlite::Connection,
     proj_identifier: &str,
     started_at: DateTime<Utc>,
 ) -> KnoxResult<String> {
+    if let Some(existing) = resolve_project_identifier_conn(conn, proj_identifier)? {
+        return Ok(existing);
+    }
+
     let clean_path = proj_identifier
         .strip_prefix(r"\\?\")
         .unwrap_or(proj_identifier)
         .trim_end_matches(['\\', '/']);
-    let verbatim_path = format!(r"\\?\{clean_path}");
 
-    let mut stmt = conn
-        .prepare("SELECT id FROM projects WHERE id = ?1 OR name = ?1 OR path = ?1 OR path = ?2")?;
-    let mut rows = stmt.query(params![clean_path, verbatim_path])?;
-    if let Some(row) = rows.next()? {
-        Ok(row.get(0)?)
-    } else {
-        let name = std::path::Path::new(clean_path)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or(clean_path)
-            .to_string();
+    let name = std::path::Path::new(clean_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(clean_path)
+        .to_string();
 
-        let new_proj = Project {
-            id: ProjectId::new(),
-            name,
-            path: clean_path.to_string(),
-            created_at: started_at,
-        };
-        conn.execute(
-            "INSERT INTO projects (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(path) DO UPDATE SET name = excluded.name",
-            params![
-                new_proj.id.as_str(),
-                new_proj.name.as_str(),
-                new_proj.path.as_str(),
-                new_proj.created_at.to_rfc3339()
-            ],
-        )?;
-        Ok(new_proj.id.to_string())
-    }
+    let new_proj = Project {
+        id: ProjectId::new(),
+        name,
+        path: clean_path.to_string(),
+        created_at: started_at,
+    };
+    conn.execute(
+        "INSERT INTO projects (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(path) DO UPDATE SET name = excluded.name",
+        params![
+            new_proj.id.as_str(),
+            new_proj.name.as_str(),
+            new_proj.path.as_str(),
+            new_proj.created_at.to_rfc3339()
+        ],
+    )?;
+    Ok(new_proj.id.to_string())
 }
 
 /// Starts a new work session in Knox, optionally associated with a project.
@@ -84,6 +137,7 @@ pub fn start_session(db: &KnoxDb, actor: &str, project: Option<&str>) -> KnoxRes
     Ok(Session {
         id: session_id,
         actor: actor.to_string(),
+        project_id: resolved_project_id.map(ProjectId::from),
         project: project.map(|s| s.to_string()),
         started_at,
         ended_at: None,
@@ -122,13 +176,13 @@ fn get_session_last_activity(
     default_time: DateTime<Utc>,
 ) -> DateTime<Utc> {
     let act_stmt = conn
-        .prepare_cached("SELECT MAX(timestamp) FROM actions WHERE session_id = ?1")
+        .prepare_cached("SELECT MAX(timestamp_ms) FROM actions WHERE session_id = ?1")
         .ok();
     if let Some(mut stmt) = act_stmt {
-        let latest: Option<String> = stmt.query_row(params![s_id], |r| r.get(0)).unwrap_or(None);
-        if let Some(s) = latest {
-            if let Ok(dt) = DateTime::parse_from_rfc3339(&s) {
-                return dt.with_timezone(&Utc);
+        let latest: Option<i64> = stmt.query_row(params![s_id], |r| r.get(0)).unwrap_or(None);
+        if let Some(ms) = latest {
+            if let Some(dt) = DateTime::from_timestamp_millis(ms) {
+                return dt;
             }
         }
     }
@@ -181,7 +235,7 @@ pub fn timeout_stale_sessions(db: &KnoxDb, max_idle: Duration) -> KnoxResult<Vec
 pub fn get_session(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Option<Session>> {
     let conn = db.conn();
     let mut stmt = conn.prepare(
-        "SELECT s.id, s.actor, s.started_at, s.ended_at, s.is_open, p.name
+        "SELECT s.id, s.actor, s.project_id, s.started_at, s.ended_at, s.is_open, p.name
          FROM sessions s
          LEFT JOIN projects p ON s.project_id = p.id
          WHERE s.id = ?1",
@@ -191,10 +245,11 @@ pub fn get_session(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Option<Ses
     if let Some(row) = rows.next()? {
         let id = SessionId::from(row.get::<_, String>(0)?);
         let actor: String = row.get(1)?;
-        let started_str: String = row.get(2)?;
-        let ended_str: Option<String> = row.get(3)?;
-        let is_open_int: i32 = row.get(4)?;
-        let project_name: Option<String> = row.get(5)?;
+        let project_id: Option<String> = row.get(2)?;
+        let started_str: String = row.get(3)?;
+        let ended_str: Option<String> = row.get(4)?;
+        let is_open_int: i32 = row.get(5)?;
+        let project_name: Option<String> = row.get(6)?;
 
         let started_at = DateTime::parse_from_rfc3339(&started_str)
             .map(|dt| dt.with_timezone(&Utc))
@@ -209,6 +264,7 @@ pub fn get_session(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Option<Ses
         Ok(Some(Session {
             id,
             actor,
+            project_id: project_id.map(ProjectId::from),
             project: project_name,
             started_at,
             ended_at,
@@ -223,7 +279,7 @@ pub fn get_session(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Option<Ses
 pub fn list_recent_sessions(db: &KnoxDb, limit: usize) -> KnoxResult<Vec<Session>> {
     let conn = db.conn();
     let mut stmt = conn.prepare(
-        "SELECT s.id, s.actor, s.started_at, s.ended_at, s.is_open, p.name
+        "SELECT s.id, s.actor, s.project_id, s.started_at, s.ended_at, s.is_open, p.name
          FROM sessions s
          LEFT JOIN projects p ON s.project_id = p.id
          ORDER BY s.started_at DESC
@@ -233,10 +289,11 @@ pub fn list_recent_sessions(db: &KnoxDb, limit: usize) -> KnoxResult<Vec<Session
     let rows = stmt.query_map(params![limit as i64], |row| {
         let id = SessionId::from(row.get::<_, String>(0)?);
         let actor: String = row.get(1)?;
-        let started_str: String = row.get(2)?;
-        let ended_str: Option<String> = row.get(3)?;
-        let is_open_int: i32 = row.get(4)?;
-        let project_name: Option<String> = row.get(5)?;
+        let project_id: Option<String> = row.get(2)?;
+        let started_str: String = row.get(3)?;
+        let ended_str: Option<String> = row.get(4)?;
+        let is_open_int: i32 = row.get(5)?;
+        let project_name: Option<String> = row.get(6)?;
 
         let started_at = DateTime::parse_from_rfc3339(&started_str)
             .map(|dt| dt.with_timezone(&Utc))
@@ -251,6 +308,7 @@ pub fn list_recent_sessions(db: &KnoxDb, limit: usize) -> KnoxResult<Vec<Session
         Ok(Session {
             id,
             actor,
+            project_id: project_id.map(ProjectId::from),
             project: project_name,
             started_at,
             ended_at,

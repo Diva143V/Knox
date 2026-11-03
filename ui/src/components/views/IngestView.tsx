@@ -800,15 +800,15 @@ export const IngestView: React.FC = () => {
                 <p className="text-lg font-bold font-mono text-warning">{preview.debugs_count}</p>
               </div>
               <div className="p-2.5 rounded-lg bg-card/60 border border-border text-center">
-                <p className="text-2xs text-indigo-400 uppercase font-semibold">Decisions</p>
-                <p className="text-lg font-bold font-mono text-indigo-400">{preview.decisions_count}</p>
+                <p className="text-2xs text-primary uppercase font-semibold">Decisions</p>
+                <p className="text-lg font-bold font-mono text-primary">{preview.decisions_count}</p>
               </div>
             </div>
 
             {/* Affected Files List */}
             {preview.files_touched.length > 0 && (
               <div className="space-y-1.5">
-                <p className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <p className="text-2xs font-semibold text-muted-foreground font-medium">
                   Referenced Code Files ({preview.files_touched.length})
                 </p>
                 <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-2 rounded-lg bg-background/50 border border-border/60">
@@ -827,7 +827,7 @@ export const IngestView: React.FC = () => {
             {/* Sample Action Cards */}
             {preview.sample_actions.length > 0 && (
               <div className="space-y-2">
-                <p className="text-2xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <p className="text-2xs font-semibold text-muted-foreground font-medium">
                   Sample Actions Extracted ({preview.sample_actions.length} of {preview.total_actions})
                 </p>
                 <div className="space-y-1.5 max-h-56 overflow-y-auto">

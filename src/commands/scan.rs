@@ -8,10 +8,11 @@ use std::process::Command;
 
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::ids::ActionId;
-use crate::core::types::{KnoxAction, QueryFilter, ScanReport};
+use crate::core::types::{DeltaSummary, KnoxAction, QueryFilter, ScanReport};
+use crate::git::diff::capture_working_tree_diff;
 use crate::ingest::summary::normalize_file_path;
 use crate::storage::db::KnoxDb;
-use crate::storage::nodes::insert_action;
+use crate::storage::nodes::{insert_action, insert_deltas};
 use crate::storage::queries::query_actions;
 
 /// Scans git staged changes, cross-references against recent AI actions,
@@ -37,9 +38,40 @@ pub fn cmd_scan(project_path: &Path, db: &KnoxDb) -> KnoxResult<ScanReport> {
     let mut actions_recorded = 0;
 
     if !human_files.is_empty() {
+        let action_id = ActionId::new();
         let summary = build_human_edit_summary(&human_files, &numstats);
+
+        // Capture bounded code deltas for staged human edits
+        let deltas = capture_working_tree_diff(&action_id, project_path, &human_files)
+            .unwrap_or_default();
+
+        let delta_summary = if !deltas.is_empty() {
+            let (added, removed) = deltas.iter().fold((0u32, 0u32), |(a, r), d| {
+                (a.saturating_add(d.lines_added), r.saturating_add(d.lines_deleted))
+            });
+            Some(DeltaSummary {
+                total_files: deltas.len(),
+                lines_added: added,
+                lines_deleted: removed,
+            })
+        } else {
+            let added: usize = human_files
+                .iter()
+                .map(|f| numstats.get(f).map(|(i, _)| *i).unwrap_or(0))
+                .sum();
+            let removed: usize = human_files
+                .iter()
+                .map(|f| numstats.get(f).map(|(_, d)| *d).unwrap_or(0))
+                .sum();
+            Some(DeltaSummary {
+                total_files: human_files.len(),
+                lines_added: added.min(u32::MAX as usize) as u32,
+                lines_deleted: removed.min(u32::MAX as usize) as u32,
+            })
+        };
+
         let action = KnoxAction {
-            id: ActionId::new(),
+            id: action_id.clone(),
             actor: "human".to_string(),
             action_type: "human_write".to_string(),
             summary,
@@ -48,6 +80,7 @@ pub fn cmd_scan(project_path: &Path, db: &KnoxDb) -> KnoxResult<ScanReport> {
             confidence: None,
             timestamp: Utc::now(),
             session_id: None,
+            project_id: None,
             parent_action_id: None,
             supersedes: None,
             is_current: true,
@@ -59,9 +92,14 @@ pub fn cmd_scan(project_path: &Path, db: &KnoxDb) -> KnoxResult<ScanReport> {
             significance: Some("minor".to_string()),
             is_resolved: Some(true),
             resolution_note: None,
+            commit_sha: None,
+            delta_summary,
         };
 
         insert_action(db, &action)?;
+        if !deltas.is_empty() {
+            let _ = insert_deltas(db, &deltas);
+        }
         actions_recorded = 1;
     }
 
