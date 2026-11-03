@@ -7,13 +7,14 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::core::error::{KnoxError, KnoxResult};
-use crate::core::ids::ActionId;
+use crate::core::ids::{ActionId, ProjectId};
 use crate::core::types::{DeltaSummary, KnoxAction, QueryFilter, ScanReport};
 use crate::git::diff::capture_working_tree_diff;
 use crate::ingest::summary::normalize_file_path;
 use crate::storage::db::KnoxDb;
 use crate::storage::nodes::{insert_action, insert_deltas};
 use crate::storage::queries::query_actions;
+use crate::storage::sessions::resolve_project_identifier;
 
 /// Scans git staged changes, cross-references against recent AI actions,
 /// and records any untracked human edits.
@@ -40,14 +41,22 @@ pub fn cmd_scan(project_path: &Path, db: &KnoxDb) -> KnoxResult<ScanReport> {
     if !human_files.is_empty() {
         let action_id = ActionId::new();
         let summary = build_human_edit_summary(&human_files, &numstats);
+        let project_id = project_path
+            .canonicalize()
+            .unwrap_or_else(|_| project_path.to_path_buf());
+        let project_id =
+            resolve_project_identifier(db, &project_id.to_string_lossy())?.map(ProjectId::from);
 
         // Capture bounded code deltas for staged human edits
-        let deltas = capture_working_tree_diff(&action_id, project_path, &human_files)
-            .unwrap_or_default();
+        let deltas =
+            capture_working_tree_diff(&action_id, project_path, &human_files).unwrap_or_default();
 
         let delta_summary = if !deltas.is_empty() {
             let (added, removed) = deltas.iter().fold((0u32, 0u32), |(a, r), d| {
-                (a.saturating_add(d.lines_added), r.saturating_add(d.lines_deleted))
+                (
+                    a.saturating_add(d.lines_added),
+                    r.saturating_add(d.lines_deleted),
+                )
             });
             Some(DeltaSummary {
                 total_files: deltas.len(),
@@ -80,7 +89,7 @@ pub fn cmd_scan(project_path: &Path, db: &KnoxDb) -> KnoxResult<ScanReport> {
             confidence: None,
             timestamp: Utc::now(),
             session_id: None,
-            project_id: None,
+            project_id,
             parent_action_id: None,
             supersedes: None,
             is_current: true,

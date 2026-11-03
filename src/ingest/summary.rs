@@ -16,6 +16,36 @@ pub struct FileModification {
     pub is_new: bool,
 }
 
+/// Extracts likely source/config file references from human text.
+///
+/// Transcript input is intentionally heuristic, so only tokens with a path
+/// separator or a known file extension are treated as file references.
+pub fn extract_referenced_file_paths(content: &str) -> Vec<String> {
+    const EXTENSIONS: &[&str] = &[
+        "c", "cc", "cpp", "css", "go", "h", "html", "java", "js", "json", "md", "py", "rs", "sh",
+        "sql", "toml", "ts", "tsx", "vue", "yaml", "yml",
+    ];
+
+    let mut paths = Vec::new();
+    for raw in content.split_whitespace() {
+        let token = raw.trim_matches(|c: char| "`'\".,;:!?()[]{}<>".contains(c));
+        if token.is_empty() || token.starts_with("http://") || token.starts_with("https://") {
+            continue;
+        }
+
+        let normalized = normalize_file_path(token);
+        let has_separator = normalized.contains('/');
+        let has_known_extension = normalized
+            .rsplit_once('.')
+            .map(|(_, extension)| EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()))
+            .unwrap_or(false);
+        if (has_separator || has_known_extension) && !paths.contains(&normalized) {
+            paths.push(normalized);
+        }
+    }
+    paths
+}
+
 /// Representation of a debug command execution detected during transcript analysis.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DebugExecution {
@@ -104,10 +134,15 @@ pub fn classify_human_input(content: &str) -> HumanInputKind {
         }
     }
 
-    // Check if ends with '?' or contains question / doubt phrases
+    // A trailing question mark indicates a question. An embedded question mark
+    // in code, regex, or prose should not turn an otherwise non-question into
+    // an open doubt.
     let trimmed_end = clean.trim_end_matches(&[' ', '\r', '\n', '`', '*', '"', '\'', '.'][..]);
-    if trimmed_end.ends_with('?') || clean.contains('?') {
+    if trimmed_end.ends_with('?') {
         return HumanInputKind::Doubt;
+    }
+    if clean.contains('?') {
+        return HumanInputKind::Dialogue;
     }
 
     let doubt_phrases = [
@@ -552,6 +587,20 @@ mod tests {
         assert_eq!(
             classify_human_input("thanks a lot"),
             HumanInputKind::Dialogue
+        );
+        assert_eq!(
+            classify_human_input("The regex is `foo?bar` and the parser is unchanged."),
+            HumanInputKind::Dialogue
+        );
+    }
+
+    #[test]
+    fn test_extract_referenced_file_paths() {
+        assert_eq!(
+            extract_referenced_file_paths(
+                "Update src/storage/db.rs and db.rs; not https://example.com/a.rs"
+            ),
+            vec!["src/storage/db.rs", "db.rs"]
         );
     }
 }

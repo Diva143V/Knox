@@ -8,8 +8,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::summary::{
-    DebugExecution, FileModification, HumanInputKind, classify_human_input, parse_debug_execution,
-    parse_file_modification, summarize_debug, summarize_decide, summarize_plan, summarize_write,
+    DebugExecution, FileModification, HumanInputKind, classify_human_input,
+    extract_referenced_file_paths, parse_debug_execution, parse_file_modification, summarize_debug,
+    summarize_decide, summarize_plan, summarize_write,
 };
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::ids::{ActionId, SessionId};
@@ -149,6 +150,7 @@ impl ActionGrouper {
         let content_str = step.content.as_deref().unwrap_or_default();
         let plan_summary = summarize_plan(content_str);
         let kind = classify_human_input(content_str);
+        let referenced_files = extract_referenced_file_paths(content_str);
 
         let (action_type, is_resolved, tags) = match kind {
             HumanInputKind::Doubt => (
@@ -169,7 +171,7 @@ impl ActionGrouper {
             actor: "human".to_string(),
             action_type,
             summary: plan_summary,
-            files: Vec::new(),
+            files: referenced_files,
             tags,
             confidence: None,
             timestamp,
@@ -298,13 +300,15 @@ impl ActionGrouper {
         let timestamp = group
             .first_write_timestamp
             .unwrap_or(group.default_timestamp);
-        let (lines_added, lines_removed) = group.write_mods.iter().fold((0u32, 0u32), |(a, r), m| {
-            (
-                a.saturating_add(m.lines_added.min(u32::MAX as usize) as u32),
-                r.saturating_add(m.lines_removed.min(u32::MAX as usize) as u32),
-            )
-        });
-        let delta_summary = if !group.write_files.is_empty() || lines_added > 0 || lines_removed > 0 {
+        let (lines_added, lines_removed) =
+            group.write_mods.iter().fold((0u32, 0u32), |(a, r), m| {
+                (
+                    a.saturating_add(m.lines_added.min(u32::MAX as usize) as u32),
+                    r.saturating_add(m.lines_removed.min(u32::MAX as usize) as u32),
+                )
+            });
+        let delta_summary = if !group.write_files.is_empty() || lines_added > 0 || lines_removed > 0
+        {
             Some(DeltaSummary {
                 total_files: group.write_files.len(),
                 lines_added,
@@ -544,5 +548,22 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].action_type, "dialogue");
         assert_eq!(actions[0].is_resolved, Some(true));
+    }
+
+    #[test]
+    fn test_action_grouper_attributes_referenced_files_to_human_intent() {
+        let mut grouper = ActionGrouper::new("antigravity");
+        grouper.process_step(&TranscriptStep {
+            step_index: Some(0),
+            source: Some("USER_EXPLICIT".to_string()),
+            step_type: Some("USER_INPUT".to_string()),
+            content: Some("Is the guardrail in src/storage/db.rs safe?".to_string()),
+            ..Default::default()
+        });
+
+        let actions = grouper.finish();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].action_type, "doubt");
+        assert_eq!(actions[0].files, vec!["src/storage/db.rs"]);
     }
 }
