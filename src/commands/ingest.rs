@@ -2,6 +2,7 @@
 //! Parses conversational transcripts and persists them into the knowledge graph.
 
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 use rusqlite::params;
@@ -163,7 +164,13 @@ fn persist_actions_with_session(
 
     let conn = db.conn();
 
-    for action in &mut actions {
+    for (offset, action) in actions.iter_mut().enumerate() {
+        let source_hash = ingest_source_hash(
+            &tool_detected,
+            project_scope,
+            offset,
+            action.summary.as_str(),
+        );
         // Smart deduplication check
         let is_duplicate = conn
             .query_row(
@@ -175,6 +182,16 @@ fn persist_actions_with_session(
 
         if is_duplicate {
             duplicates_skipped += 1;
+            conn.execute(
+                "INSERT OR REPLACE INTO ingest_log
+                 (source_hash, source_offset, outcome, rule_id, reason, action_id)
+                 VALUES (?1, ?2, 'deduped', 'D09', ?3, NULL)",
+                params![
+                    source_hash,
+                    offset as i64,
+                    "matching actor, action type, and summary already exists"
+                ],
+            )?;
             continue;
         }
 
@@ -188,9 +205,34 @@ fn persist_actions_with_session(
 
         let current_id = insert_action(db, action)?;
         actions_imported += 1;
+        conn.execute(
+            "INSERT OR REPLACE INTO ingest_log
+             (source_hash, source_offset, outcome, rule_id, reason, action_id)
+             VALUES (?1, ?2, 'imported', NULL, ?3, ?4)",
+            params![
+                source_hash,
+                offset as i64,
+                "action persisted from transcript ingestion",
+                current_id.as_str()
+            ],
+        )?;
 
         if let Some(ref prev_id) = previous_action_id {
             let _ = link_follows(db, prev_id, &current_id);
+        }
+
+        fn ingest_source_hash(
+            tool_detected: &str,
+            project_scope: Option<&str>,
+            offset: usize,
+            summary: &str,
+        ) -> String {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            tool_detected.hash(&mut hasher);
+            project_scope.unwrap_or_default().hash(&mut hasher);
+            offset.hash(&mut hasher);
+            summary.hash(&mut hasher);
+            format!("{:016x}", hasher.finish())
         }
         previous_action_id = Some(current_id);
     }
@@ -321,11 +363,29 @@ mod tests {
         assert_eq!(report.files_touched, 2);
         assert_eq!(report.sessions_created, 1);
         assert_eq!(report.tool_detected, "antigravity");
+        let imported_logs: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM ingest_log WHERE outcome = 'imported'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(imported_logs, 6);
 
         // Re-ingest the same fixture -> duplicates should be skipped!
         let second_report = cmd_ingest(&fixture_path, &db).unwrap();
         assert_eq!(second_report.actions_imported, 0);
         assert_eq!(second_report.duplicates_skipped, 6);
+        let deduped_logs: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM ingest_log WHERE outcome = 'deduped'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(deduped_logs, 6);
     }
 
     #[test]
