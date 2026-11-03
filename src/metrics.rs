@@ -84,7 +84,7 @@ mod tests {
         }];
         let report = measure_token_efficiency(&all_tools(), &actions);
 
-        assert_eq!(report.tool_count, 24);
+        assert_eq!(report.tool_count, 27);
         assert!(report.tool_definition_tokens > 0);
         assert!(report.compact_context_tokens < report.json_context_tokens);
         assert!(report.compact_savings_percent() > 0);

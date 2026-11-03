@@ -4,10 +4,13 @@ use serde_json::json;
 
 use super::protocol::ToolDescription;
 
-/// All supported Knox MCP tool names (24 tools).
-pub const TOOL_NAMES: [&str; 24] = [
+/// All supported Knox MCP tool names (27 tools).
+pub const TOOL_NAMES: [&str; 27] = [
     "knox_begin",
     "knox_context",
+    "knox_check",
+    "knox_trace",
+    "knox_record",
     "knox_handoff",
     "knox_start_session",
     "knox_end_session",
@@ -42,6 +45,9 @@ pub fn all_tools() -> Vec<ToolDescription> {
         tool_begin(),
         tool_start_session(),
         tool_context(),
+        tool_check(),
+        tool_trace(),
+        tool_record(),
         tool_handoff(),
         tool_end_session(),
         tool_record_action(),
@@ -64,6 +70,60 @@ pub fn all_tools() -> Vec<ToolDescription> {
         tool_blame_causal(),
         tool_verify_drift(),
     ]
+}
+
+fn tool_check() -> ToolDescription {
+    ToolDescription::new(
+        "knox_check",
+        "Checks proposed work against scoped architectural guardrails and returns confidence-rated violations.",
+        json!({
+            "type": "object",
+            "properties": {
+                "files": {"type": "array", "items": {"type": "string"}},
+                "symbols": {"type": "array", "items": {"type": "string"}},
+                "intent": {"type": "string"},
+                "project": {"type": "string"},
+                "strict": {"type": "boolean"}
+            },
+            "required": ["files"]
+        }),
+    )
+}
+
+fn tool_trace() -> ToolDescription {
+    ToolDescription::new(
+        "knox_trace",
+        "Traces causal ancestry from an action or file using only causal graph edges.",
+        json!({
+            "type": "object",
+            "properties": {
+                "from": {"type": "string"},
+                "file_path": {"type": "string"},
+                "depth": {"type": "integer", "minimum": 1, "default": 10}
+            },
+            "anyOf": [
+                {"required": ["from"]},
+                {"required": ["file_path"]}
+            ]
+        }),
+    )
+}
+
+fn tool_record() -> ToolDescription {
+    ToolDescription::new(
+        "knox_record",
+        "Atomically records structured engineering entries and returns committed IDs.",
+        json!({
+            "type": "object",
+            "properties": {
+                "actor": {"type": "string"},
+                "project": {"type": "string"},
+                "session_id": {"type": "string"},
+                "entries": {"type": "array", "items": {"type": "object"}}
+            },
+            "required": ["actor", "entries"]
+        }),
+    )
 }
 
 fn tool_begin() -> ToolDescription {

@@ -3,6 +3,7 @@
 pub mod blame_causal;
 pub mod begin;
 pub mod check_guardrails;
+pub mod check;
 pub mod diff_inspect;
 pub mod end_session;
 pub mod get_context;
@@ -11,11 +12,13 @@ pub mod get_history;
 pub mod get_impact;
 pub mod get_lineage;
 pub mod get_path;
+pub mod trace;
 pub mod ingest;
 pub mod list_stale;
 pub mod prompts;
 pub mod record_action;
 pub mod record_batch;
+pub mod record;
 pub mod record_decision;
 pub mod record_doubt;
 pub mod resolve_doubt;
@@ -29,6 +32,7 @@ pub mod verify_drift;
 pub use blame_causal::handle_blame_causal;
 pub use begin::handle_begin;
 pub use check_guardrails::handle_check_guardrails;
+pub use check::handle_check;
 pub use diff_inspect::handle_diff_inspect;
 pub use end_session::handle_end_session;
 pub use get_context::handle_get_context;
@@ -38,11 +42,13 @@ pub use get_history::handle_get_history;
 pub use get_impact::handle_get_impact;
 pub use get_lineage::handle_get_lineage;
 pub use get_path::handle_get_path;
+pub use trace::handle_trace;
 pub use ingest::handle_ingest;
 pub use list_stale::handle_list_stale;
 pub use prompts::{handle_prompts_get, handle_prompts_list};
 pub use record_action::handle_record_action;
 pub use record_batch::handle_record_batch;
+pub use record::handle_record;
 pub use record_decision::handle_record_decision;
 pub use record_doubt::handle_record_doubt;
 pub use resolve_doubt::handle_resolve_doubt;
@@ -114,6 +120,9 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         "knox_context" => handle_context(db, params),
         "knox_begin" => handle_begin(db, params),
         "knox_handoff" => handle_handoff(db, params),
+        "knox_check" => handle_check(db, params),
+        "knox_trace" => handle_trace(db, params),
+        "knox_record" => handle_record(db, params),
         "knox_start_session" => handle_start_session(db, params),
         "knox_end_session" => handle_end_session(db, params),
         "knox_record_action" => handle_record_action(db, params),
@@ -282,7 +291,7 @@ mod tests {
         assert!(res.error.is_none());
         let result = res.result.unwrap();
         let tools = result.get("tools").unwrap().as_array().unwrap();
-        assert_eq!(tools.len(), 24);
+        assert_eq!(tools.len(), crate::mcp::tools::TOOL_COUNT);
     }
 
     #[test]
