@@ -106,6 +106,8 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .as_deref()
         .unwrap_or("markdown")
         .to_ascii_lowercase();
+    let (packed_results, packed_truncated) =
+        crate::retrieval::pack::pack_actions(&result.results, budget);
 
     let title = if let Some(ref fp) = input.file_path {
         format!("Context for `{fp}`")
@@ -114,7 +116,7 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     } else {
         "Active Knox Context".to_string()
     };
-    let compact = crate::mcp::format::format_compact_digest(&result.results);
+    let compact = crate::mcp::format::format_compact_digest(&packed_results);
 
     if format_mode == "json" {
         let structured = serde_json::to_value(&result)?;
@@ -136,15 +138,16 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     } else {
         crate::mcp::format::format_markdown_digest(
             &title,
-            &result.results,
+            &packed_results,
             input.synthesis.unwrap_or(false),
             )
     };
     let (md, budget_used, truncated) = truncate_to_budget(&rendered, budget);
+    let truncated = truncated || packed_truncated;
     Ok(serde_json::json!({
         "results": if truncated { serde_json::Value::Null } else { serde_json::to_value(&result.results)? },
         "total_count": result.total_count,
-        "has_more": result.has_more || truncated,
+        "has_more": result.has_more || packed_truncated || truncated,
         "markdown": md,
         "budget": budget,
         "budget_used": budget_used,
