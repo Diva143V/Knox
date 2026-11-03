@@ -76,6 +76,8 @@ pub(crate) fn insert_action_conn(
 
     insert_action_files_and_tags(conn, &action.id, &action.files, &action.tags)?;
     insert_action_relations_and_symbols(conn, &action.id, &action.relations, &action.symbols)?;
+    insert_action_state(conn, action)?;
+    insert_guardrail_rules(conn, action)?;
 
     tracing::debug!(
         id = %action.id,
@@ -85,6 +87,60 @@ pub(crate) fn insert_action_conn(
     );
 
     Ok(action.id.clone())
+}
+
+fn insert_action_state(
+    conn: &rusqlite::Connection,
+    action: &KnoxAction,
+) -> KnoxResult<()> {
+    let state = if !action.is_current {
+        "superseded"
+    } else if matches!(action.is_resolved, Some(false)) {
+        "open"
+    } else if matches!(action.action_type.as_str(), "doubt" | "question") {
+        "resolved"
+    } else {
+        "current"
+    };
+
+    conn.execute(
+        "INSERT INTO action_state (action_id, state, by_action_id, updated_at)
+         VALUES (?1, ?2, NULL, ?3)
+         ON CONFLICT(action_id) DO UPDATE SET
+           state = excluded.state,
+           updated_at = excluded.updated_at",
+        params![action.id.as_str(), state, action.timestamp.to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+fn insert_guardrail_rules(
+    conn: &rusqlite::Connection,
+    action: &KnoxAction,
+) -> KnoxResult<()> {
+    if action.action_type != "decide" {
+        return Ok(());
+    }
+
+    let project_id = action.project_id.as_ref().map(|id| id.as_str());
+    for (index, alternative) in action.rejected_alternatives.iter().enumerate() {
+        let pattern = alternative.trim();
+        if pattern.is_empty() {
+            continue;
+        }
+        conn.execute(
+            "INSERT OR IGNORE INTO guardrail_rules
+             (id, action_id, project_id, pattern_kind, pattern, severity, active)
+             VALUES (?1, ?2, ?3, 'phrase', ?4, 'advisory', 1)",
+            params![
+                format!("{}:rejected:{index}", action.id),
+                action.id.as_str(),
+                project_id,
+                pattern
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 /// Inserts associated files and tags for a given action.
@@ -277,6 +333,12 @@ pub(crate) fn mark_superseded_conn(
 ) -> KnoxResult<()> {
     conn.execute(
         "UPDATE actions SET superseded_by = ?1, is_current = 0 WHERE id = ?2",
+        params![new_id.as_str(), old_id.as_str()],
+    )?;
+    conn.execute(
+        "UPDATE action_state
+         SET state = 'superseded', by_action_id = ?1, updated_at = datetime('now')
+         WHERE action_id = ?2",
         params![new_id.as_str(), old_id.as_str()],
     )?;
     Ok(())
@@ -1127,5 +1189,73 @@ mod tests {
         .expect("causal action fallback to file");
         assert_eq!(causal3.id, action.id);
         assert!(delta3.is_some());
+    }
+
+    #[test]
+    fn test_decision_creates_state_and_guardrail_rules() {
+        let db = KnoxDb::open_memory().unwrap();
+        let action = KnoxAction {
+            id: ActionId::new(),
+            actor: "cursor".to_string(),
+            action_type: "decide".to_string(),
+            summary: "Use WAL transactions".to_string(),
+            rejected_alternatives: vec!["autocommit writes".to_string(), "flat files".to_string()],
+            timestamp: Utc::now(),
+            ..Default::default()
+        };
+
+        insert_action(&db, &action).unwrap();
+        let state: String = db
+            .conn()
+            .query_row(
+                "SELECT state FROM action_state WHERE action_id = ?1",
+                rusqlite::params![action.id.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let rules: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM guardrail_rules WHERE action_id = ?1",
+                rusqlite::params![action.id.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, "current");
+        assert_eq!(rules, 2);
+    }
+
+    #[test]
+    fn test_superseding_action_updates_derived_state() {
+        let db = KnoxDb::open_memory().unwrap();
+        let old = KnoxAction {
+            id: ActionId::new(),
+            actor: "cursor".to_string(),
+            action_type: "decide".to_string(),
+            summary: "Use flat files".to_string(),
+            timestamp: Utc::now(),
+            ..Default::default()
+        };
+        let new = KnoxAction {
+            id: ActionId::new(),
+            actor: "cursor".to_string(),
+            action_type: "decide".to_string(),
+            summary: "Use SQLite".to_string(),
+            supersedes: Some(old.id.clone()),
+            timestamp: Utc::now(),
+            ..Default::default()
+        };
+        insert_action(&db, &old).unwrap();
+        insert_action(&db, &new).unwrap();
+
+        let state: String = db
+            .conn()
+            .query_row(
+                "SELECT state FROM action_state WHERE action_id = ?1",
+                rusqlite::params![old.id.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, "superseded");
     }
 }
