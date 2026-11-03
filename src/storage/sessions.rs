@@ -145,6 +145,51 @@ pub fn start_session(db: &KnoxDb, actor: &str, project: Option<&str>) -> KnoxRes
     })
 }
 
+/// Finds the newest open session for an actor and optional project scope.
+pub fn find_open_session(
+    db: &KnoxDb,
+    actor: &str,
+    project: Option<&str>,
+) -> KnoxResult<Option<Session>> {
+    let project_id = project
+        .map(|identifier| resolve_project_identifier(db, identifier))
+        .transpose()?
+        .flatten();
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.actor, s.project_id, s.started_at, s.ended_at, s.is_open, p.name
+         FROM sessions s
+         LEFT JOIN projects p ON s.project_id = p.id
+         WHERE s.actor = ?1 AND s.is_open = 1
+           AND ((?2 IS NULL AND s.project_id IS NULL) OR s.project_id = ?2)
+         ORDER BY s.started_at DESC LIMIT 1",
+    )?;
+    let session = stmt
+        .query_row(
+            params![actor, project_id.as_deref()],
+            |row| {
+                let started = DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now());
+                let ended = row
+                    .get::<_, Option<String>>(4)?
+                    .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
+                    .map(|dt| dt.with_timezone(&Utc));
+                Ok(Session {
+                    id: SessionId::from(row.get::<_, String>(0)?),
+                    actor: row.get(1)?,
+                    project_id: row.get::<_, Option<String>>(2)?.map(ProjectId::from),
+                    project: row.get(6)?,
+                    started_at: started,
+                    ended_at: ended,
+                    is_open: row.get::<_, i32>(5)? == 1,
+                })
+            },
+        )
+        .optional()?;
+    Ok(session)
+}
+
 /// Concludes an active session, marking it closed and recording the end timestamp.
 pub fn end_session(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Session> {
     let current = get_session(db, session_id)?

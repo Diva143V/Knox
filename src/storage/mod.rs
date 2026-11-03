@@ -18,6 +18,6 @@ pub use nodes::{
 };
 pub use queries::{get_actions_by_ids, get_status_report, query_actions, search_actions};
 pub use sessions::{
-    end_session, get_session, list_recent_sessions, resolve_project_identifier, start_session,
+    end_session, find_open_session, get_session, list_recent_sessions, resolve_project_identifier, start_session,
     timeout_stale_sessions,
 };

@@ -4,9 +4,11 @@ use serde_json::json;
 
 use super::protocol::ToolDescription;
 
-/// All supported Knox MCP tool names (22 tools).
-pub const TOOL_NAMES: [&str; 22] = [
+/// All supported Knox MCP tool names (24 tools).
+pub const TOOL_NAMES: [&str; 24] = [
+    "knox_begin",
     "knox_context",
+    "knox_handoff",
     "knox_start_session",
     "knox_end_session",
     "knox_record_action",
@@ -37,8 +39,10 @@ pub const TOOL_COUNT: usize = TOOL_NAMES.len();
 /// Returns the complete list of all Knox tool definitions.
 pub fn all_tools() -> Vec<ToolDescription> {
     vec![
+        tool_begin(),
         tool_start_session(),
         tool_context(),
+        tool_handoff(),
         tool_end_session(),
         tool_record_action(),
         tool_record_decision(),
@@ -60,6 +64,38 @@ pub fn all_tools() -> Vec<ToolDescription> {
         tool_blame_causal(),
         tool_verify_drift(),
     ]
+}
+
+fn tool_begin() -> ToolDescription {
+    ToolDescription::new(
+        "knox_begin",
+        "Resumes or creates a scoped session and returns compact task context.",
+        json!({
+            "type": "object",
+            "properties": {
+                "workspace": { "type": "string", "description": "Project path, ID, or unique name" },
+                "actor": { "type": "string", "description": "Agent or software identity" },
+                "task": { "type": "string", "description": "Current task used to focus context" },
+                "budget": { "type": "integer", "minimum": 1, "maximum": 4000, "default": 1200 }
+            },
+            "required": ["actor"]
+        }),
+    )
+}
+
+fn tool_handoff() -> ToolDescription {
+    ToolDescription::new(
+        "knox_handoff",
+        "Closes a session and returns a compact digest for the next session.",
+        json!({
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "string", "description": "Open session to close" },
+                "budget": { "type": "integer", "minimum": 1, "maximum": 4000, "default": 800 }
+            },
+            "required": ["session_id"]
+        }),
+    )
 }
 
 /// Finds a tool definition by name.

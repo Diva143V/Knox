@@ -124,9 +124,9 @@ All edges carry: `timestamp`, `session_id`, `tool_source`.
 
 ---
 
-## MCP Interface (22 Tools, Resources & Prompts)
+## MCP Interface (24 Tools, Resources & Prompts)
 
-When running `knox serve --stdio`, Knox exposes 22 tools, 3 native resources, and 2 guided prompts:
+When running `knox serve --stdio`, Knox exposes 24 tools, 3 native resources, and 2 guided prompts:
 
 ### 1. Session Management
 - **`knox_start_session`** — Start an explicit work session (or rely on smart implicit auto-sessions).

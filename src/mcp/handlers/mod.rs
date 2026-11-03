@@ -1,10 +1,12 @@
 //! Handlers and dispatcher for Model Context Protocol (MCP) tools in Knox.
 
 pub mod blame_causal;
+pub mod begin;
 pub mod check_guardrails;
 pub mod diff_inspect;
 pub mod end_session;
 pub mod get_context;
+pub mod handoff;
 pub mod get_history;
 pub mod get_impact;
 pub mod get_lineage;
@@ -25,10 +27,12 @@ pub mod update_action;
 pub mod verify_drift;
 
 pub use blame_causal::handle_blame_causal;
+pub use begin::handle_begin;
 pub use check_guardrails::handle_check_guardrails;
 pub use diff_inspect::handle_diff_inspect;
 pub use end_session::handle_end_session;
 pub use get_context::handle_get_context;
+pub use handoff::handle_handoff;
 pub use get_context::handle_context;
 pub use get_history::handle_get_history;
 pub use get_impact::handle_get_impact;
@@ -108,6 +112,8 @@ pub fn dispatch_with_id(
 pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value> {
     match name {
         "knox_context" => handle_context(db, params),
+        "knox_begin" => handle_begin(db, params),
+        "knox_handoff" => handle_handoff(db, params),
         "knox_start_session" => handle_start_session(db, params),
         "knox_end_session" => handle_end_session(db, params),
         "knox_record_action" => handle_record_action(db, params),
@@ -276,7 +282,7 @@ mod tests {
         assert!(res.error.is_none());
         let result = res.result.unwrap();
         let tools = result.get("tools").unwrap().as_array().unwrap();
-        assert_eq!(tools.len(), 22);
+        assert_eq!(tools.len(), 24);
     }
 
     #[test]
