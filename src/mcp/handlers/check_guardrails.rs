@@ -117,6 +117,22 @@ fn match_rejected_alternative(proposal: &str, alternative: &str) -> Option<(f64,
     Some((coverage, evidence))
 }
 
+fn guardrail_patterns(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<Vec<String>> {
+    let mut stmt = db.conn().prepare(
+        "SELECT pattern FROM guardrail_rules
+         WHERE action_id = ?1 AND active = 1
+         ORDER BY id",
+    )?;
+    let patterns = stmt
+        .query_map(rusqlite::params![action.id.as_str()], |row| row.get(0))?
+        .collect::<Result<Vec<String>, _>>()?;
+    if patterns.is_empty() {
+        Ok(action.rejected_alternatives.clone())
+    } else {
+        Ok(patterns)
+    }
+}
+
 /// Builds the scopes a guardrail lookup should cover: the file itself, each
 /// ancestor directory, and any explicitly supplied symbols.
 fn guardrail_scopes(norm_files: &[String]) -> Vec<(String, bool)> {
@@ -256,8 +272,10 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
     let mut violation_details: Vec<Violation> = Vec::new();
     if let Some(ref prop) = input.proposed_action {
         for d in &active_decisions {
-            for alt in &d.rejected_alternatives {
-                if let Some((confidence, matched_span)) = match_rejected_alternative(prop, alt) {
+            for alt in guardrail_patterns(db, d)? {
+                if let Some((confidence, matched_span)) =
+                    match_rejected_alternative(prop, &alt)
+                {
                     let message = format!(
                         "Proposed action matches rejected alternative '{}' in decision `{}` ('{}')",
                         alt, d.id, d.summary
@@ -265,7 +283,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
                     violations.push(message.clone());
                     violation_details.push(Violation {
                         message,
-                        alternative: alt.clone(),
+                        alternative: alt,
                         decision_id: d.id.to_string(),
                         decision_summary: d.summary.clone(),
                         confidence,
