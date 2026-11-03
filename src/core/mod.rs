@@ -1,6 +1,7 @@
 //! Core shared types, error definitions, identifiers, and configuration for Knox.
 
 pub mod config;
+pub mod budget;
 pub mod error;
 pub mod guardrails;
 pub mod ids;

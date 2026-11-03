@@ -5,6 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::core::error::{KnoxError, KnoxResult};
+use crate::core::budget::{DEFAULT_CONTEXT_BUDGET, MAX_CONTEXT_BUDGET, truncate_to_budget};
 use crate::core::ids::SessionId;
 use crate::core::types::QueryFilter;
 use crate::ingest::summary::normalize_query_file_path;
@@ -45,6 +46,8 @@ pub struct GetContextParams {
     /// Synthesize context into categorised decisions, symbols, and constraints.
     #[serde(default)]
     pub synthesis: Option<bool>,
+    /// Optional maximum response size in estimated tokens.
+    pub budget: Option<usize>,
 }
 
 /// Handles the `knox_get_context` tool invocation.
@@ -80,6 +83,13 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     };
 
     let result = crate::storage::queries::query_actions(db, &filter)?;
+    let budget = input.budget.unwrap_or(DEFAULT_CONTEXT_BUDGET);
+    if budget == 0 || budget > MAX_CONTEXT_BUDGET {
+        return Err(KnoxError::InvalidInput(format!(
+            "'budget' must be between 1 and {MAX_CONTEXT_BUDGET}"
+        )));
+    }
+
     let format_mode = input
         .format
         .as_deref()
@@ -96,18 +106,40 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         } else {
             "Active Knox Context".to_string()
         };
-        let md = crate::mcp::format::format_markdown_digest(
+        let rendered = if format_mode == "compact" {
+            crate::mcp::format::format_compact_digest(&result.results)
+        } else {
+            crate::mcp::format::format_markdown_digest(
             &title,
             &result.results,
             input.synthesis.unwrap_or(false),
-        );
+            )
+        };
+        let (md, budget_used, truncated) = truncate_to_budget(&rendered, budget);
         Ok(serde_json::json!({
-            "results": result.results,
+            "results": if truncated { serde_json::Value::Null } else { serde_json::to_value(&result.results)? },
             "total_count": result.total_count,
             "has_more": result.has_more,
-            "markdown": md
+            "markdown": md,
+            "budget": budget,
+            "budget_used": budget_used,
+            "truncated": truncated
         }))
     }
+}
+
+/// Handles the new compact context surface while keeping legacy parameters
+/// and filters compatible with `knox_get_context`.
+pub fn handle_context(db: &KnoxDb, mut params: Value) -> KnoxResult<Value> {
+    if let Value::Object(ref mut object) = params {
+        object
+            .entry("format")
+            .or_insert_with(|| Value::String("compact".to_string()));
+        object
+            .entry("budget")
+            .or_insert_with(|| Value::from(DEFAULT_CONTEXT_BUDGET));
+    }
+    handle_get_context(db, params)
 }
 
 #[cfg(test)]
@@ -159,5 +191,25 @@ mod tests {
         let res = handle_get_context(&db, json!({})).unwrap();
         let total = res.get("total_count").unwrap().as_u64().unwrap();
         assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn test_handle_context_returns_budget_metadata_and_compact_output() {
+        let db = KnoxDb::open_memory().unwrap();
+        let action = KnoxAction {
+            id: ActionId::new(),
+            actor: "gemini".to_string(),
+            action_type: "write".to_string(),
+            summary: "Update parser".to_string(),
+            files: vec!["src/parser.rs".to_string()],
+            timestamp: Utc::now(),
+            ..Default::default()
+        };
+        crate::storage::nodes::insert_action(&db, &action).unwrap();
+
+        let result = handle_context(&db, json!({})).unwrap();
+        assert_eq!(result["budget"], DEFAULT_CONTEXT_BUDGET);
+        assert!(!result["markdown"].as_str().unwrap().contains("###"));
+        assert_eq!(result["truncated"], false);
     }
 }

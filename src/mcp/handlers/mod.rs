@@ -29,6 +29,7 @@ pub use check_guardrails::handle_check_guardrails;
 pub use diff_inspect::handle_diff_inspect;
 pub use end_session::handle_end_session;
 pub use get_context::handle_get_context;
+pub use get_context::handle_context;
 pub use get_history::handle_get_history;
 pub use get_impact::handle_get_impact;
 pub use get_lineage::handle_get_lineage;
@@ -106,6 +107,7 @@ pub fn dispatch_with_id(
 /// Executes an individual Knox tool by its canonical tool name.
 pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value> {
     match name {
+        "knox_context" => handle_context(db, params),
         "knox_start_session" => handle_start_session(db, params),
         "knox_end_session" => handle_end_session(db, params),
         "knox_record_action" => handle_record_action(db, params),
@@ -274,7 +276,7 @@ mod tests {
         assert!(res.error.is_none());
         let result = res.result.unwrap();
         let tools = result.get("tools").unwrap().as_array().unwrap();
-        assert_eq!(tools.len(), 21);
+        assert_eq!(tools.len(), 22);
     }
 
     #[test]

@@ -4,8 +4,9 @@ use serde_json::json;
 
 use super::protocol::ToolDescription;
 
-/// All supported Knox MCP tool names (21 tools).
-pub const TOOL_NAMES: [&str; 21] = [
+/// All supported Knox MCP tool names (22 tools).
+pub const TOOL_NAMES: [&str; 22] = [
+    "knox_context",
     "knox_start_session",
     "knox_end_session",
     "knox_record_action",
@@ -37,6 +38,7 @@ pub const TOOL_COUNT: usize = TOOL_NAMES.len();
 pub fn all_tools() -> Vec<ToolDescription> {
     vec![
         tool_start_session(),
+        tool_context(),
         tool_end_session(),
         tool_record_action(),
         tool_record_decision(),
@@ -88,6 +90,15 @@ fn tool_start_session() -> ToolDescription {
             "required": ["actor"]
         }),
     )
+}
+
+fn tool_context() -> ToolDescription {
+    let mut tool = tool_get_context();
+    tool.name = "knox_context".to_string();
+    tool.description =
+        "Returns compact, token-budgeted engineering context for a file, symbol, query, or project."
+            .to_string();
+    tool
 }
 
 fn tool_end_session() -> ToolDescription {
@@ -552,6 +563,13 @@ fn tool_get_context() -> ToolDescription {
                     "type": "integer",
                     "default": 20,
                     "description": "Maximum number of results to return"
+                },
+                "budget": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4000,
+                    "default": 1200,
+                    "description": "Maximum estimated response tokens; compact output is truncated at line boundaries"
                 }
             }
         }),

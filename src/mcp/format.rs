@@ -2,6 +2,31 @@
 
 use crate::core::types::KnoxAction;
 
+/// Formats one compact, information-dense line per action.
+pub fn format_compact_digest(actions: &[KnoxAction]) -> String {
+    if actions.is_empty() {
+        return "No matching Knox context.".to_string();
+    }
+
+    actions
+        .iter()
+        .map(|action| {
+            let scope = action.files.first().map(String::as_str).unwrap_or("-");
+            let state = if action.is_current { "cur" } else { "old" };
+            format!(
+                "{} {} {} {:.2} {} | {}",
+                action.id,
+                action.action_type.to_ascii_uppercase(),
+                state,
+                action.confidence.unwrap_or(0.0),
+                scope,
+                action.summary
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Formats a list of `KnoxAction` records into a token-dense, agent-readable Markdown digest.
 ///
 /// Reduces token usage by ~70-80% compared to verbose pretty-printed JSON while highlighting

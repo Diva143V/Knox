@@ -93,7 +93,7 @@ Before touching files:
 
 ## 3. MCP Tool Reference & Schemas
 
-Knox exposes 21 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
+Knox exposes 22 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
 
 ### 3.1 `knox_check_guardrails`
 Pre-flight safety inspection for target files. Returns active decisions and superseded anti-patterns.
