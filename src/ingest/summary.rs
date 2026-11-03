@@ -145,19 +145,32 @@ pub fn classify_human_input(content: &str) -> HumanInputKind {
         return HumanInputKind::Dialogue;
     }
 
-    let doubt_phrases = [
+    // Uncertainty phrasing is only meaningful when it introduces the input.
+    // Matching arbitrary substrings makes descriptive plans such as
+    // "document what happens when..." look like open doubts.
+    let uncertainty_prefixes = [
         "i wonder",
-        "not sure",
-        "doubt",
+        "i'm wondering",
+        "im wondering",
         "wondering",
-        "confused",
+        "i'm not sure",
+        "im not sure",
+        "not sure",
+        "i'm confused",
+        "im confused",
+        "confused about",
+        "uncertain about",
         "is it possible",
         "should we",
         "can we",
+        "could we",
         "what if",
         "what happens",
     ];
-    if doubt_phrases.iter().any(|&phrase| lower.contains(phrase)) {
+    if uncertainty_prefixes
+        .iter()
+        .any(|&prefix| lower.starts_with(prefix))
+    {
         return HumanInputKind::Doubt;
     }
 
@@ -552,6 +565,10 @@ mod tests {
             classify_human_input("I wonder if we need a connection pool"),
             HumanInputKind::Doubt
         );
+        assert_eq!(
+            classify_human_input("I'm not sure whether this migration is safe"),
+            HumanInputKind::Doubt
+        );
     }
 
     #[test]
@@ -576,6 +593,14 @@ mod tests {
             classify_human_input(
                 "<USER_REQUEST>\nFix connection timeout in db.rs\n</USER_REQUEST>"
             ),
+            HumanInputKind::Plan
+        );
+        assert_eq!(
+            classify_human_input("Implement documentation for what happens on rollback"),
+            HumanInputKind::Plan
+        );
+        assert_eq!(
+            classify_human_input("Without doubt, remove the deprecated fallback"),
             HumanInputKind::Plan
         );
     }
