@@ -5,7 +5,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::core::error::{KnoxError, KnoxResult};
-use crate::core::budget::{DEFAULT_CONTEXT_BUDGET, MAX_CONTEXT_BUDGET, truncate_to_budget};
+use crate::core::budget::{
+    DEFAULT_CONTEXT_BUDGET, MAX_CONTEXT_BUDGET, estimate_tokens, truncate_to_budget,
+};
 use crate::core::ids::SessionId;
 use crate::core::types::QueryFilter;
 use crate::ingest::summary::normalize_query_file_path;
@@ -96,36 +98,49 @@ pub fn handle_get_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .unwrap_or("markdown")
         .to_ascii_lowercase();
 
-    if format_mode == "json" {
-        serde_json::to_value(&result).map_err(KnoxError::Json)
+    let title = if let Some(ref fp) = input.file_path {
+        format!("Context for `{fp}`")
+    } else if let Some(ref p) = input.project {
+        format!("Project Context `{p}`")
     } else {
-        let title = if let Some(ref fp) = input.file_path {
-            format!("Context for `{fp}`")
-        } else if let Some(ref p) = input.project {
-            format!("Project Context `{p}`")
-        } else {
-            "Active Knox Context".to_string()
-        };
-        let rendered = if format_mode == "compact" {
-            crate::mcp::format::format_compact_digest(&result.results)
-        } else {
-            crate::mcp::format::format_markdown_digest(
+        "Active Knox Context".to_string()
+    };
+    let compact = crate::mcp::format::format_compact_digest(&result.results);
+
+    if format_mode == "json" {
+        let structured = serde_json::to_value(&result)?;
+        let structured_tokens = estimate_tokens(&serde_json::to_string(&structured)?);
+        if structured_tokens <= budget {
+            return Ok(serde_json::json!({
+            "results": structured,
+            "total_count": result.total_count,
+            "has_more": result.has_more,
+            "budget": budget,
+            "budget_used": structured_tokens,
+            "truncated": false
+            }));
+        }
+    }
+
+    let rendered = if format_mode == "compact" || format_mode == "json" {
+        compact
+    } else {
+        crate::mcp::format::format_markdown_digest(
             &title,
             &result.results,
             input.synthesis.unwrap_or(false),
             )
-        };
-        let (md, budget_used, truncated) = truncate_to_budget(&rendered, budget);
-        Ok(serde_json::json!({
-            "results": if truncated { serde_json::Value::Null } else { serde_json::to_value(&result.results)? },
-            "total_count": result.total_count,
-            "has_more": result.has_more,
-            "markdown": md,
-            "budget": budget,
-            "budget_used": budget_used,
-            "truncated": truncated
-        }))
-    }
+    };
+    let (md, budget_used, truncated) = truncate_to_budget(&rendered, budget);
+    Ok(serde_json::json!({
+        "results": if truncated { serde_json::Value::Null } else { serde_json::to_value(&result.results)? },
+        "total_count": result.total_count,
+        "has_more": result.has_more || truncated,
+        "markdown": md,
+        "budget": budget,
+        "budget_used": budget_used,
+        "truncated": truncated
+    }))
 }
 
 /// Handles the new compact context surface while keeping legacy parameters
@@ -211,5 +226,34 @@ mod tests {
         assert_eq!(result["budget"], DEFAULT_CONTEXT_BUDGET);
         assert!(!result["markdown"].as_str().unwrap().contains("###"));
         assert_eq!(result["truncated"], false);
+    }
+
+    #[test]
+    fn test_context_rejects_invalid_budget() {
+        let db = KnoxDb::open_memory().unwrap();
+        let error = handle_context(&db, json!({ "budget": 0 })).unwrap_err();
+        assert!(error.to_string().contains("between 1 and"));
+    }
+
+    #[test]
+    fn test_json_context_falls_back_to_bounded_output() {
+        let db = KnoxDb::open_memory().unwrap();
+        for index in 0..10 {
+            let action = KnoxAction {
+                id: ActionId::new(),
+                actor: "gemini".to_string(),
+                action_type: "write".to_string(),
+                summary: format!("A long context summary with details {index}"),
+                files: vec!["src/parser.rs".to_string()],
+                timestamp: Utc::now(),
+                ..Default::default()
+            };
+            crate::storage::nodes::insert_action(&db, &action).unwrap();
+        }
+
+        let result = handle_context(&db, json!({ "format": "json", "budget": 20 })).unwrap();
+        assert_eq!(result["truncated"], true);
+        assert!(result["results"].is_null());
+        assert!(result["budget_used"].as_u64().unwrap() <= 20);
     }
 }
