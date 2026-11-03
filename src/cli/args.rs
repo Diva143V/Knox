@@ -36,6 +36,8 @@ pub enum Commands {
     Scan(ScanArgs),
     /// Manage git pre-commit hook integration.
     Hook(HookArgs),
+    /// Inspect, apply, restore, or split a database migration.
+    Migrate(MigrationArgs),
 }
 
 /// Arguments for `knox init`.
@@ -119,6 +121,32 @@ pub struct HookArgs {
     /// Path to project repository (defaults to current directory).
     #[arg(short, long, default_value = ".")]
     pub project: PathBuf,
+}
+
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+pub struct MigrationArgs {
+    /// Migration operation.
+    #[command(subcommand)]
+    pub action: MigrationAction,
+    /// Database path (defaults to the configured Knox database).
+    #[arg(long)]
+    pub db: Option<PathBuf>,
+}
+
+#[derive(Subcommand, Clone, Debug, PartialEq, Eq)]
+pub enum MigrationAction {
+    /// Report schema and integrity state without writing.
+    Check,
+    /// Back up and apply pending migrations.
+    Apply,
+    /// Restore the newest adjacent migration backup.
+    Restore,
+    /// Create one filtered database per project.
+    Split {
+        /// Destination directory for split databases.
+        #[arg(long)]
+        output: PathBuf,
+    },
 }
 
 #[cfg(test)]
@@ -247,6 +275,22 @@ mod tests {
                 assert_eq!(args.project, PathBuf::from("repo_dir"));
             }
             _ => panic!("Expected Hook command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_migration_operations() {
+        let cli = KnoxCli::try_parse_from(["knox", "migrate", "split", "--output", "copies"]).unwrap();
+        match cli.command {
+            Some(Commands::Migrate(args)) => {
+                assert_eq!(
+                    args.action,
+                    MigrationAction::Split {
+                        output: PathBuf::from("copies")
+                    }
+                );
+            }
+            _ => panic!("Expected Migrate command"),
         }
     }
 }

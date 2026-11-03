@@ -51,6 +51,7 @@ pub fn record_quick_thought_impl(
         is_current: true,
         timestamp: Utc::now(),
         session_id: None,
+        project_id: None,
         parent_action_id: None,
         supersedes: None,
         relations: Vec::new(),

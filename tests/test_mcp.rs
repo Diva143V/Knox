@@ -6,6 +6,7 @@ use knox::core::KnoxResult;
 use knox::core::ids::ActionId;
 use knox::core::types::QueryFilter;
 use knox::mcp::handlers::dispatch;
+use knox::mcp::tools::TOOL_COUNT;
 use knox::storage::db::KnoxDb;
 
 #[test]
@@ -165,7 +166,7 @@ fn test_mcp_search_and_tools_call_standard() {
     let list_res = dispatch("tools/list", json!({}), &db);
     assert_eq!(
         list_res.result.unwrap()["tools"].as_array().unwrap().len(),
-        21
+        TOOL_COUNT
     );
 
     let session_id = mcp_start(&db, "gemini");

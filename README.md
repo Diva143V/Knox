@@ -275,6 +275,23 @@ Token-efficiency measurements are deterministic estimates based on the same cons
 four-characters-per-token rule used by context budgets. They are intended for regression
 tests and release comparisons, not billing or provider-specific accounting.
 
+### Database migration operations
+
+Knox provides explicit migration safety commands for existing databases:
+
+```text
+knox migrate check
+knox migrate apply
+knox migrate restore
+knox migrate split --output <directory>
+```
+
+`apply` creates an adjacent timestamped backup before applying pending migrations
+and validates SQLite integrity plus project/action/relationship orphan counts.
+`restore` restores the newest adjacent backup. `split` creates one validated
+project-local database per registered project and leaves the source database
+untouched.
+
 ### 1. `knox_start_session`
 Explicitly starts a new work session and returns a `session_id` (optional; actions auto-manage implicit sessions if omitted).
 - **Inputs:** `actor` (string, required), `project` (string, optional), `metadata` (object, optional).

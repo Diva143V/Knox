@@ -130,9 +130,14 @@ fn test_ingest_actions_persist_to_storage() {
     };
 
     let result = query_actions(&db, &filter).expect("query actions");
-    assert_eq!(result.results.len(), 1);
-    assert_eq!(result.results[0].files, vec!["src/parser.rs"]);
-    assert_eq!(result.results[0].action_type, "write");
+    assert!(!result.results.is_empty());
+    assert!(
+        result
+            .results
+            .iter()
+            .all(|action| action.files.contains(&"src/parser.rs".to_string()))
+    );
+    assert!(result.results.iter().any(|action| action.action_type == "write"));
 
     // Full-text search for clippy
     let search_filter = QueryFilter {

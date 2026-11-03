@@ -3,12 +3,14 @@
 use anyhow::Context;
 
 use crate::cli::args::{
-    Commands, HookAction, HookArgs, IngestArgs, InitArgs, KnoxCli, QueryArgs, ScanArgs, StatusArgs,
+    Commands, HookAction, HookArgs, IngestArgs, InitArgs, KnoxCli, MigrationAction, MigrationArgs,
+    QueryArgs, ScanArgs, StatusArgs,
 };
 use crate::commands::{
     cmd_hook_install, cmd_hook_uninstall, cmd_ingest, cmd_init, cmd_query, cmd_scan, cmd_status,
     format_ingest_report, format_query_results_json, format_query_results_table,
     format_scan_report, format_status_json, format_status_report,
+    migration_apply, migration_check, migration_restore, migration_split,
 };
 use crate::core::config::KnoxConfig;
 use crate::storage::db::KnoxDb;
@@ -34,8 +36,31 @@ pub fn dispatch(cli: KnoxCli, config: &KnoxConfig) -> anyhow::Result<()> {
         Some(Commands::Status(args)) => handle_status(args, &open_db(config)?),
         Some(Commands::Scan(args)) => handle_scan(args, &open_db(config)?),
         Some(Commands::Hook(args)) => handle_hook(args),
+        Some(Commands::Migrate(args)) => handle_migrate(args, config),
         Some(Commands::Serve(_args)) => handle_serve(config),
     }
+}
+
+pub fn handle_migrate(args: MigrationArgs, config: &KnoxConfig) -> anyhow::Result<()> {
+    let path = args.db.unwrap_or_else(|| config.resolve_db_path());
+    match args.action {
+        MigrationAction::Check => println!("{}", serde_json::to_string_pretty(&migration_check(&path)?)?),
+        MigrationAction::Apply => {
+            let (report, backup) = migration_apply(&path)?;
+            println!(
+                "Migration applied. Backup: {}\n{}",
+                backup.display(),
+                serde_json::to_string_pretty(&report)?
+            );
+        }
+        MigrationAction::Restore => println!("Restored {}", migration_restore(&path)?.display()),
+        MigrationAction::Split { output } => {
+            for created in migration_split(&path, &output)? {
+                println!("{}", created.display());
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn handle_init(args: InitArgs, config: &KnoxConfig) -> anyhow::Result<()> {
