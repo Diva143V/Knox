@@ -20,6 +20,7 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 - **Interactive Getting Started Tour with Peek Window Mode:** 9-step guided walkthrough modal (`OnboardingTourModal.tsx`) with live background tab synchronization, keyboard shortcuts, and instant "Peek Window" toggle (<kbd>P</kbd> or Eye icon) that docks into a floating bottom pill so developers can view 100% of the live application screen in motion without obstruction.
 - **Expanded Model Context Protocol (MCP) Server (24 Tools):** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing 24 tools including compact session begin, context, and handoff workflows.
 - **Token-Compact Markdown Digest Engine:** Automatically formats query and context outputs into dense, high-signal Markdown digests, reducing context window token consumption by over 70% compared to raw JSON envelopes.
+- **Token-Efficiency Measurements:** The public `knox::metrics::measure_token_efficiency` helper reports estimated tool-definition and context-format tokens, plus compact/Markdown savings against serialized action JSON.
 - **Native MCP Resources & Prompts:** Exposes live architectural resources (`knox://project/overview`, `knox://decisions/active`, `knox://context/{file}`) and guided handover prompts (`/architectural-audit`, `/session-handover`).
 - **V2 Schema & Semantic Relations:** First-class directional relationship graph (`depends_on`, `implements`, `verifies`, `relates_to`, `reverts`), code symbol indexing, and Architectural Decision Records (ADRs) with rationale and prohibited rejected alternatives.
 - **Windows NSIS Setup Wizard & Dedicated Uninstaller:** Consumer-grade installer package (`Knox_1.2.1_x64-setup.exe`, 5.46 MB with LZMA compression). Offers dual install scope (per-user `%LOCALAPPDATA%\Programs\Knox` default requiring no elevation, or machine-wide `Program Files\Knox`), creates Start Menu and Desktop shortcuts, and registers `uninstall.exe` in Windows Settings > Installed apps.
@@ -269,6 +270,10 @@ When running `knox serve`, Knox exposes 24 tools over the Model Context Protocol
 Returns compact, token-budgeted engineering context for a file, symbol, query, or project.
 - **Inputs:** Same filters as `knox_get_context`, plus `budget` (integer, default 1200, maximum 4000).
 - **Output:** Compact one-line entries with `budget_used`, `truncated`, and `has_more` metadata.
+
+Token-efficiency measurements are deterministic estimates based on the same conservative
+four-characters-per-token rule used by context budgets. They are intended for regression
+tests and release comparisons, not billing or provider-specific accounting.
 
 ### 1. `knox_start_session`
 Explicitly starts a new work session and returns a `session_id` (optional; actions auto-manage implicit sessions if omitted).
