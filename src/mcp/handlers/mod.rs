@@ -1,24 +1,23 @@
 //! Handlers and dispatcher for Model Context Protocol (MCP) tools in Knox.
 
-pub mod blame_causal;
 pub mod begin;
-pub mod check_guardrails;
+pub mod blame_causal;
 pub mod check;
+pub mod check_guardrails;
 pub mod diff_inspect;
 pub mod end_session;
 pub mod get_context;
-pub mod handoff;
 pub mod get_history;
 pub mod get_impact;
 pub mod get_lineage;
 pub mod get_path;
-pub mod trace;
+pub mod handoff;
 pub mod ingest;
 pub mod list_stale;
 pub mod prompts;
+pub mod record;
 pub mod record_action;
 pub mod record_batch;
-pub mod record;
 pub mod record_decision;
 pub mod record_doubt;
 pub mod resolve_doubt;
@@ -26,29 +25,29 @@ pub mod resources;
 pub mod scan_staged;
 pub mod search;
 pub mod start_session;
+pub mod trace;
 pub mod update_action;
 pub mod verify_drift;
 
-pub use blame_causal::handle_blame_causal;
 pub use begin::handle_begin;
-pub use check_guardrails::handle_check_guardrails;
+pub use blame_causal::handle_blame_causal;
 pub use check::handle_check;
+pub use check_guardrails::handle_check_guardrails;
 pub use diff_inspect::handle_diff_inspect;
 pub use end_session::handle_end_session;
-pub use get_context::handle_get_context;
-pub use handoff::handle_handoff;
 pub use get_context::handle_context;
+pub use get_context::handle_get_context;
 pub use get_history::handle_get_history;
 pub use get_impact::handle_get_impact;
 pub use get_lineage::handle_get_lineage;
 pub use get_path::handle_get_path;
-pub use trace::handle_trace;
+pub use handoff::handle_handoff;
 pub use ingest::handle_ingest;
 pub use list_stale::handle_list_stale;
 pub use prompts::{handle_prompts_get, handle_prompts_list};
+pub use record::handle_record;
 pub use record_action::handle_record_action;
 pub use record_batch::handle_record_batch;
-pub use record::handle_record;
 pub use record_decision::handle_record_decision;
 pub use record_doubt::handle_record_doubt;
 pub use resolve_doubt::handle_resolve_doubt;
@@ -56,6 +55,7 @@ pub use resources::{handle_resources_list, handle_resources_read};
 pub use scan_staged::handle_scan_staged;
 pub use search::handle_search;
 pub use start_session::handle_start_session;
+pub use trace::handle_trace;
 pub use update_action::handle_update_action;
 pub use verify_drift::handle_verify_drift;
 
@@ -114,9 +114,46 @@ pub fn dispatch_with_id(
     }
 }
 
+/// Suggestion attached to a legacy tool response. The plan requires every
+/// adapter to name the high-level replacement it delegates to.
+fn deprecation_hint(name: &str) -> &'static str {
+    match name {
+        "knox_start_session" => "use knox_begin",
+        "knox_end_session" => "use knox_handoff",
+        "knox_record_action" | "knox_record_decision" | "knox_record_doubt"
+        | "knox_record_batch" => "use knox_record",
+        "knox_update_action" => "use knox_record with supersedes",
+        "knox_resolve_doubt" => "use knox_record with an is_resolved entry",
+        "knox_get_context" | "knox_get_history" | "knox_search" | "knox_list_stale" => {
+            "use knox_context"
+        }
+        "knox_get_lineage" | "knox_get_impact" | "knox_get_path" | "knox_blame_causal" => {
+            "use knox_trace"
+        }
+        "knox_check_guardrails" => "use knox_check",
+        _ => "use the CLI",
+    }
+}
+
+/// Adds a `deprecated` marker to legacy tool responses that do not already set
+/// one, so deprecation is visible on every compatibility path.
+fn annotate_legacy_response(name: &str, value: Value) -> Value {
+    if !crate::mcp::tools::LEGACY_TOOL_NAMES.contains(&name) {
+        return value;
+    }
+    match value {
+        Value::Object(mut map) => {
+            map.entry("deprecated")
+                .or_insert_with(|| Value::String(deprecation_hint(name).to_string()));
+            Value::Object(map)
+        }
+        other => other,
+    }
+}
+
 /// Executes an individual Knox tool by its canonical tool name.
 pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value> {
-    match name {
+    let result = match name {
         "knox_context" => handle_context(db, params),
         "knox_begin" => handle_begin(db, params),
         "knox_handoff" => handle_handoff(db, params),
@@ -145,7 +182,8 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         "knox_blame_causal" => handle_blame_causal(db, params),
         "knox_verify_drift" => handle_verify_drift(db, params),
         _ => Err(KnoxError::InvalidInput(format!("Unknown tool: {name}"))),
-    }
+    }?;
+    Ok(annotate_legacy_response(name, result))
 }
 
 /// Protocol revisions this server understands, newest first.
@@ -159,12 +197,13 @@ const SERVER_INSTRUCTIONS: &str = "\
 Knox is an external long-term memory graph for AI coding agents. Use it instead of re-deriving project context.
 
 Mandatory protocol:
-1. Pre-flight: call knox_check_guardrails with the files you are about to touch (and any symbols). Read active decisions, open doubts and superseded anti-patterns before editing.
-2. During work: record decisions with knox_record_decision (include rationale and rejected_alternatives), doubts with knox_record_doubt, and code changes with knox_record_action or knox_record_batch (include files, symbols and relations). Use significance \"minor\" for micro-decisions.
-3. Navigation: use knox_get_lineage to trace why code exists, knox_get_impact before refactoring, and knox_get_path to connect two actions.
-4. When a doubt is answered, close the loop with knox_resolve_doubt. When an approach changes, supersede the previous decision instead of deleting history.
+1. Start every turn with knox_begin to resume the session and receive budgeted context.
+2. Pre-flight: call knox_check with the files you are about to touch (and any symbols) to read active decisions, open doubts and superseded anti-patterns before editing.
+3. During work: call knox_record once per turn with every decision, doubt and code change. Include files, symbols, why, and relations; give each entry a ref when another entry in the same call points at it.
+4. Navigation: use knox_trace to trace why code exists before refactoring.
+5. End the turn with knox_handoff to close the session and produce the digest the next session resumes from.
 
-Never delete history; append and supersede. Identify yourself in actor (for example gemini, cursor, claude, codex, human).";
+Never delete history; append and supersede. Identify yourself in actor (for example gemini, cursor, claude, codex, human). Legacy tool names still work when called directly, but new work should use the six tools above.";
 
 /// Negotiates the protocol revision, echoing a supported client request.
 fn negotiate_protocol_version(params: &Value) -> String {
@@ -244,7 +283,12 @@ fn map_error(id: Option<Value>, err: KnoxError) -> McpResponse {
         KnoxError::InvalidInput(msg)
         | KnoxError::SessionNotFound(msg)
         | KnoxError::ActionNotFound(msg)
-        | KnoxError::SessionClosed(msg) => McpResponse::error(id, McpError::invalid_params(msg)),
+        | KnoxError::SessionClosed(msg)
+        | KnoxError::IdemConflict(msg)
+        | KnoxError::OversizeInput(msg)
+        | KnoxError::InvalidRef(msg)
+        | KnoxError::CrossProject(msg)
+        | KnoxError::Cycle(msg) => McpResponse::error(id, McpError::invalid_params(msg)),
         KnoxError::Json(e) => McpResponse::error(id, McpError::parse_error(e.to_string())),
         other => McpResponse::error(id, McpError::internal_error(other.to_string())),
     }
@@ -270,18 +314,39 @@ mod tests {
     fn test_initialize_negotiates_protocol_and_returns_instructions() {
         let db = KnoxDb::open_memory().unwrap();
 
-        let supported = dispatch("initialize", json!({ "protocolVersion": "2024-11-05" }), &db);
+        let supported = dispatch(
+            "initialize",
+            json!({ "protocolVersion": "2024-11-05" }),
+            &db,
+        );
         let result = supported.result.unwrap();
         assert_eq!(result.get("protocolVersion").unwrap(), "2024-11-05");
-        assert!(result.get("instructions").unwrap().as_str().unwrap().contains("knox_check_guardrails"));
+        assert!(
+            result
+                .get("instructions")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .contains("knox_check")
+        );
 
-        let unknown = dispatch("initialize", json!({ "protocolVersion": "1999-01-01" }), &db);
+        let unknown = dispatch(
+            "initialize",
+            json!({ "protocolVersion": "1999-01-01" }),
+            &db,
+        );
         let result = unknown.result.unwrap();
-        assert_eq!(result.get("protocolVersion").unwrap(), DEFAULT_PROTOCOL_VERSION);
+        assert_eq!(
+            result.get("protocolVersion").unwrap(),
+            DEFAULT_PROTOCOL_VERSION
+        );
 
         let missing = dispatch("initialize", json!({}), &db);
         let result = missing.result.unwrap();
-        assert_eq!(result.get("protocolVersion").unwrap(), DEFAULT_PROTOCOL_VERSION);
+        assert_eq!(
+            result.get("protocolVersion").unwrap(),
+            DEFAULT_PROTOCOL_VERSION
+        );
     }
 
     #[test]

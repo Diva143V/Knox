@@ -12,7 +12,9 @@ pub enum KnoxError {
     DatabaseBusy(String),
 
     /// A project identifier matched more than one project row.
-    #[error("Ambiguous project identifier '{0}': matches multiple projects; pass the absolute path instead")]
+    #[error(
+        "Ambiguous project identifier '{0}': matches multiple projects; pass the absolute path instead"
+    )]
     AmbiguousProject(String),
 
     /// Requested session could not be located.
@@ -30,6 +32,26 @@ pub enum KnoxError {
     /// Arguments or parameters provided were invalid.
     #[error("Invalid input: {0}")]
     InvalidInput(String),
+
+    /// The same idempotency key was reused with a different payload.
+    #[error("IDEM_CONFLICT: idempotency key reused with a different payload: {0}")]
+    IdemConflict(String),
+
+    /// A text field exceeded its documented cap.
+    #[error("OVERSIZE_INPUT: {0}")]
+    OversizeInput(String),
+
+    /// A local reference in a batch could not be resolved.
+    #[error("INVALID_REF: {0}")]
+    InvalidRef(String),
+
+    /// An edge pointed at an action in another project.
+    #[error("CROSS_PROJECT: {0}")]
+    CrossProject(String),
+
+    /// A causal link would close a cycle.
+    #[error("CYCLE: {0}")]
+    Cycle(String),
 
     /// Failed to parse a transcript during ingestion.
     #[error("Transcript parse error: {0}")]
@@ -55,9 +77,7 @@ impl From<rusqlite::Error> for KnoxError {
                 if code.code == rusqlite::ErrorCode::DatabaseBusy
                     || code.code == rusqlite::ErrorCode::DatabaseLocked =>
             {
-                KnoxError::DatabaseBusy(
-                    message.unwrap_or_else(|| "database is locked".to_string()),
-                )
+                KnoxError::DatabaseBusy(message.unwrap_or_else(|| "database is locked".to_string()))
             }
             other => KnoxError::Database(other),
         }

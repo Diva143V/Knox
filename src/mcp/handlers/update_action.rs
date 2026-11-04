@@ -165,7 +165,8 @@ pub fn handle_update_action(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     Ok(json!({
         "status": "updated",
         "action": updated,
-        "markdown": md
+        "markdown": md,
+        "deprecated": "knox_update_action is kept for compatibility; prefer a knox_record entry with supersedes"
     }))
 }
 

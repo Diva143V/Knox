@@ -127,7 +127,9 @@ pub fn resolve_session(
     for s in recent {
         if s.is_open && s.actor == actor {
             let same_project = match &project_id {
-                Some(pid) => s.project_id.as_ref().map(|value| value.as_str()) == Some(pid.as_str()),
+                Some(pid) => {
+                    s.project_id.as_ref().map(|value| value.as_str()) == Some(pid.as_str())
+                }
                 None => s.project_id.is_none(),
             };
             if same_project {
@@ -253,7 +255,10 @@ pub fn handle_record_action(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
                 lines_deleted: d.lines_deleted.unwrap_or(0),
                 diff_hunk: d.diff_hunk.clone(),
                 deleted_code: d.deleted_code.clone(),
-                deletion_reason: d.deletion_reason.clone().or_else(|| input.deletion_reason.clone()),
+                deletion_reason: d
+                    .deletion_reason
+                    .clone()
+                    .or_else(|| input.deletion_reason.clone()),
                 created_at: now,
             });
         }
@@ -329,6 +334,8 @@ pub fn handle_record_action(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         resolution_note: input.resolution_note,
         commit_sha: input.commit_sha.clone(),
         delta_summary: delta_summary.clone(),
+        dedupe_key: None,
+        seen_count: 1,
     };
 
     crate::storage::nodes::insert_action_with_deltas(db, &action, &collected_deltas)?;
@@ -342,6 +349,7 @@ pub fn handle_record_action(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         "timestamp": now.to_rfc3339(),
         "commit_sha": input.commit_sha,
         "delta_summary": delta_summary,
+        "deprecated": "knox_record_action is kept for compatibility; prefer knox_record"
     }))
 }
 

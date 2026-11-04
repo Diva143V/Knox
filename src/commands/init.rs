@@ -29,8 +29,63 @@ pub fn cmd_init(project_path: &Path, config: &KnoxConfig) -> KnoxResult<()> {
     let project = ensure_project_record(&db, &project_name, &canonical_str)?;
     let knox_md_path = resolved_path.join("knox.md");
     write_knox_md(&knox_md_path, &project, &db_path)?;
+    ensure_gitignore(&resolved_path)?;
 
     Ok(())
+}
+
+/// Adds `.knox/` to the project `.gitignore` when one already exists or the
+/// directory is a git repository, so local databases are never committed.
+fn ensure_gitignore(project_path: &Path) -> KnoxResult<()> {
+    let gitignore = project_path.join(".gitignore");
+    if !gitignore.exists() && !project_path.join(".git").exists() {
+        return Ok(());
+    }
+    let existing = fs::read_to_string(&gitignore).unwrap_or_default();
+    if existing
+        .lines()
+        .any(|line| line.trim() == ".knox/" || line.trim() == ".knox")
+    {
+        return Ok(());
+    }
+    let mut updated = existing;
+    if !updated.is_empty() && !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(".knox/\n");
+    fs::write(&gitignore, updated)?;
+    Ok(())
+}
+
+/// Registers the initialized workspace in the cross-project registry.
+///
+/// Kept separate from `cmd_init` so unit tests that initialize temporary
+/// workspaces never touch the developer's real `~/.knox/registry.db`.
+pub fn register_workspace(project_path: &Path) -> KnoxResult<()> {
+    let resolved_path = resolve_project_path(project_path);
+    let name = extract_project_name(&resolved_path);
+    let root = resolved_path.to_string_lossy().to_string();
+    let remote = git_remote(&resolved_path);
+    crate::storage::registry::register_project(&root, &name, remote.as_deref())
+}
+
+/// Reads `remote.origin.url` for the project, when it is a git repository.
+fn git_remote(project_path: &Path) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(project_path)
+        .args(["config", "--get", "remote.origin.url"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let remote = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if remote.is_empty() {
+        None
+    } else {
+        Some(remote)
+    }
 }
 
 /// Resolves path to canonical form if it exists, or normalized absolute path.
@@ -197,7 +252,7 @@ Before touching files:
 
 ## 3. MCP Tool Reference & Schemas
 
-Knox exposes 27 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
+Knox exposes 6 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`). Legacy tool names remain callable.
 
 ### 3.1 `knox_check_guardrails`
 Pre-flight safety inspection for target files. Returns active decisions and superseded anti-patterns.

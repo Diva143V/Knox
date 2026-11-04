@@ -41,7 +41,10 @@ impl KnoxConfig {
 
         let mut config = Self::load_from_file(&config_path).unwrap_or_default();
 
-        if let Ok(path_str) = env::var("KNOX_KG_PATH").or_else(|_| env::var("KNOX_DB_PATH")) {
+        if let Ok(path_str) = env::var("KNOX_PATH")
+            .or_else(|_| env::var("KNOX_KG_PATH"))
+            .or_else(|_| env::var("KNOX_DB_PATH"))
+        {
             if !path_str.trim().is_empty() {
                 config.kg_path = expand_tilde(path_str.trim());
             }
@@ -139,7 +142,7 @@ impl Default for KnoxConfig {
         Self {
             kg_path: default_global_db_path(),
             session_timeout: DEFAULT_SESSION_TIMEOUT,
-            global_mode: true,
+            global_mode: false,
         }
     }
 }
@@ -201,7 +204,7 @@ mod tests {
     fn test_default_config() {
         let config = KnoxConfig::default();
         assert_eq!(config.session_timeout, DEFAULT_SESSION_TIMEOUT);
-        assert!(config.global_mode);
+        assert!(!config.global_mode);
         assert!(
             config
                 .kg_path

@@ -48,7 +48,8 @@ pub fn handle_resolve_doubt(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         "status": "resolved",
         "doubt_id": doubt_id.to_string(),
         "resolution_note": input.resolution_note.trim(),
-        "resolved_by_action_id": resolver_id.map(|id| id.to_string())
+        "resolved_by_action_id": resolver_id.map(|id| id.to_string()),
+        "deprecated": "knox_resolve_doubt is kept for compatibility; prefer knox_record with an is_resolved entry"
     }))
 }
 

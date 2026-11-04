@@ -20,24 +20,34 @@ pub fn handle_begin(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .map_err(|e| KnoxError::InvalidInput(format!("Invalid begin params: {e}")))?;
     let actor = input.actor.trim();
     if actor.is_empty() {
-        return Err(KnoxError::InvalidInput("Actor must not be empty".to_string()));
+        return Err(KnoxError::InvalidInput(
+            "Actor must not be empty".to_string(),
+        ));
     }
 
-    let existing = crate::storage::sessions::find_open_session(
-        db,
-        actor,
-        input.workspace.as_deref(),
-    )?;
-    let (session, resumed) = match existing {
-        Some(session) => (session, true),
-        None => (
-            crate::storage::sessions::start_session(
-                db,
-                actor,
-                input.workspace.as_deref(),
-            )?,
-            false,
-        ),
+    let existing =
+        crate::storage::sessions::find_open_session(db, actor, input.workspace.as_deref())?;
+    let (session, resumed, parent_session) = match existing {
+        Some(session) => (session, true, None),
+        None => {
+            let session =
+                crate::storage::sessions::start_session(db, actor, input.workspace.as_deref())?;
+            // Link the new session to the most recent session for the same
+            // actor and project so handoff digests form a chain.
+            let previous = crate::storage::sessions::list_recent_sessions(db, 50)?
+                .into_iter()
+                .find(|candidate| {
+                    candidate.id != session.id
+                        && candidate.actor == actor
+                        && candidate.project_id == session.project_id
+                });
+            if let Some(previous) = previous {
+                crate::storage::sessions::set_parent_session(db, &session.id, &previous.id)?;
+                (session, false, Some(previous.id))
+            } else {
+                (session, false, None)
+            }
+        }
     };
 
     let mut context = json!({
@@ -59,7 +69,8 @@ pub fn handle_begin(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             "session_id": session.id.to_string(),
             "project": session.project,
             "actor": actor,
-            "resumed": resumed
+            "resumed": resumed,
+            "parent_session_id": parent_session.map(|id| id.to_string())
         },
         "context": context
     }))
@@ -92,5 +103,20 @@ mod tests {
         let first = handle_begin(&db, json!({"actor": "gemini"})).unwrap();
         let second = handle_begin(&db, json!({"actor": "claude"})).unwrap();
         assert_ne!(first["scope"]["session_id"], second["scope"]["session_id"]);
+    }
+
+    #[test]
+    fn new_session_links_to_the_previous_one() {
+        let db = KnoxDb::open_memory().unwrap();
+        let first = handle_begin(&db, json!({"actor": "gemini"})).unwrap();
+        let first_id = first["scope"]["session_id"].as_str().unwrap().to_string();
+        super::super::handle_handoff(&db, json!({"session_id": first_id})).unwrap();
+
+        let second = handle_begin(&db, json!({"actor": "gemini"})).unwrap();
+        assert_eq!(second["scope"]["resumed"], false);
+        assert_eq!(
+            second["scope"]["parent_session_id"].as_str().unwrap(),
+            first_id
+        );
     }
 }

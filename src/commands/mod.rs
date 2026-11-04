@@ -7,6 +7,7 @@ pub mod migrate;
 pub mod query;
 pub mod scan;
 pub mod status;
+pub mod transfer;
 
 pub use hook::*;
 pub use ingest::*;
@@ -15,3 +16,4 @@ pub use migrate::*;
 pub use query::*;
 pub use scan::*;
 pub use status::*;
+pub use transfer::*;

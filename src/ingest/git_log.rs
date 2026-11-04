@@ -117,6 +117,8 @@ impl TranscriptMapper for GitLogMapper {
                 resolution_note: None,
                 commit_sha: Some(commit.hash.clone()),
                 delta_summary: None,
+                dedupe_key: None,
+                seen_count: 1,
             };
 
             actions.push(plan_action);
@@ -155,6 +157,8 @@ impl TranscriptMapper for GitLogMapper {
                     resolution_note: None,
                     commit_sha: Some(commit.hash.clone()),
                     delta_summary: None,
+                    dedupe_key: None,
+                    seen_count: 1,
                 };
                 actions.push(write_action);
                 previous_action_id = Some(write_id);

@@ -5,6 +5,7 @@ pub mod edges;
 pub mod migrations;
 pub mod nodes;
 pub mod queries;
+pub mod registry;
 pub mod sessions;
 
 pub use db::KnoxDb;
@@ -17,7 +18,11 @@ pub use nodes::{
     mark_superseded, parse_hunk_line_range, resolve_doubt, update_action,
 };
 pub use queries::{get_actions_by_ids, get_status_report, query_actions, search_actions};
+pub use registry::{
+    RegistryEntry, find_registered_project, list_registered_projects, register_project,
+    registry_path,
+};
 pub use sessions::{
-    end_session, find_open_session, get_session, list_recent_sessions, resolve_project_identifier, start_session,
-    timeout_stale_sessions,
+    end_session, find_open_session, get_session, list_recent_sessions, resolve_project_identifier,
+    start_session, timeout_stale_sessions,
 };

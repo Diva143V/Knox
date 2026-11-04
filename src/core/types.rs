@@ -54,9 +54,9 @@ impl std::str::FromStr for RelationType {
 
 /// Target size limits for code deltas.
 pub const MAX_DIFF_LINES: usize = 250;
-pub const MAX_HUNK_BYTES: usize = 16_384;            // 16 KiB limit
-pub const MAX_DELETED_SNIPPET_BYTES: usize = 4_096;  // 4 KiB limit
-pub const MAX_DELTA_FILE_BYTES: usize = 512 * 1024;  // 512 KiB limit
+pub const MAX_HUNK_BYTES: usize = 16_384; // 16 KiB limit
+pub const MAX_DELETED_SNIPPET_BYTES: usize = 4_096; // 4 KiB limit
+pub const MAX_DELTA_FILE_BYTES: usize = 512 * 1024; // 512 KiB limit
 
 /// Type of filesystem or git modification recorded in an action delta.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -231,6 +231,17 @@ pub struct KnoxAction {
     /// Aggregated code change statistics for this action.
     #[serde(default)]
     pub delta_summary: Option<DeltaSummary>,
+    /// Stable key used to merge exact duplicate records within the dedupe window.
+    #[serde(default)]
+    pub dedupe_key: Option<String>,
+    /// Number of times an equivalent record has been observed.
+    #[serde(default = "default_seen_count")]
+    pub seen_count: u32,
+}
+
+/// Default observation count for actions created before dedupe existed.
+fn default_seen_count() -> u32 {
+    1
 }
 
 impl Default for KnoxAction {
@@ -259,6 +270,8 @@ impl Default for KnoxAction {
             resolution_note: None,
             commit_sha: None,
             delta_summary: None,
+            dedupe_key: None,
+            seen_count: 1,
         }
     }
 }

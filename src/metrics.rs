@@ -18,17 +18,11 @@ pub struct TokenEfficiencyReport {
 
 impl TokenEfficiencyReport {
     pub fn compact_savings_percent(&self) -> usize {
-        savings_percent(
-            self.json_context_tokens,
-            self.compact_context_tokens,
-        )
+        savings_percent(self.json_context_tokens, self.compact_context_tokens)
     }
 
     pub fn markdown_savings_percent(&self) -> usize {
-        savings_percent(
-            self.json_context_tokens,
-            self.markdown_context_tokens,
-        )
+        savings_percent(self.json_context_tokens, self.markdown_context_tokens)
     }
 }
 
@@ -39,15 +33,13 @@ pub fn measure_token_efficiency(
     let tool_definitions = tools
         .iter()
         .map(|tool| {
-            serde_json::to_string(tool)
-                .expect("ToolDescription must remain JSON serializable")
+            serde_json::to_string(tool).expect("ToolDescription must remain JSON serializable")
         })
         .collect::<Vec<_>>()
         .join("\n");
     let compact = format_compact_digest(actions);
     let markdown = format_markdown_digest("Context", actions, false);
-    let json = serde_json::to_string(actions)
-        .expect("KnoxAction must remain JSON serializable");
+    let json = serde_json::to_string(actions).expect("KnoxAction must remain JSON serializable");
 
     TokenEfficiencyReport {
         tool_count: tools.len(),
@@ -84,7 +76,7 @@ mod tests {
         }];
         let report = measure_token_efficiency(&all_tools(), &actions);
 
-        assert_eq!(report.tool_count, 27);
+        assert_eq!(report.tool_count, crate::mcp::tools::TOOL_COUNT);
         assert!(report.tool_definition_tokens > 0);
         assert!(report.compact_context_tokens < report.json_context_tokens);
         assert!(report.compact_savings_percent() > 0);

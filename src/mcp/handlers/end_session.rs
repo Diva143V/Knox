@@ -1,4 +1,7 @@
-//! MCP tool handler for `knox_end_session`.
+//! Legacy `knox_end_session` adapter.
+//!
+//! Delegates to `knox_handoff` so ending a session always produces the same
+//! digest a resumed session would receive.
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -27,11 +30,17 @@ pub fn handle_end_session(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     }
 
     let session_id = SessionId::from(trimmed);
-    let session = crate::storage::sessions::end_session(db, &session_id)?;
+    let handed_off = super::handle_handoff(
+        db,
+        json!({
+            "session_id": session_id.as_str(),
+        }),
+    )?;
 
+    let session = crate::storage::sessions::get_session(db, &session_id)?
+        .ok_or_else(|| KnoxError::SessionNotFound(session_id.to_string()))?;
     let actions_recorded =
         crate::storage::sessions::count_session_actions(db, &session_id).unwrap_or(0);
-
     let duration_seconds = session
         .ended_at
         .map(|ended| (ended - session.started_at).num_seconds().max(0))
@@ -40,7 +49,10 @@ pub fn handle_end_session(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     Ok(json!({
         "status": "closed",
         "actions_recorded": actions_recorded,
-        "duration_seconds": duration_seconds
+        "duration_seconds": duration_seconds,
+        "session_id": session_id.to_string(),
+        "digest": handed_off.get("digest").cloned().unwrap_or(Value::Null),
+        "deprecated": "knox_end_session is kept for compatibility; prefer knox_handoff"
     }))
 }
 
@@ -60,6 +72,7 @@ mod tests {
         let res = handle_end_session(&db, params).unwrap();
         assert_eq!(res.get("status").unwrap(), "closed");
         assert_eq!(res.get("actions_recorded").unwrap(), 0);
+        assert!(res.get("digest").is_some());
     }
 
     #[test]

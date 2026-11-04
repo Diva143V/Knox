@@ -67,6 +67,8 @@ type ActionDbRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
+    i64,
 );
 
 /// Maps one SQLite row (in the canonical select order) to the raw action tuple.
@@ -90,6 +92,8 @@ fn map_action_db_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ActionDbRow> {
         row.get::<_, Option<String>>(15)?,
         row.get::<_, Option<String>>(16)?,
         row.get::<_, Option<String>>(17)?,
+        row.get::<_, Option<String>>(18)?,
+        row.get::<_, i64>(19)?,
     ))
 }
 
@@ -104,7 +108,8 @@ fn fetch_query_actions(
         "SELECT a.id, a.actor, a.action_type, a.summary, a.confidence,
                 a.timestamp, a.session_id, a.parent_action_id, a.superseded_by, a.is_current,
                 a.rationale, a.context_summary, a.rejected_alternatives,
-                a.significance, a.is_resolved, a.resolution_note, a.commit_sha, a.project_id
+                a.significance, a.is_resolved, a.resolution_note, a.commit_sha, a.project_id,
+                a.dedupe_key, a.seen_count
          FROM actions a WHERE {where_clause}
          ORDER BY COALESCE(a.timestamp_ms, 0) DESC, a.timestamp DESC LIMIT {limit}"
     );
@@ -168,6 +173,8 @@ fn map_action_rows(
         resolution_note,
         commit_sha,
         project_id,
+        dedupe_key,
+        seen_count,
     ) in rows
     {
         let timestamp = DateTime::parse_from_rfc3339(&ts_str)
@@ -245,6 +252,8 @@ fn map_action_rows(
             resolution_note,
             commit_sha,
             delta_summary,
+            dedupe_key,
+            seen_count: seen_count.max(1) as u32,
         });
     }
     Ok(results)
@@ -291,7 +300,8 @@ pub fn get_actions_by_ids(db: &KnoxDb, ids: &[ActionId]) -> KnoxResult<Vec<KnoxA
         "SELECT a.id, a.actor, a.action_type, a.summary, a.confidence,
                 a.timestamp, a.session_id, a.parent_action_id, a.superseded_by, a.is_current,
                 a.rationale, a.context_summary, a.rejected_alternatives,
-                a.significance, a.is_resolved, a.resolution_note, a.commit_sha, a.project_id
+                a.significance, a.is_resolved, a.resolution_note, a.commit_sha, a.project_id,
+                a.dedupe_key, a.seen_count
          FROM actions a WHERE a.id IN ({placeholders})"
     );
     let mut stmt = conn.prepare(&select_sql)?;
@@ -430,6 +440,8 @@ fn build_action_from_row(
         resolution_note,
         commit_sha,
         project_id,
+        dedupe_key,
+        seen_count,
     ) = row.clone();
 
     let timestamp = DateTime::parse_from_rfc3339(&ts_str)
@@ -463,6 +475,8 @@ fn build_action_from_row(
         resolution_note,
         commit_sha,
         delta_summary,
+        dedupe_key,
+        seen_count: seen_count.max(1) as u32,
     }
 }
 
@@ -598,10 +612,7 @@ fn append_project_filter(
 }
 
 /// Constructs dynamic SQL WHERE clauses and bound parameters from `QueryFilter`.
-fn build_where_clause(
-    db: &KnoxDb,
-    filter: &QueryFilter,
-) -> KnoxResult<(String, Vec<SqlParam>)> {
+fn build_where_clause(db: &KnoxDb, filter: &QueryFilter) -> KnoxResult<(String, Vec<SqlParam>)> {
     let mut clauses = Vec::new();
     let mut params = Vec::new();
 

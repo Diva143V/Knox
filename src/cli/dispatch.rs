@@ -3,14 +3,14 @@
 use anyhow::Context;
 
 use crate::cli::args::{
-    Commands, HookAction, HookArgs, IngestArgs, InitArgs, KnoxCli, MigrationAction, MigrationArgs,
-    QueryArgs, ScanArgs, StatusArgs,
+    Commands, ExportArgs, HookAction, HookArgs, ImportArgs, IngestArgs, InitArgs, KnoxCli,
+    MigrationAction, MigrationArgs, QueryArgs, ScanArgs, StatusArgs,
 };
 use crate::commands::{
-    cmd_hook_install, cmd_hook_uninstall, cmd_ingest, cmd_init, cmd_query, cmd_scan, cmd_status,
-    format_ingest_report, format_query_results_json, format_query_results_table,
-    format_scan_report, format_status_json, format_status_report,
-    migration_apply, migration_check, migration_restore, migration_split,
+    cmd_export, cmd_hook_install, cmd_hook_uninstall, cmd_ingest, cmd_init, cmd_query, cmd_scan,
+    cmd_status, export_to_file, format_ingest_report, format_query_results_json,
+    format_query_results_table, format_scan_report, format_status_json, format_status_report,
+    import_from_file, migration_apply, migration_check, migration_restore, migration_split,
 };
 use crate::core::config::KnoxConfig;
 use crate::storage::db::KnoxDb;
@@ -37,6 +37,8 @@ pub fn dispatch(cli: KnoxCli, config: &KnoxConfig) -> anyhow::Result<()> {
         Some(Commands::Scan(args)) => handle_scan(args, &open_db(config)?),
         Some(Commands::Hook(args)) => handle_hook(args),
         Some(Commands::Migrate(args)) => handle_migrate(args, config),
+        Some(Commands::Export(args)) => handle_export(args, &open_db(config)?),
+        Some(Commands::Import(args)) => handle_import(args, &open_db(config)?),
         Some(Commands::Serve(_args)) => handle_serve(config),
     }
 }
@@ -44,7 +46,10 @@ pub fn dispatch(cli: KnoxCli, config: &KnoxConfig) -> anyhow::Result<()> {
 pub fn handle_migrate(args: MigrationArgs, config: &KnoxConfig) -> anyhow::Result<()> {
     let path = args.db.unwrap_or_else(|| config.resolve_db_path());
     match args.action {
-        MigrationAction::Check => println!("{}", serde_json::to_string_pretty(&migration_check(&path)?)?),
+        MigrationAction::Check => println!(
+            "{}",
+            serde_json::to_string_pretty(&migration_check(&path)?)?
+        ),
         MigrationAction::Apply => {
             let (report, backup) = migration_apply(&path)?;
             println!(
@@ -66,7 +71,48 @@ pub fn handle_migrate(args: MigrationArgs, config: &KnoxConfig) -> anyhow::Resul
 pub fn handle_init(args: InitArgs, config: &KnoxConfig) -> anyhow::Result<()> {
     cmd_init(&args.path, config)
         .with_context(|| format!("Failed to initialize workspace at {}", args.path.display()))?;
+    // Registry failures must never make a successful init look broken.
+    if let Err(err) = crate::commands::register_workspace(&args.path) {
+        eprintln!("warning: could not update the Knox project registry: {err}");
+    }
     println!("Initialized Knox workspace at {}", args.path.display());
+    Ok(())
+}
+
+pub fn handle_export(args: ExportArgs, db: &KnoxDb) -> anyhow::Result<()> {
+    match args.output {
+        Some(path) => {
+            let report = export_to_file(db, args.project.as_deref(), &path)
+                .with_context(|| format!("Failed to export to {}", path.display()))?;
+            println!(
+                "Exported {} projects, {} sessions, {} actions to {}",
+                report.projects,
+                report.sessions,
+                report.actions,
+                path.display()
+            );
+        }
+        None => {
+            let stdout = std::io::stdout();
+            let mut lock = stdout.lock();
+            let report = cmd_export(db, args.project.as_deref(), &mut lock)
+                .context("Failed to export project memory")?;
+            eprintln!(
+                "Exported {} projects, {} sessions, {} actions",
+                report.projects, report.sessions, report.actions
+            );
+        }
+    }
+    Ok(())
+}
+
+pub fn handle_import(args: ImportArgs, db: &KnoxDb) -> anyhow::Result<()> {
+    let report = import_from_file(db, &args.input)
+        .with_context(|| format!("Failed to import {}", args.input.display()))?;
+    println!(
+        "Imported {} projects, {} sessions, {} actions ({} already present)",
+        report.projects, report.sessions, report.actions, report.skipped
+    );
     Ok(())
 }
 

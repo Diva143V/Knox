@@ -18,7 +18,7 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 - **Native Desktop GUI (Tauri v2 + React 19):** Modern, dark-first desktop experience featuring an interactive Knowledge Graph canvas, telemetry dashboard, FTS5 query console, live transcript ingestion studio, and Git human-edit scanner.
 - **Cosmos Orb Mode & Dynamic D3 Physics Simulation:** Dual-mode graph canvas allowing developers to switch between structured rectangular cards and luminous Cosmos circular nodes (`CircleNode.tsx`) with role-based glowing radial auras. Integrated continuous live D3 force physics simulation (`useLivePhysics.ts`) provides interactive node grabbing, spring-link constraints, and fluid reheat motion.
 - **Interactive Getting Started Tour with Peek Window Mode:** 9-step guided walkthrough modal (`OnboardingTourModal.tsx`) with live background tab synchronization, keyboard shortcuts, and instant "Peek Window" toggle (<kbd>P</kbd> or Eye icon) that docks into a floating bottom pill so developers can view 100% of the live application screen in motion without obstruction.
-- **Expanded Model Context Protocol (MCP) Server (27 Tools):** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing 27 tools including compact begin, context, check, trace, record, and handoff workflows.
+- **Focused Model Context Protocol (MCP) Server (6 Tools):** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing six high-level workflow tools — begin, context, check, trace, record, and handoff — with legacy tool names still callable for backwards compatibility.
 - **Token-Compact Markdown Digest Engine:** Automatically formats query and context outputs into dense, high-signal Markdown digests, reducing context window token consumption by over 70% compared to raw JSON envelopes.
 - **Token-Efficiency Measurements:** The public `knox::metrics::measure_token_efficiency` helper reports estimated tool-definition and context-format tokens, plus compact/Markdown savings against serialized action JSON.
 - **Native MCP Resources & Prompts:** Exposes live architectural resources (`knox://project/overview`, `knox://decisions/active`, `knox://context/{file}`) and guided handover prompts (`/architectural-audit`, `/session-handover`).
@@ -264,7 +264,7 @@ Knox ships with a unified binary `knox.exe`. For Windows Command Prompt and Powe
 
 ## MCP Tools Reference
 
-When running `knox serve`, Knox exposes 27 tools over the Model Context Protocol:
+When running `knox serve`, Knox exposes 6 tools over the Model Context Protocol. Legacy tool names remain callable for existing clients.
 
 ### `knox_context`
 Returns compact, token-budgeted engineering context for a file, symbol, query, or project.

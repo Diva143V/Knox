@@ -1,205 +1,121 @@
-//! MCP tool handler for `knox_record_batch`.
+//! Legacy `knox_record_batch` adapter.
+//!
+//! The batch tool keeps its original request and response shape for existing
+//! clients, but every write now goes through the atomic `knox_record` path so
+//! validation, local refs, dedupe and idempotency behave identically.
 
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
-use super::record_action::{
-    ActionRelationInput, default_significance, normalize_action_type, resolve_session,
-};
 use crate::core::error::{KnoxError, KnoxResult};
-use crate::core::ids::ActionId;
-use crate::core::types::{ActionRelation, KnoxAction, RelationType};
-use crate::ingest::summary::normalize_file_path_with_root;
 use crate::storage::db::KnoxDb;
 
-/// A single action entry within a batch request.
-#[derive(Debug, Deserialize)]
-pub struct BatchActionItem {
-    pub action_type: String,
-    pub summary: String,
-    #[serde(default)]
-    pub files: Vec<String>,
-    #[serde(default)]
-    pub parent_action_id: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub confidence: Option<f64>,
-    #[serde(default)]
-    pub supersedes: Option<String>,
-    #[serde(default)]
-    pub relations: Vec<ActionRelationInput>,
-    #[serde(default)]
-    pub symbols: Vec<String>,
-    #[serde(default)]
-    pub rationale: Option<String>,
-    #[serde(default)]
-    pub rejected_alternatives: Vec<String>,
-    #[serde(default)]
-    pub context_summary: Option<String>,
-    /// Optional significance level ("major" vs "minor").
-    #[serde(default)]
-    pub significance: Option<String>,
-    /// Optional resolution status (false for open doubts, true for resolved/standard).
-    #[serde(default)]
-    pub is_resolved: Option<bool>,
-    /// Optional resolution note.
-    #[serde(default)]
-    pub resolution_note: Option<String>,
-    /// Convenience helper: automatically set parent_action_id to the previous action in this batch.
-    #[serde(default)]
-    pub link_to_previous: Option<bool>,
-}
+/// Translates one legacy batch item into a `knox_record` entry.
+fn translate_item(item: &Value, default_link: Option<bool>) -> KnoxResult<Value> {
+    let object = item
+        .as_object()
+        .ok_or_else(|| KnoxError::InvalidInput("batch actions must be objects".to_string()))?;
+    let mut entry = Map::new();
 
-/// Input parameters for `knox_record_batch`.
-#[derive(Debug, Deserialize)]
-pub struct RecordBatchParams {
-    pub actor: String,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub project: Option<String>,
-    #[serde(default)]
-    pub link_to_previous: Option<bool>,
-    pub actions: Vec<BatchActionItem>,
+    if let Some(action_type) = object.get("action_type") {
+        entry.insert("kind".to_string(), action_type.clone());
+    }
+    for key in [
+        "summary",
+        "files",
+        "tags",
+        "confidence",
+        "supersedes",
+        "symbols",
+        "rationale",
+        "rejected_alternatives",
+        "context_summary",
+        "significance",
+        "is_resolved",
+        "resolution_note",
+        "parent_action_id",
+        "caused_by",
+        "ref",
+    ] {
+        if let Some(value) = object.get(key) {
+            entry.insert(key.to_string(), value.clone());
+        }
+    }
+
+    if let Some(relations) = object.get("relations").and_then(Value::as_array) {
+        let translated: Vec<Value> = relations
+            .iter()
+            .map(|relation| {
+                let mut relation_object = relation.as_object().cloned().unwrap_or_default();
+                if !relation_object.contains_key("to") {
+                    if let Some(target) = relation_object.remove("target_id") {
+                        relation_object.insert("to".to_string(), target);
+                    }
+                }
+                Value::Object(relation_object)
+            })
+            .collect();
+        entry.insert("relations".to_string(), Value::Array(translated));
+    }
+
+    let link = object
+        .get("link_to_previous")
+        .and_then(Value::as_bool)
+        .or(default_link);
+    if let Some(link) = link {
+        entry.insert("link_to_previous".to_string(), Value::Bool(link));
+    }
+
+    Ok(Value::Object(entry))
 }
 
 /// Handles the `knox_record_batch` tool invocation.
 pub fn handle_record_batch(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
-    let input: RecordBatchParams = serde_json::from_value(params)
-        .map_err(|e| KnoxError::InvalidInput(format!("Invalid record_batch params: {e}")))?;
-
-    if input.actor.trim().is_empty() {
-        return Err(KnoxError::InvalidInput(
-            "actor must not be empty".to_string(),
-        ));
-    }
-    if input.actions.is_empty() {
-        return Err(KnoxError::InvalidInput(
-            "actions array must not be empty".to_string(),
-        ));
-    }
-
-    let (session_id, is_implicit) = resolve_session(
-        db,
-        input.actor.trim(),
-        input.project.as_deref(),
-        input.session_id.as_deref(),
-    )?;
-
-    let session = crate::storage::sessions::get_session(db, &session_id)?
-        .ok_or_else(|| KnoxError::SessionNotFound(session_id.to_string()))?;
-    let project_id = session.project_id.clone();
-    let project_root = project_id
-        .as_ref()
-        .and_then(|pid| crate::storage::nodes::get_project(db, pid).ok().flatten())
-        .map(|p| p.path);
-
-    let actor = input.actor.trim().to_string();
-    let batch_link = input.link_to_previous;
-    let batch_items = input.actions;
-
-    // One transaction for the whole batch: the tool description promises
-    // atomicity, so a failure on item N must not leave items 1..N-1 committed.
-    let (recorded_ids, _last_action_id) = db.with_tx(|conn| {
-        let mut recorded_ids = Vec::with_capacity(batch_items.len());
-        let mut last_action_id: Option<ActionId> = None;
-
-        for item in &batch_items {
-            if item.action_type.trim().is_empty() {
-                return Err(KnoxError::InvalidInput(
-                    "action_type must not be empty on all batch items".to_string(),
-                ));
-            }
-            if item.summary.trim().is_empty() {
-                return Err(KnoxError::InvalidInput(
-                    "summary must not be empty on all batch items".to_string(),
-                ));
-            }
-
-            let mut parent_id = item.parent_action_id.clone().map(ActionId::from);
-            let should_link = item.link_to_previous.or(batch_link).unwrap_or(false);
-            if should_link && parent_id.is_none() {
-                parent_id = last_action_id.clone();
-            }
-
-            let relations: Vec<ActionRelation> = item
-                .relations
-                .iter()
-                .map(|r| {
-                    let rel_type = r
-                        .relation_type
-                        .as_deref()
-                        .unwrap_or("relates_to")
-                        .parse::<RelationType>()
-                        .unwrap_or(RelationType::RelatesTo);
-                    ActionRelation {
-                        target_id: ActionId::from(r.target_id.trim()),
-                        relation_type: rel_type,
-                    }
-                })
-                .collect();
-
-            let norm_files: Vec<String> = item
-                .files
-                .iter()
-                .map(|f| normalize_file_path_with_root(f, project_root.as_deref()))
-                .collect();
-            let action_id = ActionId::new();
-            let now = chrono::Utc::now();
-
-            let norm_action_type = normalize_action_type(&item.action_type);
-
-            let is_doubt = norm_action_type == "doubt" || norm_action_type == "question";
-            let is_resolved = item.is_resolved.or(Some(!is_doubt));
-            let significance = item
-                .significance
-                .clone()
-                .or_else(|| Some(default_significance(&norm_action_type).to_string()));
-
-            let action = KnoxAction {
-                id: action_id.clone(),
-                actor: actor.clone(),
-                action_type: norm_action_type,
-                summary: item.summary.trim().to_string(),
-                files: norm_files,
-                tags: item.tags.clone(),
-                confidence: item.confidence,
-                is_current: true,
-                timestamp: now,
-                session_id: Some(session_id.clone()),
-                project_id: project_id.clone(),
-                parent_action_id: parent_id,
-                supersedes: item.supersedes.clone().map(ActionId::from),
-                relations,
-                symbols: item.symbols.clone(),
-                rationale: item.rationale.clone(),
-                rejected_alternatives: item.rejected_alternatives.clone(),
-                context_summary: item.context_summary.clone(),
-                significance,
-                is_resolved,
-                resolution_note: item.resolution_note.clone(),
-                commit_sha: None,
-                delta_summary: None,
-            };
-
-            crate::storage::nodes::insert_action_conn(conn, &action)?;
-            last_action_id = Some(action_id.clone());
-            recorded_ids.push(action_id.to_string());
-        }
-
-        Ok((recorded_ids, last_action_id))
+    let object = params.as_object().ok_or_else(|| {
+        KnoxError::InvalidInput("record_batch params must be an object".to_string())
     })?;
 
-    Ok(json!({
-        "status": "recorded",
-        "count": recorded_ids.len(),
-        "recorded_count": recorded_ids.len(),
-        "ids": recorded_ids.clone(),
-        "action_ids": recorded_ids,
-        "session_id": session_id.to_string(),
-        "session_implicit": is_implicit
-    }))
+    let actions = object
+        .get("actions")
+        .and_then(Value::as_array)
+        .ok_or_else(|| KnoxError::InvalidInput("record_batch requires 'actions'".to_string()))?;
+
+    let default_link = object.get("link_to_previous").and_then(Value::as_bool);
+    let entries: Vec<Value> = actions
+        .iter()
+        .map(|item| translate_item(item, default_link))
+        .collect::<KnoxResult<_>>()?;
+
+    let mut record = Map::new();
+    if let Some(actor) = object.get("actor") {
+        record.insert("actor".to_string(), actor.clone());
+    }
+    for key in ["project", "session_id", "idem", "dry_run"] {
+        if let Some(value) = object.get(key) {
+            record.insert(key.to_string(), value.clone());
+        }
+    }
+    record.insert("entries".to_string(), Value::Array(entries));
+
+    let ack = super::handle_record(db, Value::Object(record))?;
+
+    // Preserve the legacy response keys while surfacing the new diagnostics.
+    let ids = ack.get("ids").cloned().unwrap_or_else(|| json!([]));
+    let mut response = json!({
+        "status": ack.get("status").cloned().unwrap_or_else(|| json!("recorded")),
+        "count": ack.get("count").cloned().unwrap_or_else(|| json!(0)),
+        "recorded_count": ack.get("recorded_count").cloned().unwrap_or_else(|| json!(0)),
+        "ids": ids.clone(),
+        "action_ids": ids,
+        "session_id": ack.get("session_id").cloned().unwrap_or(Value::Null),
+        "session_implicit": ack.get("session_implicit").cloned().unwrap_or(json!(false)),
+        "deduped": ack.get("deduped").cloned().unwrap_or(json!([])),
+        "warnings": ack.get("warnings").cloned().unwrap_or(json!([])),
+        "deprecated": "knox_record_batch is kept for compatibility; prefer knox_record"
+    });
+    if let Some(refs) = ack.get("refs") {
+        response["refs"] = refs.clone();
+    }
+    Ok(response)
 }
 
 #[cfg(test)]
@@ -231,7 +147,7 @@ mod tests {
         let ids = res.get("ids").unwrap().as_array().unwrap();
         assert_eq!(ids.len(), 2);
 
-        let second_id = ActionId::from(ids[1].as_str().unwrap());
+        let second_id = crate::core::ids::ActionId::from(ids[1].as_str().unwrap());
         let second_act = crate::storage::nodes::get_action(&db, &second_id)
             .unwrap()
             .unwrap();
@@ -239,5 +155,26 @@ mod tests {
             second_act.parent_action_id.unwrap().as_str(),
             ids[0].as_str().unwrap()
         );
+    }
+
+    #[test]
+    fn legacy_batch_is_atomic() {
+        let db = KnoxDb::open_memory().unwrap();
+        let result = handle_record_batch(
+            &db,
+            json!({
+                "actor": "gemini",
+                "actions": [
+                    {"action_type": "plan", "summary": "Valid first"},
+                    {"action_type": "write", "summary": "x".repeat(400)}
+                ]
+            }),
+        );
+        assert!(result.is_err());
+        let count: i64 = db
+            .conn()
+            .query_row("SELECT COUNT(*) FROM actions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
     }
 }

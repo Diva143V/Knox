@@ -41,6 +41,11 @@ pub fn run_migrations(conn: &Connection) -> KnoxResult<()> {
 
     if current_version < 6 {
         apply_v6(conn)?;
+        current_version = 6;
+    }
+
+    if current_version < 7 {
+        apply_v7(conn)?;
     }
 
     Ok(())
@@ -360,6 +365,37 @@ fn apply_v6(conn: &Connection) -> KnoxResult<()> {
     Ok(())
 }
 
+const V7_SCHEMA_SQL: &str = "BEGIN TRANSACTION;
+
+-- Dedupe: identical or near-identical writes inside the merge window increment
+-- seen_count instead of adding a second row (D5).
+ALTER TABLE actions ADD COLUMN dedupe_key TEXT;
+ALTER TABLE actions ADD COLUMN seen_count INTEGER NOT NULL DEFAULT 1;
+CREATE INDEX IF NOT EXISTS idx_actions_dedupe
+    ON actions(dedupe_key, timestamp_ms);
+
+-- Idempotency: one key per agent turn. The stored response is replayed when the
+-- same key and payload hash are seen again; a different payload is a conflict.
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    key TEXT PRIMARY KEY,
+    payload_hash TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- Session lineage: a resumed session can point at the session it continues.
+ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id);
+
+UPDATE knox_meta SET value = '7' WHERE key = 'schema_version';
+
+COMMIT;";
+
+/// Applies the additive v7 write-path foundation (dedupe + idempotency).
+fn apply_v7(conn: &Connection) -> KnoxResult<()> {
+    conn.execute_batch(V7_SCHEMA_SQL)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,11 +405,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         let version = get_schema_version(&conn).unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
 
         // Re-running migrations should be idempotent
         run_migrations(&conn).unwrap();
         let version2 = get_schema_version(&conn).unwrap();
-        assert_eq!(version2, 6);
+        assert_eq!(version2, 7);
     }
 }

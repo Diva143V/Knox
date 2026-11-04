@@ -38,6 +38,10 @@ pub enum Commands {
     Hook(HookArgs),
     /// Inspect, apply, restore, or split a database migration.
     Migrate(MigrationArgs),
+    /// Export project memory as newline-delimited JSON.
+    Export(ExportArgs),
+    /// Import project memory from a JSONL export.
+    Import(ImportArgs),
 }
 
 /// Arguments for `knox init`.
@@ -149,6 +153,22 @@ pub enum MigrationAction {
     },
 }
 
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+pub struct ExportArgs {
+    /// Project path, ID, or unique name (defaults to every project in the database).
+    #[arg(long)]
+    pub project: Option<String>,
+    /// Write to a file instead of stdout.
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+pub struct ImportArgs {
+    /// JSONL file produced by `knox export`.
+    pub input: PathBuf,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,6 +243,34 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_export_and_import() {
+        let export = KnoxCli::try_parse_from([
+            "knox",
+            "export",
+            "--project",
+            ".",
+            "--output",
+            "memory.jsonl",
+        ])
+        .unwrap();
+        match export.command {
+            Some(Commands::Export(args)) => {
+                assert_eq!(args.project.as_deref(), Some("."));
+                assert_eq!(args.output, Some(PathBuf::from("memory.jsonl")));
+            }
+            _ => panic!("Expected Export command"),
+        }
+
+        let import = KnoxCli::try_parse_from(["knox", "import", "memory.jsonl"]).unwrap();
+        match import.command {
+            Some(Commands::Import(args)) => {
+                assert_eq!(args.input, PathBuf::from("memory.jsonl"));
+            }
+            _ => panic!("Expected Import command"),
+        }
+    }
+
+    #[test]
     fn test_parse_status_flags() {
         let cli = KnoxCli::try_parse_from(["knox", "status", "--json"]).unwrap();
         match cli.command {
@@ -280,7 +328,8 @@ mod tests {
 
     #[test]
     fn test_parse_migration_operations() {
-        let cli = KnoxCli::try_parse_from(["knox", "migrate", "split", "--output", "copies"]).unwrap();
+        let cli =
+            KnoxCli::try_parse_from(["knox", "migrate", "split", "--output", "copies"]).unwrap();
         match cli.command {
             Some(Commands::Migrate(args)) => {
                 assert_eq!(

@@ -4,7 +4,8 @@ use serde_json::json;
 
 use super::protocol::ToolDescription;
 
-/// All supported Knox MCP tool names (27 tools).
+/// Every Knox tool name the server still accepts. The first six are listed by
+/// `tools/list`; the rest remain callable for backwards compatibility.
 pub const TOOL_NAMES: [&str; 27] = [
     "knox_begin",
     "knox_context",
@@ -35,12 +36,49 @@ pub const TOOL_NAMES: [&str; 27] = [
     "knox_verify_drift",
 ];
 
-/// Canonical number of registered Knox tools. Documentation and tests derive
-/// from this constant so the count cannot drift from the implementation.
-pub const TOOL_COUNT: usize = TOOL_NAMES.len();
+/// Tools advertised by `tools/list`. The high-level workflow surface is small
+/// on purpose: agents get one obvious entry point per phase of a turn.
+pub const LISTED_TOOL_NAMES: [&str; 6] = [
+    "knox_begin",
+    "knox_context",
+    "knox_check",
+    "knox_trace",
+    "knox_record",
+    "knox_handoff",
+];
 
-/// Returns the complete list of all Knox tool definitions.
-pub fn all_tools() -> Vec<ToolDescription> {
+/// Legacy tools kept callable but no longer advertised. They delegate to the
+/// high-level workflows or remain as low-level escape hatches.
+pub const LEGACY_TOOL_NAMES: [&str; 21] = [
+    "knox_start_session",
+    "knox_end_session",
+    "knox_record_action",
+    "knox_record_decision",
+    "knox_record_doubt",
+    "knox_resolve_doubt",
+    "knox_record_batch",
+    "knox_update_action",
+    "knox_get_context",
+    "knox_get_history",
+    "knox_get_lineage",
+    "knox_get_impact",
+    "knox_get_path",
+    "knox_check_guardrails",
+    "knox_search",
+    "knox_list_stale",
+    "knox_scan_staged",
+    "knox_ingest",
+    "knox_diff_inspect",
+    "knox_blame_causal",
+    "knox_verify_drift",
+];
+
+/// Canonical number of advertised Knox tools. Documentation and tests derive
+/// from this constant so the count cannot drift from the implementation.
+pub const TOOL_COUNT: usize = LISTED_TOOL_NAMES.len();
+
+/// Returns every tool definition, including legacy names.
+pub fn all_tool_definitions() -> Vec<ToolDescription> {
     vec![
         tool_begin(),
         tool_start_session(),
@@ -70,6 +108,15 @@ pub fn all_tools() -> Vec<ToolDescription> {
         tool_blame_causal(),
         tool_verify_drift(),
     ]
+}
+
+/// Returns the tool definitions advertised over `tools/list`.
+pub fn all_tools() -> Vec<ToolDescription> {
+    let definitions = all_tool_definitions();
+    LISTED_TOOL_NAMES
+        .iter()
+        .filter_map(|name| definitions.iter().find(|tool| tool.name == *name).cloned())
+        .collect()
 }
 
 fn tool_check() -> ToolDescription {
@@ -158,9 +205,10 @@ fn tool_handoff() -> ToolDescription {
     )
 }
 
-/// Finds a tool definition by name.
+/// Finds a tool definition by name, including legacy names that are no longer
+/// advertised but remain callable.
 pub fn find_tool(name: &str) -> Option<ToolDescription> {
-    all_tools().into_iter().find(|t| t.name == name)
+    all_tool_definitions().into_iter().find(|t| t.name == name)
 }
 
 fn tool_start_session() -> ToolDescription {
@@ -1041,13 +1089,18 @@ mod tests {
     fn test_all_tools_count_and_names() {
         let tools = all_tools();
         assert_eq!(tools.len(), TOOL_COUNT);
-        assert_eq!(TOOL_NAMES.len(), TOOL_COUNT);
-        for expected_name in TOOL_NAMES {
+        assert_eq!(LISTED_TOOL_NAMES.len(), TOOL_COUNT);
+        for expected_name in LISTED_TOOL_NAMES {
             assert!(
                 tools.iter().any(|t| t.name == expected_name),
                 "Missing tool: {}",
                 expected_name
             );
+        }
+        // Legacy tools are not advertised but stay resolvable.
+        for legacy_name in LEGACY_TOOL_NAMES {
+            assert!(!tools.iter().any(|t| t.name == legacy_name));
+            assert!(find_tool(legacy_name).is_some(), "Missing {legacy_name}");
         }
     }
 

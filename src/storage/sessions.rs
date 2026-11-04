@@ -165,27 +165,24 @@ pub fn find_open_session(
          ORDER BY s.started_at DESC LIMIT 1",
     )?;
     let session = stmt
-        .query_row(
-            params![actor, project_id.as_deref()],
-            |row| {
-                let started = DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now());
-                let ended = row
-                    .get::<_, Option<String>>(4)?
-                    .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
-                    .map(|dt| dt.with_timezone(&Utc));
-                Ok(Session {
-                    id: SessionId::from(row.get::<_, String>(0)?),
-                    actor: row.get(1)?,
-                    project_id: row.get::<_, Option<String>>(2)?.map(ProjectId::from),
-                    project: row.get(6)?,
-                    started_at: started,
-                    ended_at: ended,
-                    is_open: row.get::<_, i32>(5)? == 1,
-                })
-            },
-        )
+        .query_row(params![actor, project_id.as_deref()], |row| {
+            let started = DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+            let ended = row
+                .get::<_, Option<String>>(4)?
+                .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
+                .map(|dt| dt.with_timezone(&Utc));
+            Ok(Session {
+                id: SessionId::from(row.get::<_, String>(0)?),
+                actor: row.get(1)?,
+                project_id: row.get::<_, Option<String>>(2)?.map(ProjectId::from),
+                project: row.get(6)?,
+                started_at: started,
+                ended_at: ended,
+                is_open: row.get::<_, i32>(5)? == 1,
+            })
+        })
         .optional()?;
     Ok(session)
 }
@@ -212,6 +209,32 @@ pub fn end_session(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Session> {
         is_open: false,
         ..current
     })
+}
+
+/// Records the session that a newly started session continues.
+pub fn set_parent_session(
+    db: &KnoxDb,
+    session_id: &SessionId,
+    parent_id: &SessionId,
+) -> KnoxResult<()> {
+    db.conn().execute(
+        "UPDATE sessions SET parent_session_id = ?1 WHERE id = ?2",
+        params![parent_id.as_str(), session_id.as_str()],
+    )?;
+    Ok(())
+}
+
+/// Returns the parent session id recorded for a session, if any.
+pub fn parent_session_id(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Option<SessionId>> {
+    let parent: Option<Option<String>> = db
+        .conn()
+        .query_row(
+            "SELECT parent_session_id FROM sessions WHERE id = ?1",
+            params![session_id.as_str()],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(parent.flatten().map(SessionId::from))
 }
 
 /// Computes the timestamp of the last activity within a session.

@@ -1,16 +1,14 @@
 //! Working tree diff capture and streaming parser for Knox code deltas.
 
+use chrono::Utc;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use chrono::Utc;
 
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::guardrails::{is_file_excluded, sanitize_delta};
 use crate::core::ids::ActionId;
-use crate::core::types::{
-    ActionDelta, DeltaChangeType, MAX_DELTA_FILE_BYTES, MAX_DIFF_LINES,
-};
+use crate::core::types::{ActionDelta, DeltaChangeType, MAX_DELTA_FILE_BYTES, MAX_DIFF_LINES};
 
 /// Captures working tree modifications (both diffs against HEAD/cached and untracked files)
 /// for the specified files (or all touched files if empty) and transforms them into
@@ -84,9 +82,15 @@ pub fn capture_working_tree_diff(
             let stdout = String::from_utf8_lossy(&status_output.stdout);
             for line in stdout.lines() {
                 if line.starts_with("?? ") {
-                    let untracked_path = line[3..].trim().trim_matches('"');
+                    let untracked_path = line
+                        .strip_prefix("?? ")
+                        .unwrap_or(line)
+                        .trim()
+                        .trim_matches('"');
                     if !deltas.iter().any(|d| d.file_path == untracked_path) {
-                        if let Some(delta) = capture_untracked_file(action_id, repo_root, untracked_path) {
+                        if let Some(delta) =
+                            capture_untracked_file(action_id, repo_root, untracked_path)
+                        {
                             deltas.push(delta);
                         }
                     }
@@ -218,7 +222,11 @@ pub fn parse_unified_diff(action_id: &ActionId, diff_text: &str) -> Vec<ActionDe
             in_hunk = false;
 
             // Extract file paths from "diff --git a/<path> b/<path>"
-            let parts: Vec<&str> = line["diff --git ".len()..].split_whitespace().collect();
+            let parts: Vec<&str> = line
+                .strip_prefix("diff --git ")
+                .unwrap_or(line)
+                .split_whitespace()
+                .collect();
             if parts.len() >= 2 {
                 let a_path = parts[0].strip_prefix("a/").unwrap_or(parts[0]);
                 let b_path = parts[1].strip_prefix("b/").unwrap_or(parts[1]);
@@ -232,11 +240,11 @@ pub fn parse_unified_diff(action_id: &ActionId, diff_text: &str) -> Vec<ActionDe
         } else if line.starts_with("deleted file mode ") {
             current_change_type = DeltaChangeType::Deleted;
         } else if line.starts_with("rename from ") {
-            let from = line["rename from ".len()..].trim();
+            let from = line.strip_prefix("rename from ").unwrap_or(line).trim();
             current_old_path = Some(from.to_string());
             current_change_type = DeltaChangeType::Renamed;
         } else if line.starts_with("rename to ") {
-            let to = line["rename to ".len()..].trim();
+            let to = line.strip_prefix("rename to ").unwrap_or(line).trim();
             current_file = Some(to.to_string());
             current_change_type = DeltaChangeType::Renamed;
         } else if line.starts_with("--- ") {
@@ -246,7 +254,12 @@ pub fn parse_unified_diff(action_id: &ActionId, diff_text: &str) -> Vec<ActionDe
         } else if line.starts_with("+++ ") {
             if line.contains("/dev/null") {
                 current_change_type = DeltaChangeType::Deleted;
-            } else if let Some(path) = line["+++ ".len()..].trim().strip_prefix("b/") {
+            } else if let Some(path) = line
+                .strip_prefix("+++ ")
+                .unwrap_or(line)
+                .trim()
+                .strip_prefix("b/")
+            {
                 current_file = Some(path.to_string());
             }
         } else if line.starts_with("@@") {
@@ -309,9 +322,7 @@ pub fn get_git_blame_commit(
 }
 
 /// Checks the working tree status for drift against HEAD.
-pub fn verify_repository_drift(
-    repo_root: &Path,
-) -> KnoxResult<(Vec<String>, Vec<String>)> {
+pub fn verify_repository_drift(repo_root: &Path) -> KnoxResult<(Vec<String>, Vec<String>)> {
     let output = Command::new("git")
         .args(["status", "--porcelain", "-uall"])
         .current_dir(repo_root)

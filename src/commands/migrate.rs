@@ -190,7 +190,10 @@ pub fn migration_split(path: &Path, output: &Path) -> KnoxResult<Vec<PathBuf>> {
                 "DELETE FROM sessions WHERE project_id IS NOT ?1",
                 params![project_id],
             )?;
-            tx.execute("DELETE FROM projects WHERE id IS NOT ?1", params![project_id])?;
+            tx.execute(
+                "DELETE FROM projects WHERE id IS NOT ?1",
+                params![project_id],
+            )?;
             Ok(())
         })?;
         drop(db);
@@ -283,7 +286,9 @@ fn backup_path(path: &Path) -> KnoxResult<PathBuf> {
         .as_secs();
     Ok(path.with_file_name(format!(
         "{}.bak-v5-{}",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("knox.db"),
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("knox.db"),
         timestamp
     )))
 }
@@ -292,17 +297,21 @@ fn newest_backup(path: &Path) -> KnoxResult<PathBuf> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let prefix = format!(
         "{}.bak-v",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("knox.db")
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("knox.db")
     );
     let mut backups = fs::read_dir(parent)?
         .filter_map(Result::ok)
         .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
         .collect::<Vec<_>>();
     backups.sort_by_key(|entry| entry.metadata().and_then(|meta| meta.modified()).ok());
-    backups
-        .pop()
-        .map(|entry| entry.path())
-        .ok_or_else(|| KnoxError::InvalidInput(format!("no migration backup found beside {}", path.display())))
+    backups.pop().map(|entry| entry.path()).ok_or_else(|| {
+        KnoxError::InvalidInput(format!(
+            "no migration backup found beside {}",
+            path.display()
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -322,7 +331,7 @@ mod tests {
         drop(db);
 
         let before = migration_check(&path).unwrap();
-        assert_eq!(before.schema_version, 6);
+        assert_eq!(before.schema_version, 7);
         let (after, backup) = migration_apply(&path).unwrap();
         assert_eq!(after.integrity, "ok");
         assert!(backup.exists());
@@ -401,42 +410,42 @@ mod tests {
 
     #[test]
     fn split_detaches_cross_project_lifecycle_references() {
-            let dir = tempdir().unwrap();
-            let path = dir.path().join("knox.db");
-            let db = KnoxDb::open(&path).unwrap();
-            let project_a = ProjectId::new();
-            let project_b = ProjectId::new();
-            for (id, name) in [(project_a.clone(), "alpha"), (project_b.clone(), "beta")] {
-                insert_project(
-                    &db,
-                    &Project {
-                        id,
-                        name: name.to_string(),
-                        path: dir.path().join(name).display().to_string(),
-                        created_at: Utc::now(),
-                    },
-                )
-                .unwrap();
-            }
-            let older = KnoxAction {
-                project_id: Some(project_b),
-                summary: "external older decision".to_string(),
-                ..Default::default()
-            };
-            let newer = KnoxAction {
-                project_id: Some(project_a.clone()),
-                supersedes: Some(older.id.clone()),
-                summary: "local replacement".to_string(),
-                ..Default::default()
-            };
-            insert_action(&db, &older).unwrap();
-            insert_action(&db, &newer).unwrap();
-            drop(db);
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("knox.db");
+        let db = KnoxDb::open(&path).unwrap();
+        let project_a = ProjectId::new();
+        let project_b = ProjectId::new();
+        for (id, name) in [(project_a.clone(), "alpha"), (project_b.clone(), "beta")] {
+            insert_project(
+                &db,
+                &Project {
+                    id,
+                    name: name.to_string(),
+                    path: dir.path().join(name).display().to_string(),
+                    created_at: Utc::now(),
+                },
+            )
+            .unwrap();
+        }
+        let older = KnoxAction {
+            project_id: Some(project_b),
+            summary: "external older decision".to_string(),
+            ..Default::default()
+        };
+        let newer = KnoxAction {
+            project_id: Some(project_a.clone()),
+            supersedes: Some(older.id.clone()),
+            summary: "local replacement".to_string(),
+            ..Default::default()
+        };
+        insert_action(&db, &older).unwrap();
+        insert_action(&db, &newer).unwrap();
+        drop(db);
 
-            let created = migration_split(&path, &dir.path().join("split")).unwrap();
-            assert_eq!(created.len(), 2);
-            for target in created {
-                assert_eq!(migration_check(&target).unwrap().integrity, "ok");
+        let created = migration_split(&path, &dir.path().join("split")).unwrap();
+        assert_eq!(created.len(), 2);
+        for target in created {
+            assert_eq!(migration_check(&target).unwrap().integrity, "ok");
         }
     }
 }

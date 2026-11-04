@@ -42,5 +42,5 @@ fn test_integration_query_filter_defaults() {
 fn test_integration_config_defaults() {
     let config = KnoxConfig::default();
     assert_eq!(config.session_timeout, Duration::from_secs(1800));
-    assert!(config.global_mode);
+    assert!(!config.global_mode);
 }

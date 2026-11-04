@@ -103,6 +103,8 @@ pub fn cmd_scan(project_path: &Path, db: &KnoxDb) -> KnoxResult<ScanReport> {
             resolution_note: None,
             commit_sha: None,
             delta_summary,
+            dedupe_key: None,
+            seen_count: 1,
         };
 
         insert_action(db, &action)?;
