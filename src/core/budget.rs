@@ -2,6 +2,10 @@
 
 /// Default token budget for compact context responses.
 pub const DEFAULT_CONTEXT_BUDGET: usize = 1_200;
+/// Default token budget for guardrail pre-flight checks.
+pub const DEFAULT_CHECK_BUDGET: usize = 600;
+/// Default token budget for causal trace responses.
+pub const DEFAULT_TRACE_BUDGET: usize = 800;
 /// Hard ceiling for caller-provided context budgets.
 pub const MAX_CONTEXT_BUDGET: usize = 4_000;
 

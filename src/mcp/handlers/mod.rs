@@ -160,6 +160,8 @@ fn handle_tools_call(id: Option<Value>, params: Value, db: &KnoxDb) -> McpRespon
             } else {
                 serde_json::to_string_pretty(&data).unwrap_or_default()
             };
+            // D9: never return the same fact in two shapes — content carries the
+            // rendered text; structuredContent is dropped to avoid duplication.
             McpResponse::success(
                 id,
                 json!({
@@ -167,7 +169,6 @@ fn handle_tools_call(id: Option<Value>, params: Value, db: &KnoxDb) -> McpRespon
                         "type": "text",
                         "text": text
                     }],
-                    "structuredContent": data
                 }),
             )
         }
@@ -309,7 +310,8 @@ mod tests {
         let result = res.result.unwrap();
         let content = result.get("content").unwrap().as_array().unwrap();
         assert!(!content.is_empty());
-        assert!(result.get("structuredContent").is_some());
+        // D9: structuredContent is not returned — content is the single shape.
+        assert!(result.get("structuredContent").is_none());
     }
 
     #[test]

@@ -335,7 +335,9 @@ async fn run_mock_client_exchange(
     assert_eq!(init_res.get("id").unwrap(), 100);
 
     let start_res = send_mcp_call(write, lines, json!({"jsonrpc": "2.0", "id": 101, "method": "tools/call", "params": {"name": "knox_begin", "arguments": {"actor": "gemini-mcp"}}})).await;
-    let session_id = start_res["result"]["structuredContent"]["scope"]["session_id"]
+    let start_text = start_res["result"]["content"][0]["text"].as_str().unwrap();
+    let start_data: serde_json::Value = serde_json::from_str(start_text).unwrap();
+    let session_id = start_data["scope"]["session_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -344,7 +346,9 @@ async fn run_mock_client_exchange(
     assert_eq!(rec_res.get("id").unwrap(), 102);
 
     let end_res = send_mcp_call(write, lines, json!({"jsonrpc": "2.0", "id": 103, "method": "tools/call", "params": {"name": "knox_handoff", "arguments": {"session_id": session_id}}})).await;
-    assert_eq!(end_res["result"]["structuredContent"]["status"], "closed");
+    let end_text = end_res["result"]["content"][0]["text"].as_str().unwrap();
+    let end_data: serde_json::Value = serde_json::from_str(end_text).unwrap();
+    assert_eq!(end_data["status"], "closed");
 }
 
 #[tokio::test]

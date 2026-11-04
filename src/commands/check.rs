@@ -1,19 +1,27 @@
 //! Guardrail pre-flight check command.
 //!
 //! Business logic for `knox_check`: validates target files, renames `intent`
-//! to `proposed_action`, and delegates to the guardrail rule matcher.
+//! to `proposed_action`, and delegates to the guardrail rule matcher with a
+//! token budget (default 600).
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
+use crate::core::budget::{DEFAULT_CHECK_BUDGET, truncate_to_budget};
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::storage::db::KnoxDb;
 
 /// Runs the pre-flight guardrail check for `knox_check`.
 ///
 /// Validates that `files` is a non-empty list, normalizes `intent` to
-/// `proposed_action`, forces `format` to `json`, then delegates to the
-/// guardrail rule matcher.
+/// `proposed_action`, renders the guardrail report as Markdown, and truncates
+/// it to the caller's token budget (default 600).
 pub fn cmd_check(db: &KnoxDb, mut params: Value) -> KnoxResult<Value> {
+    let budget = params
+        .as_object()
+        .and_then(|o| o.get("budget"))
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_CHECK_BUDGET as u64) as usize;
+
     if let Value::Object(ref mut object) = params {
         let files = object
             .get("files")
@@ -33,15 +41,41 @@ pub fn cmd_check(db: &KnoxDb, mut params: Value) -> KnoxResult<Value> {
                 .entry("proposed_action".to_string())
                 .or_insert(intent);
         }
+        // Default format is markdown so the response can be truncated to budget.
         object
             .entry("format".to_string())
-            .or_insert_with(|| Value::String("json".to_string()));
+            .or_insert_with(|| Value::String("markdown".to_string()));
     } else {
         return Err(KnoxError::InvalidInput(
             "check params must be an object".to_string(),
         ));
     }
-    crate::mcp::handlers::check_guardrails::handle_check_guardrails(db, params)
+
+    let result = crate::mcp::handlers::check_guardrails::handle_check_guardrails(db, params)?;
+
+    let markdown = result
+        .get("markdown")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let (md, budget_used, truncated) = truncate_to_budget(markdown, budget);
+
+    Ok(json!({
+        "pass": result.get("pass"),
+        "violations_count": result.get("violations_count"),
+        "violations": result.get("violations"),
+        "violation_details": result.get("violation_details"),
+        "decision_count": result.get("decision_count"),
+        "open_doubts_count": result.get("open_doubts_count"),
+        "open_doubts": result.get("open_doubts"),
+        "files": result.get("files"),
+        "active_constraints_count": result.get("active_constraints_count"),
+        "active_constraints": result.get("active_constraints"),
+        "superseded_patterns": result.get("superseded_patterns"),
+        "markdown": md,
+        "budget": budget,
+        "budget_used": budget_used,
+        "truncated": truncated,
+    }))
 }
 
 #[cfg(test)]
@@ -59,5 +93,19 @@ mod tests {
         .unwrap();
         assert!(result.get("violations").is_some());
         assert_eq!(result["files"][0], "src/parser.rs");
+        assert!(result.get("budget_used").is_some());
+    }
+
+    #[test]
+    fn truncates_to_budget() {
+        let db = KnoxDb::open_memory().unwrap();
+        // A tiny budget should truncate the markdown.
+        let result = cmd_check(
+            &db,
+            json!({"files": ["src/parser.rs"], "budget": 10}),
+        )
+        .unwrap();
+        let budget_used: usize = result["budget_used"].as_u64().unwrap() as usize;
+        assert!(budget_used <= 10);
     }
 }
