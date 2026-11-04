@@ -23,7 +23,7 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 - **Token-Efficiency Measurements:** The public `knox::metrics::measure_token_efficiency` helper reports estimated tool-definition and context-format tokens, plus compact/Markdown savings against serialized action JSON.
 - **Native MCP Resources & Prompts:** Exposes live architectural resources (`knox://project/overview`, `knox://decisions/active`, `knox://context/{file}`) and guided handover prompts (`/architectural-audit`, `/session-handover`).
 - **V2 Schema & Semantic Relations:** First-class directional relationship graph (`depends_on`, `implements`, `verifies`, `relates_to`, `reverts`), code symbol indexing, and Architectural Decision Records (ADRs) with rationale and prohibited rejected alternatives.
-- **Windows NSIS Setup Wizard & Dedicated Uninstaller:** Consumer-grade installer package (`Knox_1.2.1_x64-setup.exe`, 5.46 MB with LZMA compression). Offers dual install scope (per-user `%LOCALAPPDATA%\Programs\Knox` default requiring no elevation, or machine-wide `Program Files\Knox`), creates Start Menu and Desktop shortcuts, and registers `uninstall.exe` in Windows Settings > Installed apps.
+- **Windows NSIS Setup Wizard & Dedicated Uninstaller:** Consumer-grade installer package (`Knox_2.0.0_x64-setup.exe`, 5.46 MB with LZMA compression). Offers dual install scope (per-user `%LOCALAPPDATA%\Programs\Knox` default requiring no elevation, or machine-wide `Program Files\Knox`), creates Start Menu and Desktop shortcuts, and registers `uninstall.exe` in Windows Settings > Installed apps.
 - **In-App Onboarding Wizard:** First-run interactive setup (`OnboardingWizard.tsx`) verifying SQLite database health, guiding keyboard shortcuts, and providing 1-click MCP configuration for Antigravity, Cursor, Claude Code, and Gemini CLI. Re-accessible anytime via the "Setup Guide" button in the desktop header.
 - **Synchronous Shell Wrapper (`knox.cmd`):** Ships with a native Windows CMD/PowerShell launcher to ensure prompt synchronization and clean return codes during terminal operations.
 - **Transcript Ingestion:** Automatically transforms IDE conversation logs (e.g. Antigravity's `transcript.jsonl`) into high-signal knowledge graph entries without LLM dependencies.
@@ -34,7 +34,7 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 
 ## Architecture
 
-Knox v1.2.1 is organized into three clean layers:
+Knox v2.0.0 is organized into three clean layers:
 
 ```
 ┌────────────────────────────────────────────────────────┐

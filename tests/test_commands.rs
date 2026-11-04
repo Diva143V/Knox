@@ -45,7 +45,7 @@ fn test_command_ingest_and_status_and_query_flow() {
         .join("transcript_antigravity.jsonl");
 
     // 1. Ingest fixture
-    let ingest_report = cmd_ingest(&fixture_path, &db).unwrap();
+    let ingest_report = cmd_ingest(&fixture_path, &db, false).unwrap();
     assert_eq!(ingest_report.actions_imported, 6);
     assert_eq!(ingest_report.files_touched, 2);
     assert_eq!(ingest_report.sessions_created, 1);

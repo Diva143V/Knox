@@ -57,6 +57,9 @@ pub struct InitArgs {
 pub struct IngestArgs {
     /// Path to conversation transcript file (e.g. transcript.jsonl).
     pub transcript_path: PathBuf,
+    /// Explain each classification decision (rule ID, confidence, reason).
+    #[arg(long)]
+    pub explain: bool,
 }
 
 /// Arguments for `knox query`.

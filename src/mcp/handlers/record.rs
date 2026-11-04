@@ -127,7 +127,66 @@ fn map_kind(raw: &str) -> String {
         "outcome" | "verify" | "test" => "verify".to_string(),
         "debug" | "error" => "debug".to_string(),
         "review" | "read" => "review".to_string(),
-        other => super::record_action::normalize_action_type(other),
+        other => normalize_action_type(other),
+    }
+}
+
+/// Normalises an unknown action-type string into a canonical vocabulary.
+fn normalize_action_type(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "decision" => "decide".to_string(),
+        "question" => "doubt".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Resolves the session for a record call, creating one implicitly if needed.
+fn resolve_session(
+    db: &KnoxDb,
+    actor: &str,
+    project: Option<&str>,
+    provided_id: Option<&str>,
+) -> KnoxResult<(crate::core::ids::SessionId, bool)> {
+    if let Some(sid_str) = provided_id {
+        let trimmed = sid_str.trim();
+        if !trimmed.is_empty() {
+            let sid = crate::core::ids::SessionId::from(trimmed);
+            let session = crate::storage::sessions::get_session(db, &sid)?
+                .ok_or_else(|| KnoxError::SessionNotFound(sid.to_string()))?;
+            if !session.is_open {
+                return Err(KnoxError::SessionClosed(sid.to_string()));
+            }
+            return Ok((sid, false)); // explicit session
+        }
+    }
+
+    let project_id = match project {
+        Some(p) => crate::storage::sessions::resolve_project_identifier(db, p)?,
+        None => None,
+    };
+
+    let recent = crate::storage::sessions::list_recent_sessions(db, 20)?;
+    for s in recent {
+        if s.is_open && s.actor == actor {
+            let same_project = match &project_id {
+                Some(pid) => s.project_id.as_ref().map(|p| p.0.as_str()) == Some(pid.as_str()),
+                None => s.project_id.is_none(),
+            };
+            if same_project {
+                return Ok((s.id, true));
+            }
+        }
+    }
+
+    let session = crate::storage::sessions::start_session(db, actor, project)?;
+    Ok((session.id, false))
+}
+
+/// Picks a default significance instead of labelling every action "major".
+fn default_significance(action_type: &str) -> &'static str {
+    match action_type {
+        "decide" | "plan" | "doubt" => "major",
+        _ => "minor",
     }
 }
 
@@ -340,7 +399,7 @@ pub fn handle_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         }
     }
 
-    let (session_id, is_implicit) = super::record_action::resolve_session(
+    let (session_id, is_implicit) = resolve_session(
         db,
         input.actor.trim(),
         input.project.as_deref(),
@@ -412,7 +471,7 @@ pub fn handle_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         let is_doubt = action_type == "doubt";
         let is_resolved = entry.is_resolved.or(Some(!is_doubt));
         let significance = entry.significance.clone().unwrap_or_else(|| {
-            super::record_action::default_significance(&action_type).to_string()
+            default_significance(&action_type).to_string()
         });
 
         let norm_files: Vec<String> = entry

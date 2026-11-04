@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 
 use crate::core::error::{KnoxError, KnoxResult};
+use crate::mcp::handlers::get_lineage::handle_get_lineage;
 use crate::storage::db::KnoxDb;
 
 pub fn handle_trace(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
@@ -20,10 +21,10 @@ pub fn handle_trace(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             }
             map.insert("format".to_string(), Value::String("json".to_string()));
         }
-        return super::handle_get_lineage(db, lineage);
+        return handle_get_lineage(db, lineage);
     }
     if let Some(file_path) = object.get("file_path").and_then(Value::as_str) {
-        return super::handle_get_lineage(
+        return handle_get_lineage(
             db,
             json!({
                 "file_path": file_path,

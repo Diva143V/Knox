@@ -15,6 +15,5 @@ pub use protocol::{
 pub use server::{run_mcp_server, run_mcp_server_loop};
 pub use session_manager::{SessionManager, SessionState};
 pub use tools::{
-    LEGACY_TOOL_NAMES, LISTED_TOOL_NAMES, TOOL_COUNT, TOOL_NAMES, all_tool_definitions, all_tools,
-    find_tool,
+    LISTED_TOOL_NAMES, TOOL_COUNT, all_tools, find_tool,
 };

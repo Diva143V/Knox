@@ -3,6 +3,7 @@
 use serde_json::Value;
 
 use crate::core::error::{KnoxError, KnoxResult};
+use crate::mcp::handlers::check_guardrails::handle_check_guardrails;
 use crate::storage::db::KnoxDb;
 
 pub fn handle_check(db: &KnoxDb, mut params: Value) -> KnoxResult<Value> {
@@ -33,7 +34,7 @@ pub fn handle_check(db: &KnoxDb, mut params: Value) -> KnoxResult<Value> {
             "check params must be an object".to_string(),
         ));
     }
-    super::handle_check_guardrails(db, params)
+    handle_check_guardrails(db, params)
 }
 
 #[cfg(test)]

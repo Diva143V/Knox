@@ -23,7 +23,7 @@ pub async fn ingest_transcript(
         return Err(format!("File does not exist: {}", path_buf.display()));
     }
 
-    cmd_ingest(&path_buf, &db).map_err(|e| e.to_string())
+    cmd_ingest(&path_buf, &db, false).map_err(|e| e.to_string())
 }
 
 /// Ingests raw transcript content (JSON, JSONL, Markdown, or plain text) directly.
@@ -34,7 +34,7 @@ pub async fn ingest_raw_transcript(
     actor_override: Option<String>,
 ) -> Result<IngestReport, String> {
     let db = state.db.lock().await;
-    cmd_ingest_raw(&content, &db, actor_override.as_deref()).map_err(|e| e.to_string())
+    cmd_ingest_raw(&content, &db, actor_override.as_deref(), false).map_err(|e| e.to_string())
 }
 
 /// Generates a dry-run preview of a transcript file or raw text before committing to SQLite.

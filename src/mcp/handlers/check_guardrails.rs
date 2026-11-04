@@ -93,7 +93,9 @@ fn match_rejected_alternative(proposal: &str, alternative: &str) -> Option<(f64,
     }
 
     // If the proposal negates the match ("do not use X"), it is not a violation.
-    let first_match = proposal_tokens.iter().position(|t| matched.contains(&t));
+    let first_match = proposal_tokens
+        .iter()
+        .position(|t| matched.contains(&t));
     if let Some(idx) = first_match {
         const NEGATIONS: &[&str] = &[
             "not", "no", "never", "without", "avoid", "dont", "doesnt", "isnt", "wont", "nor",
@@ -216,9 +218,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
     } else {
         Some(
             std::env::current_dir()
-                .map_err(|e| {
-                    KnoxError::InvalidInput(format!("Unable to resolve current project root: {e}"))
-                })?
+                .map_err(|e| KnoxError::InvalidInput(format!("Unable to resolve current project root: {e}")))?
                 .to_string_lossy()
                 .to_string(),
         )
@@ -273,7 +273,9 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
     if let Some(ref prop) = input.proposed_action {
         for d in &active_decisions {
             for alt in guardrail_patterns(db, d)? {
-                if let Some((confidence, matched_span)) = match_rejected_alternative(prop, &alt) {
+                if let Some((confidence, matched_span)) =
+                    match_rejected_alternative(prop, &alt)
+                {
                     let message = format!(
                         "Proposed action matches rejected alternative '{}' in decision `{}` ('{}')",
                         alt, d.id, d.summary

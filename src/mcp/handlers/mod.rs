@@ -1,63 +1,26 @@
 //! Handlers and dispatcher for Model Context Protocol (MCP) tools in Knox.
+//!
+//! Only the six high-level workflow handlers are exposed.
 
 pub mod begin;
-pub mod blame_causal;
 pub mod check;
 pub mod check_guardrails;
-pub mod diff_inspect;
-pub mod end_session;
 pub mod get_context;
-pub mod get_history;
-pub mod get_impact;
 pub mod get_lineage;
-pub mod get_path;
 pub mod handoff;
-pub mod ingest;
-pub mod list_stale;
-pub mod prompts;
 pub mod record;
-pub mod record_action;
-pub mod record_batch;
-pub mod record_decision;
-pub mod record_doubt;
-pub mod resolve_doubt;
-pub mod resources;
-pub mod scan_staged;
-pub mod search;
-pub mod start_session;
 pub mod trace;
-pub mod update_action;
-pub mod verify_drift;
+pub mod prompts;
+pub mod resources;
 
 pub use begin::handle_begin;
-pub use blame_causal::handle_blame_causal;
 pub use check::handle_check;
-pub use check_guardrails::handle_check_guardrails;
-pub use diff_inspect::handle_diff_inspect;
-pub use end_session::handle_end_session;
 pub use get_context::handle_context;
-pub use get_context::handle_get_context;
-pub use get_history::handle_get_history;
-pub use get_impact::handle_get_impact;
-pub use get_lineage::handle_get_lineage;
-pub use get_path::handle_get_path;
 pub use handoff::handle_handoff;
-pub use ingest::handle_ingest;
-pub use list_stale::handle_list_stale;
-pub use prompts::{handle_prompts_get, handle_prompts_list};
 pub use record::handle_record;
-pub use record_action::handle_record_action;
-pub use record_batch::handle_record_batch;
-pub use record_decision::handle_record_decision;
-pub use record_doubt::handle_record_doubt;
-pub use resolve_doubt::handle_resolve_doubt;
-pub use resources::{handle_resources_list, handle_resources_read};
-pub use scan_staged::handle_scan_staged;
-pub use search::handle_search;
-pub use start_session::handle_start_session;
 pub use trace::handle_trace;
-pub use update_action::handle_update_action;
-pub use verify_drift::handle_verify_drift;
+pub use prompts::{handle_prompts_get, handle_prompts_list};
+pub use resources::{handle_resources_list, handle_resources_read};
 
 use serde_json::{Value, json};
 
@@ -114,44 +77,8 @@ pub fn dispatch_with_id(
     }
 }
 
-/// Suggestion attached to a legacy tool response. The plan requires every
-/// adapter to name the high-level replacement it delegates to.
-fn deprecation_hint(name: &str) -> &'static str {
-    match name {
-        "knox_start_session" => "use knox_begin",
-        "knox_end_session" => "use knox_handoff",
-        "knox_record_action" | "knox_record_decision" | "knox_record_doubt"
-        | "knox_record_batch" => "use knox_record",
-        "knox_update_action" => "use knox_record with supersedes",
-        "knox_resolve_doubt" => "use knox_record with an is_resolved entry",
-        "knox_get_context" | "knox_get_history" | "knox_search" | "knox_list_stale" => {
-            "use knox_context"
-        }
-        "knox_get_lineage" | "knox_get_impact" | "knox_get_path" | "knox_blame_causal" => {
-            "use knox_trace"
-        }
-        "knox_check_guardrails" => "use knox_check",
-        _ => "use the CLI",
-    }
-}
-
-/// Adds a `deprecated` marker to legacy tool responses that do not already set
-/// one, so deprecation is visible on every compatibility path.
-fn annotate_legacy_response(name: &str, value: Value) -> Value {
-    if !crate::mcp::tools::LEGACY_TOOL_NAMES.contains(&name) {
-        return value;
-    }
-    match value {
-        Value::Object(mut map) => {
-            map.entry("deprecated")
-                .or_insert_with(|| Value::String(deprecation_hint(name).to_string()));
-            Value::Object(map)
-        }
-        other => other,
-    }
-}
-
 /// Executes an individual Knox tool by its canonical tool name.
+/// Only the six advertised tools are accepted; legacy names are no longer routed.
 pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value> {
     let result = match name {
         "knox_context" => handle_context(db, params),
@@ -160,30 +87,9 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         "knox_check" => handle_check(db, params),
         "knox_trace" => handle_trace(db, params),
         "knox_record" => handle_record(db, params),
-        "knox_start_session" => handle_start_session(db, params),
-        "knox_end_session" => handle_end_session(db, params),
-        "knox_record_action" => handle_record_action(db, params),
-        "knox_record_decision" => handle_record_decision(db, params),
-        "knox_record_doubt" => handle_record_doubt(db, params),
-        "knox_resolve_doubt" => handle_resolve_doubt(db, params),
-        "knox_record_batch" => handle_record_batch(db, params),
-        "knox_update_action" => handle_update_action(db, params),
-        "knox_get_context" => handle_get_context(db, params),
-        "knox_get_history" => handle_get_history(db, params),
-        "knox_get_lineage" => handle_get_lineage(db, params),
-        "knox_get_impact" => handle_get_impact(db, params),
-        "knox_get_path" => handle_get_path(db, params),
-        "knox_check_guardrails" => handle_check_guardrails(db, params),
-        "knox_search" => handle_search(db, params),
-        "knox_list_stale" => handle_list_stale(db, params),
-        "knox_scan_staged" => handle_scan_staged(db, params),
-        "knox_ingest" => handle_ingest(db, params),
-        "knox_diff_inspect" => handle_diff_inspect(db, params),
-        "knox_blame_causal" => handle_blame_causal(db, params),
-        "knox_verify_drift" => handle_verify_drift(db, params),
         _ => Err(KnoxError::InvalidInput(format!("Unknown tool: {name}"))),
     }?;
-    Ok(annotate_legacy_response(name, result))
+    Ok(result)
 }
 
 /// Protocol revisions this server understands, newest first.
@@ -203,7 +109,7 @@ Mandatory protocol:
 4. Navigation: use knox_trace to trace why code exists before refactoring.
 5. End the turn with knox_handoff to close the session and produce the digest the next session resumes from.
 
-Never delete history; append and supersede. Identify yourself in actor (for example gemini, cursor, claude, codex, human). Legacy tool names still work when called directly, but new work should use the six tools above.";
+Never delete history; append and supersede. Identify yourself in actor (for example gemini, cursor, claude, codex, human). Use only the six tools above.";
 
 /// Negotiates the protocol revision, echoing a supported client request.
 fn negotiate_protocol_version(params: &Value) -> String {
@@ -389,10 +295,10 @@ mod tests {
     }
 
     #[test]
-    fn test_dispatch_tools_call_start_session() {
+    fn test_dispatch_tools_call_begin() {
         let db = KnoxDb::open_memory().unwrap();
         let params = json!({
-            "name": "knox_start_session",
+            "name": "knox_begin",
             "arguments": {
                 "actor": "gemini"
             }
@@ -413,10 +319,12 @@ mod tests {
             "actor": "cursor"
         });
 
-        let res = dispatch("knox_start_session", params, &db);
+        let res = dispatch("knox_begin", params, &db);
         assert!(res.error.is_none());
         let result = res.result.unwrap();
-        assert!(result.get("session_id").is_some());
+        assert!(
+            result.get("scope").and_then(|s| s.get("session_id")).is_some()
+        );
     }
 
     #[test]

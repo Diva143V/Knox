@@ -117,7 +117,7 @@ pub fn handle_import(args: ImportArgs, db: &KnoxDb) -> anyhow::Result<()> {
 }
 
 pub fn handle_ingest(args: IngestArgs, db: &KnoxDb) -> anyhow::Result<()> {
-    let report = cmd_ingest(&args.transcript_path, db).with_context(|| {
+    let report = cmd_ingest(&args.transcript_path, db, args.explain).with_context(|| {
         format!(
             "Failed to ingest transcript {}",
             args.transcript_path.display()

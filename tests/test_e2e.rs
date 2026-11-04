@@ -68,7 +68,7 @@ fn test_e2e_init_ingest_query_status_walkthrough() {
     // 2. Open DB and ingest transcript
     let db = KnoxDb::open(&db_path).unwrap();
     let fixture = fixture_transcript_path();
-    let ingest_report = cmd_ingest(&fixture, &db).unwrap();
+    let ingest_report = cmd_ingest(&fixture, &db, false).unwrap();
     assert_eq!(ingest_report.actions_imported, 6);
     assert_eq!(ingest_report.sessions_created, 1);
 
@@ -85,20 +85,22 @@ fn test_e2e_init_ingest_query_status_walkthrough() {
 }
 
 fn record_e2e_mcp_action(db: &KnoxDb) {
-    let start_res = dispatch("knox_start_session", json!({"actor": "e2e-agent"}), db);
-    let session_id = start_res.result.unwrap()["session_id"]
+    let start_res = dispatch("knox_begin", json!({"actor": "e2e-agent"}), db);
+    let session_id = start_res.result.unwrap()["scope"]["session_id"]
         .as_str()
         .unwrap()
         .to_string();
 
     let rec_res = dispatch(
-        "knox_record_action",
+        "knox_record",
         json!({
-            "session_id": session_id,
             "actor": "e2e-agent",
-            "action_type": "write",
-            "summary": "Added AST visitor pattern",
-            "files": ["src/ast.rs"]
+            "session_id": session_id,
+            "entries": [{
+                "kind": "write",
+                "summary": "Added AST visitor pattern",
+                "files": ["src/ast.rs"]
+            }]
         }),
         db,
     );
@@ -125,10 +127,10 @@ fn test_e2e_mcp_context_and_human_scan_flow() {
     let db_path = dir.path().join("knox_mcp_scan.db");
     let db = KnoxDb::open(&db_path).unwrap();
 
-    cmd_ingest(&fixture_transcript_path(), &db).unwrap();
+    cmd_ingest(&fixture_transcript_path(), &db, false).unwrap();
 
     let ctx_res = dispatch(
-        "knox_get_context",
+        "knox_context",
         json!({"file_path": "src/parser.rs"}),
         &db,
     );

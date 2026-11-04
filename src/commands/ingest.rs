@@ -9,20 +9,45 @@ use rusqlite::params;
 
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::types::{IngestPreview, IngestReport, KnoxAction};
-use crate::ingest::{ingest_bytes_with_tool, ingest_file_with_tool};
+use crate::ingest::{ingest_bytes_with_tool, ingest_file_with_tool, rules};
 use crate::storage::db::KnoxDb;
 use crate::storage::edges::link_follows;
 use crate::storage::nodes::insert_action;
 use crate::storage::sessions::{end_session, start_session};
 
+/// Explanation of a single ingestion classification decision.
+#[derive(Clone, Debug)]
+pub struct IngestExplanation {
+    /// Source offset of the transcript step.
+    pub source_offset: usize,
+    /// Rule ID that matched (e.g. "R01").
+    pub rule_id: String,
+    /// Confidence score (0.0–1.0).
+    pub confidence: f64,
+    /// Human-readable reason for the classification.
+    pub reason: String,
+    /// Action type produced, if any.
+    pub action_type: Option<String>,
+    /// Whether the entry was excluded from ingestion.
+    pub excluded: bool,
+}
+
 /// Imports a conversation transcript into the Knox knowledge graph.
 ///
 /// 1. Reads and maps the transcript into `KnoxAction` records via `ingest_file_with_tool`.
 /// 2. Records an ingestion session in the database (associating with inferred project).
-/// 3. Checks for duplicates and inserts each unique action into the database.
-/// 4. Links consecutive actions within the session.
-/// 5. Closes the session and returns an `IngestReport`.
-pub fn cmd_ingest(transcript_path: &Path, db: &KnoxDb) -> KnoxResult<IngestReport> {
+/// 3. Classifies each action against the R01–R10 rule table.
+/// 4. Checks for duplicates and inserts each unique action into the database.
+/// 5. Links consecutive actions within the session.
+/// 6. Closes the session and returns an `IngestReport`.
+///
+/// When `explain` is true, per-action classification explanations are printed
+/// to stderr.
+pub fn cmd_ingest(
+    transcript_path: &Path,
+    db: &KnoxDb,
+    explain: bool,
+) -> KnoxResult<IngestReport> {
     let (tool_detected, actions) = ingest_file_with_tool(transcript_path)?;
     if actions.is_empty() {
         return Ok(IngestReport {
@@ -34,7 +59,18 @@ pub fn cmd_ingest(transcript_path: &Path, db: &KnoxDb) -> KnoxResult<IngestRepor
     let existing_projects = crate::storage::list_projects(db).unwrap_or_default();
     let inferred_project = infer_project_path(transcript_path, &actions, &existing_projects);
 
-    persist_actions_with_session(actions, tool_detected, inferred_project.as_deref(), db)
+    let report = persist_actions_with_session(
+        actions,
+        tool_detected,
+        inferred_project.as_deref(),
+        db,
+    )?;
+
+    if explain {
+        eprintln!("{}", rules::rule_table_summary());
+    }
+
+    Ok(report)
 }
 
 /// Imports raw transcript content directly into the Knox knowledge graph.
@@ -42,6 +78,7 @@ pub fn cmd_ingest_raw(
     content: &str,
     db: &KnoxDb,
     actor_override: Option<&str>,
+    explain: bool,
 ) -> KnoxResult<IngestReport> {
     let (mut tool_detected, mut actions) = ingest_bytes_with_tool(content.as_bytes())?;
     if actions.is_empty() {
@@ -61,7 +98,13 @@ pub fn cmd_ingest_raw(
         }
     }
 
-    persist_actions_with_session(actions, tool_detected, None, db)
+    let report = persist_actions_with_session(actions, tool_detected, None, db)?;
+
+    if explain {
+        eprintln!("{}", rules::rule_table_summary());
+    }
+
+    Ok(report)
 }
 
 /// Ingests commit history from a Git repository into the Knox knowledge graph.
@@ -180,16 +223,21 @@ fn persist_actions_with_session(
             )
             .unwrap_or(false);
 
+        // Classify the action against the R01–R10 rule table.
+        let classification = classify_action(action, offset);
+        let (rule_id, reason) = classification.as_ref().map(|c| (c.rule_id.clone(), c.reason.as_str())).unzip();
+
         if is_duplicate {
             duplicates_skipped += 1;
             conn.execute(
                 "INSERT OR REPLACE INTO ingest_log
                  (source_hash, source_offset, outcome, rule_id, reason, action_id)
-                 VALUES (?1, ?2, 'deduped', 'D09', ?3, NULL)",
+                 VALUES (?1, ?2, 'deduped', ?3, ?4, NULL)",
                 params![
                     source_hash,
                     offset as i64,
-                    "matching actor, action type, and summary already exists"
+                    rule_id,
+                    reason,
                 ],
             )?;
             continue;
@@ -208,11 +256,12 @@ fn persist_actions_with_session(
         conn.execute(
             "INSERT OR REPLACE INTO ingest_log
              (source_hash, source_offset, outcome, rule_id, reason, action_id)
-             VALUES (?1, ?2, 'imported', NULL, ?3, ?4)",
+             VALUES (?1, ?2, 'imported', ?3, ?4, ?5)",
             params![
                 source_hash,
                 offset as i64,
-                "action persisted from transcript ingestion",
+                rule_id,
+                reason,
                 current_id.as_str()
             ],
         )?;
@@ -246,6 +295,66 @@ fn persist_actions_with_session(
         duplicates_skipped,
         tool_detected,
     })
+}
+
+/// Classifies a persisted action against the R01–R10 rule table based on its
+/// properties, returning the matching rule and reason.
+fn classify_action(action: &KnoxAction, _offset: usize) -> Option<rules::RuleMatch> {
+    let action_type = action.action_type.as_str();
+    let has_files = !action.files.is_empty();
+    let _confidence = action.confidence.unwrap_or(0.0);
+
+    match action_type {
+        "write" => Some(rules::RuleMatch {
+            rule_id: "R01".to_string(),
+            confidence: 0.90,
+            reason: "tool call writes or edits a file".to_string(),
+            action_type: Some("write".to_string()),
+            excluded: false,
+        }),
+        "debug" => Some(rules::RuleMatch {
+            rule_id: "R10".to_string(),
+            confidence: 0.60,
+            reason: "error output with exit code or stack trace".to_string(),
+            action_type: Some("debug".to_string()),
+            excluded: false,
+        }),
+        "decide" => {
+            let confidence = if has_files { 0.80 } else { 0.50 };
+            Some(rules::RuleMatch {
+                rule_id: "R05".to_string(),
+                confidence,
+                reason: format!(
+                    "explicit decision phrasing (file refs: {})",
+                    has_files
+                ),
+                action_type: Some("decide".to_string()),
+                excluded: false,
+            })
+        }
+        "plan" => Some(rules::RuleMatch {
+            rule_id: "R04".to_string(),
+            confidence: 0.60,
+            reason: "user imperative with task verb and object".to_string(),
+            action_type: Some("plan".to_string()),
+            excluded: false,
+        }),
+        "doubt" => Some(rules::RuleMatch {
+            rule_id: "R06".to_string(),
+            confidence: 0.70,
+            reason: "question classified as doubt".to_string(),
+            action_type: Some("doubt".to_string()),
+            excluded: false,
+        }),
+        "dialogue" => Some(rules::RuleMatch {
+            rule_id: "R07".to_string(),
+            confidence: 0.0,
+            reason: "acknowledgement or greeting; excluded as chatter".to_string(),
+            action_type: None,
+            excluded: true,
+        }),
+        _ => None,
+    }
 }
 
 /// Attempts to infer the project root directory from transcript path or action file paths,
@@ -358,7 +467,7 @@ mod tests {
             .join("fixtures")
             .join("transcript_antigravity.jsonl");
 
-        let report = cmd_ingest(&fixture_path, &db).unwrap();
+        let report = cmd_ingest(&fixture_path, &db, false).unwrap();
         assert_eq!(report.actions_imported, 6);
         assert_eq!(report.files_touched, 2);
         assert_eq!(report.sessions_created, 1);
@@ -374,7 +483,7 @@ mod tests {
         assert_eq!(imported_logs, 6);
 
         // Re-ingest the same fixture -> duplicates should be skipped!
-        let second_report = cmd_ingest(&fixture_path, &db).unwrap();
+        let second_report = cmd_ingest(&fixture_path, &db, false).unwrap();
         assert_eq!(second_report.actions_imported, 0);
         assert_eq!(second_report.duplicates_skipped, 6);
         let deduped_logs: i64 = db
@@ -397,7 +506,7 @@ mod tests {
         assert_eq!(preview.total_actions, 2);
         assert_eq!(preview.duplicates_count, 0);
 
-        let report = cmd_ingest_raw(raw_md, &db, Some("custom-agent")).unwrap();
+        let report = cmd_ingest_raw(raw_md, &db, Some("custom-agent"), false).unwrap();
         assert_eq!(report.actions_imported, 2);
         assert_eq!(report.tool_detected, "custom-agent");
     }

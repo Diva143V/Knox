@@ -12,6 +12,7 @@ pub mod generic;
 pub mod git_log;
 pub mod mapper;
 pub mod openai;
+pub mod rules;
 pub mod summary;
 
 use std::path::Path;
