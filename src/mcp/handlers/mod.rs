@@ -318,7 +318,8 @@ mod tests {
     fn test_dispatch_direct_tool_call() {
         let db = KnoxDb::open_memory().unwrap();
         let params = json!({
-            "actor": "cursor"
+            "actor": "cursor",
+            "workspace": "demo"
         });
 
         let res = dispatch("knox_begin", params, &db);

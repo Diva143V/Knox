@@ -14,7 +14,8 @@ use crate::storage::db::KnoxDb;
 /// Input parameters for `knox_begin`.
 #[derive(Debug, Deserialize)]
 pub struct BeginParams {
-    pub workspace: Option<String>,
+    /// Project scope filter (required — cross-project sessions are rejected).
+    pub workspace: String,
     pub actor: String,
     pub task: Option<String>,
     pub budget: Option<usize>,
@@ -36,12 +37,12 @@ pub fn cmd_begin(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     }
 
     let existing =
-        crate::storage::sessions::find_open_session(db, actor, input.workspace.as_deref())?;
+        crate::storage::sessions::find_open_session(db, actor, Some(&input.workspace))?;
     let (session, resumed, parent_session) = match existing {
         Some(session) => (session, true, None),
         None => {
             let session =
-                crate::storage::sessions::start_session(db, actor, input.workspace.as_deref())?;
+                crate::storage::sessions::start_session(db, actor, Some(&input.workspace))?;
             // Link the new session to the most recent session for the same
             // actor and project so handoff digests form a chain.
             let previous = crate::storage::sessions::list_recent_sessions(db, 50)?
@@ -111,15 +112,15 @@ mod tests {
     #[test]
     fn isolates_open_sessions_by_actor() {
         let db = KnoxDb::open_memory().unwrap();
-        let first = cmd_begin(&db, json!({"actor": "gemini"})).unwrap();
-        let second = cmd_begin(&db, json!({"actor": "claude"})).unwrap();
+        let first = cmd_begin(&db, json!({"actor": "gemini", "workspace": "demo"})).unwrap();
+        let second = cmd_begin(&db, json!({"actor": "claude", "workspace": "demo"})).unwrap();
         assert_ne!(first["scope"]["session_id"], second["scope"]["session_id"]);
     }
 
     #[test]
     fn new_session_links_to_the_previous_one() {
         let db = KnoxDb::open_memory().unwrap();
-        let first = cmd_begin(&db, json!({"actor": "gemini"})).unwrap();
+        let first = cmd_begin(&db, json!({"actor": "gemini", "workspace": "demo"})).unwrap();
         let first_id = first["scope"]["session_id"].as_str().unwrap().to_string();
         crate::commands::handoff::cmd_handoff(
             &db,
@@ -127,7 +128,7 @@ mod tests {
         )
         .unwrap();
 
-        let second = cmd_begin(&db, json!({"actor": "gemini"})).unwrap();
+        let second = cmd_begin(&db, json!({"actor": "gemini", "workspace": "demo"})).unwrap();
         assert_eq!(second["scope"]["resumed"], false);
         assert_eq!(
             second["scope"]["parent_session_id"].as_str().unwrap(),

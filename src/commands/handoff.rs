@@ -6,7 +6,7 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::core::budget::DEFAULT_CONTEXT_BUDGET;
+use crate::core::budget::DEFAULT_HANDOFF_BUDGET;
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::ids::SessionId;
 use crate::storage::db::KnoxDb;
@@ -33,15 +33,22 @@ pub fn cmd_handoff(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let id = SessionId::from(session_id);
     let session = crate::storage::sessions::get_session(db, &id)?
         .ok_or_else(|| KnoxError::SessionNotFound(session_id.to_string()))?;
-    let digest = crate::mcp::handlers::get_context::handle_context(
-        db,
-        json!({
-            "session_id": session_id,
-            "budget": input.budget.unwrap_or(DEFAULT_CONTEXT_BUDGET),
-            "format": "compact",
-            "current_only": true
-        }),
-    )?;
+    let digest = {
+        let project_param = session
+            .project_id
+            .as_ref()
+            .map(|pid| pid.to_string());
+        crate::mcp::handlers::get_context::handle_context(
+            db,
+            json!({
+                "session_id": session_id,
+                "project": project_param,
+                "budget": input.budget.unwrap_or(DEFAULT_HANDOFF_BUDGET),
+                "format": "compact",
+                "current_only": true
+            }),
+        )?
+    };
     let closed = if session.is_open {
         crate::storage::sessions::end_session(db, &id)?
     } else {
@@ -63,7 +70,7 @@ mod tests {
     #[test]
     fn returns_digest_and_closes_session() {
         let db = KnoxDb::open_memory().unwrap();
-        let session = crate::storage::sessions::start_session(&db, "gemini", None).unwrap();
+        let session = crate::storage::sessions::start_session(&db, "gemini", Some("demo")).unwrap();
         let result = cmd_handoff(
             &db,
             json!({"session_id": session.id.to_string(), "budget": 100}),

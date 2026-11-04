@@ -19,7 +19,7 @@ mod tests {
     #[test]
     fn returns_digest_and_closes_session() {
         let db = KnoxDb::open_memory().unwrap();
-        let session = crate::storage::sessions::start_session(&db, "gemini", None).unwrap();
+        let session = crate::storage::sessions::start_session(&db, "gemini", Some("demo")).unwrap();
         let result = handle_handoff(
             &db,
             json!({"session_id": session.id.to_string(), "budget": 100}),

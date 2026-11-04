@@ -18,8 +18,12 @@ pub fn query_actions(db: &KnoxDb, filter: &QueryFilter) -> KnoxResult<QueryResul
     let conn = db.conn();
     let (where_clause, params) = build_where_clause(db, filter)?;
 
+    // Clamp the limit to prevent resource exhaustion from callers requesting
+    // very large result sets. The token budget still constrains the response.
+    let limit = filter.limit.min(200);
+
     let total_count = fetch_query_count(conn, &where_clause, &params)?;
-    let results = fetch_query_actions(conn, &where_clause, &params, filter.limit)?;
+    let results = fetch_query_actions(conn, &where_clause, &params, limit)?;
     let has_more = total_count > results.len();
 
     tracing::debug!(

@@ -18,13 +18,13 @@ mod tests {
     use serde_json::json;
 
     fn record(db: &KnoxDb, entries: Value) -> KnoxResult<Value> {
-        handle_record(db, json!({ "actor": "gemini", "entries": entries }))
+        handle_record(db, json!({ "actor": "gemini", "project": "demo", "entries": entries }))
     }
 
     #[test]
     fn requires_entries() {
         let db = KnoxDb::open_memory().unwrap();
-        assert!(handle_record(&db, json!({"actor": "agent"})).is_err());
+        assert!(handle_record(&db, json!({"actor": "agent", "project": "demo"})).is_err());
     }
 
     #[test]
@@ -124,6 +124,7 @@ mod tests {
         let db = KnoxDb::open_memory().unwrap();
         let params = json!({
             "actor": "gemini",
+            "project": "demo",
             "idem": "turn-1",
             "entries": [{"kind": "plan", "summary": "Plan once"}]
         });
@@ -133,6 +134,7 @@ mod tests {
 
         let conflicting = json!({
             "actor": "gemini",
+            "project": "demo",
             "idem": "turn-1",
             "entries": [{"kind": "plan", "summary": "Plan twice"}]
         });
@@ -254,6 +256,7 @@ mod tests {
             &db,
             json!({
                 "actor": "gemini",
+                "project": "demo",
                 "dry_run": true,
                 "entries": [{"kind": "plan", "summary": "Plan only"}]
             }),

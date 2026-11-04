@@ -85,7 +85,7 @@ fn test_e2e_init_ingest_query_status_walkthrough() {
 }
 
 fn record_e2e_mcp_action(db: &KnoxDb) {
-    let start_res = dispatch("knox_begin", json!({"actor": "e2e-agent"}), db);
+    let start_res = dispatch("knox_begin", json!({"actor": "e2e-agent", "workspace": "demo"}), db);
     let session_id = start_res.result.unwrap()["scope"]["session_id"]
         .as_str()
         .unwrap()
@@ -96,6 +96,7 @@ fn record_e2e_mcp_action(db: &KnoxDb) {
         json!({
             "actor": "e2e-agent",
             "session_id": session_id,
+            "project": "demo",
             "entries": [{
                 "kind": "write",
                 "summary": "Added AST visitor pattern",

@@ -28,7 +28,7 @@ const MAX_WARNINGS: usize = 5;
 #[derive(Debug, Deserialize)]
 pub struct RecordParams {
     pub actor: String,
-    #[serde(default)]
+    /// Project scope (required — cross-project writes are rejected).
     pub project: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
@@ -396,6 +396,8 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             "actor must not be empty".to_string(),
         ));
     }
+    let project = input.project.as_deref()
+        .filter(|p| !p.trim().is_empty());
     if input.entries.is_empty() {
         return Err(KnoxError::InvalidInput(
             "record requires at least one entry".to_string(),
@@ -414,7 +416,7 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let (session_id, is_implicit) = resolve_session(
         db,
         input.actor.trim(),
-        input.project.as_deref(),
+        project,
         input.session_id.as_deref(),
     )?;
     let session = crate::storage::sessions::get_session(db, &session_id)?
@@ -791,13 +793,13 @@ mod tests {
     use serde_json::json;
 
     fn record(db: &KnoxDb, entries: Value) -> KnoxResult<Value> {
-        cmd_record(db, json!({ "actor": "gemini", "entries": entries }))
+        cmd_record(db, json!({ "actor": "gemini", "project": "demo", "entries": entries }))
     }
 
     #[test]
     fn requires_entries() {
         let db = KnoxDb::open_memory().unwrap();
-        assert!(cmd_record(&db, json!({"actor": "agent"})).is_err());
+        assert!(cmd_record(&db, json!({"actor": "agent", "project": "demo"})).is_err());
     }
 
     #[test]
@@ -897,6 +899,7 @@ mod tests {
         let db = KnoxDb::open_memory().unwrap();
         let params = json!({
             "actor": "gemini",
+            "project": "demo",
             "idem": "turn-1",
             "entries": [{"kind": "plan", "summary": "Plan once"}]
         });
@@ -906,6 +909,7 @@ mod tests {
 
         let conflicting = json!({
             "actor": "gemini",
+            "project": "demo",
             "idem": "turn-1",
             "entries": [{"kind": "plan", "summary": "Plan twice"}]
         });
@@ -1027,6 +1031,7 @@ mod tests {
             &db,
             json!({
                 "actor": "gemini",
+                "project": "demo",
                 "dry_run": true,
                 "entries": [{"kind": "plan", "summary": "Plan only"}]
             }),

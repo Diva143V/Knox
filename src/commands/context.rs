@@ -27,7 +27,7 @@ use crate::storage::queries::query_actions;
 pub struct ContextParams {
     /// Optional file path filter.
     pub file_path: Option<String>,
-    /// Optional project scope filter.
+    /// Project scope filter (required — cross-project reads are rejected).
     pub project: Option<String>,
     /// Optional session identifier filter.
     pub session_id: Option<String>,
@@ -71,6 +71,9 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             "Invalid context params: {e}"
         )))?;
 
+    let project = input.project.as_deref()
+        .filter(|p| !p.trim().is_empty());
+
     let since_dt = if let Some(ref s) = input.since {
         Some(
             DateTime::parse_from_rfc3339(s)
@@ -91,7 +94,7 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let filter = QueryFilter {
         file_path: input.file_path.as_deref().map(normalize_query_file_path),
         file_path_exact: false,
-        project: input.project.clone(),
+        project: project.map(|p| p.to_string()),
         session_id: input.session_id.map(SessionId::from),
         actor: input.actor,
         since: since_dt,
@@ -196,7 +199,8 @@ mod tests {
     #[test]
     fn context_defaults_to_current_only() {
         let db = KnoxDb::open_memory().unwrap();
-        let session = crate::storage::sessions::start_session(&db, "gemini", None).unwrap();
+        let session = crate::storage::sessions::start_session(&db, "gemini", Some("demo")).unwrap();
+        let project_id = crate::core::ids::ProjectId("demo".to_string());
 
         let old_act = KnoxAction {
             id: ActionId::new(),
@@ -211,6 +215,7 @@ mod tests {
             session_id: Some(session.id.clone()),
             parent_action_id: None,
             supersedes: None,
+            project_id: Some(project_id.clone()),
             ..Default::default()
         };
         crate::storage::nodes::insert_action(&db, &old_act).unwrap();
@@ -228,11 +233,12 @@ mod tests {
             session_id: Some(session.id.clone()),
             parent_action_id: None,
             supersedes: None,
+            project_id: Some(project_id),
             ..Default::default()
         };
         crate::storage::nodes::insert_action(&db, &new_act).unwrap();
 
-        let res = cmd_context(&db, json!({})).unwrap();
+        let res = cmd_context(&db, json!({ "project": "demo" })).unwrap();
         let total = res.get("total_count").unwrap().as_u64().unwrap();
         assert_eq!(total, 1);
     }
@@ -247,11 +253,12 @@ mod tests {
             summary: "Update parser".to_string(),
             files: vec!["src/parser.rs".to_string()],
             timestamp: Utc::now(),
+            project_id: Some(crate::core::ids::ProjectId("demo".to_string())),
             ..Default::default()
         };
         crate::storage::nodes::insert_action(&db, &action).unwrap();
 
-        let result = cmd_context_compact(&db, json!({})).unwrap();
+        let result = cmd_context_compact(&db, json!({ "project": "demo" })).unwrap();
         assert_eq!(result["budget"], DEFAULT_CONTEXT_BUDGET);
         assert!(!result["markdown"].as_str().unwrap().contains("###"));
         assert_eq!(result["truncated"], false);
@@ -260,13 +267,19 @@ mod tests {
     #[test]
     fn context_rejects_invalid_budget() {
         let db = KnoxDb::open_memory().unwrap();
-        let error = cmd_context(&db, json!({ "budget": 0 })).unwrap_err();
+        let error = cmd_context(&db, json!({ "project": "demo", "budget": 0 })).unwrap_err();
         assert!(error.to_string().contains("between 1 and"));
     }
 
     #[test]
     fn json_context_falls_back_to_bounded_output() {
         let db = KnoxDb::open_memory().unwrap();
+        crate::storage::nodes::insert_project(&db, &crate::core::types::Project {
+            id: crate::core::ids::ProjectId("demo".to_string()),
+            name: "demo".to_string(),
+            path: "demo".to_string(),
+            created_at: Utc::now(),
+        }).unwrap();
         for index in 0..10 {
             let action = KnoxAction {
                 id: ActionId::new(),
@@ -275,12 +288,13 @@ mod tests {
                 summary: format!("A long context summary with details {index}"),
                 files: vec!["src/parser.rs".to_string()],
                 timestamp: Utc::now(),
+                project_id: Some(crate::core::ids::ProjectId("demo".to_string())),
                 ..Default::default()
             };
             crate::storage::nodes::insert_action(&db, &action).unwrap();
         }
 
-        let result = cmd_context(&db, json!({ "format": "json", "budget": 20 })).unwrap();
+        let result = cmd_context(&db, json!({ "project": "demo", "format": "json", "budget": 20 })).unwrap();
         assert_eq!(result["truncated"], true);
         assert!(result["results"].is_null());
         assert!(result["budget_used"].as_u64().unwrap() <= 20);

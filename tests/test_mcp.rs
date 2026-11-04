@@ -37,6 +37,7 @@ fn test_mcp_session_lifecycle() {
         json!({
             "session_id": session_id,
             "actor": "gemini",
+            "project": "knox",
             "entries": [{
                 "kind": "write",
                 "summary": "Implemented parser",
@@ -53,7 +54,7 @@ fn test_mcp_session_lifecycle() {
 }
 
 fn mcp_start(db: &KnoxDb, actor: &str) -> String {
-    let start_res = dispatch("knox_begin", json!({"actor": actor}), db);
+    let start_res = dispatch("knox_begin", json!({"actor": actor, "workspace": "demo"}), db);
     start_res.result.unwrap()["scope"]["session_id"]
         .as_str()
         .unwrap()
@@ -66,6 +67,7 @@ fn mcp_write(db: &KnoxDb, sid: &str, actor: &str, summary: &str, file: &str) -> 
         json!({
             "session_id": sid,
             "actor": actor,
+            "project": "demo",
             "entries": [{
                 "kind": "write",
                 "summary": summary,
@@ -115,6 +117,7 @@ fn test_mcp_context_query_filters_superseded() {
         "knox_record",
         json!({
             "session_id": session_id, "actor": "claude",
+            "project": "demo",
             "entries": [{
                 "kind": "decide",
                 "summary": "New zero-copy lexer",
@@ -127,7 +130,7 @@ fn test_mcp_context_query_filters_superseded() {
 
     let ctx_res = dispatch(
         "knox_context",
-        json!({"view": "file", "files": ["src/lexer.rs"]}),
+        json!({"project": "demo", "view": "file", "files": ["src/lexer.rs"]}),
         &db,
     );
     let ctx_results = ctx_res.result.unwrap()["results"]
@@ -148,6 +151,7 @@ fn test_mcp_history_and_stale_listing() {
         "knox_record",
         json!({
             "session_id": session_id, "actor": "claude",
+            "project": "demo",
             "entries": [{
                 "kind": "decide",
                 "summary": "New lexer",
@@ -161,7 +165,7 @@ fn test_mcp_history_and_stale_listing() {
     // History via context with current_only=false
     let hist_res = dispatch(
         "knox_context",
-        json!({"view": "file", "files": ["src/lexer.rs"], "current_only": false}),
+        json!({"project": "demo", "view": "file", "files": ["src/lexer.rs"], "current_only": false}),
         &db,
     );
     assert_eq!(
@@ -197,7 +201,7 @@ fn test_mcp_search_and_tools_call_standard() {
 
     let search_res = dispatch(
         "knox_context",
-        json!({"view": "query", "query": "inverted index"}),
+        json!({"project": "demo", "view": "query", "query": "inverted index"}),
         &db,
     );
     let search_results = search_res.result.unwrap()["results"]
@@ -222,6 +226,7 @@ fn test_mcp_doubt_lifecycle_and_resolution() {
         json!({
             "session_id": session_id,
             "actor": "gemini",
+            "project": "demo",
             "entries": [{
                 "kind": "doubt",
                 "summary": "Can we support 50k nodes in petgraph without high heap overhead?",
@@ -253,6 +258,7 @@ fn test_mcp_doubt_lifecycle_and_resolution() {
         json!({
             "session_id": session_id,
             "actor": "gemini",
+            "project": "demo",
             "entries": [{
                 "kind": "decide",
                 "summary": "Adopt lazy bounded BFS subgraph extraction rather than loading whole KG into petgraph",
@@ -334,7 +340,7 @@ async fn run_mock_client_exchange(
     .await;
     assert_eq!(init_res.get("id").unwrap(), 100);
 
-    let start_res = send_mcp_call(write, lines, json!({"jsonrpc": "2.0", "id": 101, "method": "tools/call", "params": {"name": "knox_begin", "arguments": {"actor": "gemini-mcp"}}})).await;
+    let start_res = send_mcp_call(write, lines, json!({"jsonrpc": "2.0", "id": 101, "method": "tools/call", "params": {"name": "knox_begin", "arguments": {"actor": "gemini-mcp", "workspace": "demo"}}})).await;
     let start_text = start_res["result"]["content"][0]["text"].as_str().unwrap();
     let start_data: serde_json::Value = serde_json::from_str(start_text).unwrap();
     let session_id = start_data["scope"]["session_id"]
@@ -342,7 +348,7 @@ async fn run_mock_client_exchange(
         .unwrap()
         .to_string();
 
-    let rec_res = send_mcp_call(write, lines, json!({"jsonrpc": "2.0", "id": 102, "method": "tools/call", "params": {"name": "knox_record", "arguments": {"session_id": session_id, "actor": "gemini-mcp", "entries": [{"kind": "write", "summary": "Built MCP loop", "files": ["src/mcp/server.rs"]}]}}})).await;
+    let rec_res = send_mcp_call(write, lines, json!({"jsonrpc": "2.0", "id": 102, "method": "tools/call", "params": {"name": "knox_record", "arguments": {"session_id": session_id, "actor": "gemini-mcp", "project": "demo", "entries": [{"kind": "write", "summary": "Built MCP loop", "files": ["src/mcp/server.rs"]}]}}})).await;
     assert_eq!(rec_res.get("id").unwrap(), 102);
 
     let end_res = send_mcp_call(write, lines, json!({"jsonrpc": "2.0", "id": 103, "method": "tools/call", "params": {"name": "knox_handoff", "arguments": {"session_id": session_id}}})).await;
@@ -376,6 +382,7 @@ fn test_mcp_implicit_session_and_v2_fields() {
         "knox_record",
         json!({
             "actor": "claude-code",
+            "project": "demo",
             "entries": [{
                 "kind": "decide",
                 "summary": "Adopted SQLite WAL mode for concurrency",
@@ -402,6 +409,7 @@ fn test_mcp_implicit_session_and_v2_fields() {
         "knox_record",
         json!({
             "actor": "claude-code",
+            "project": "demo",
             "entries": [{
                 "kind": "write",
                 "summary": "Implemented WAL checkpointing logic",
@@ -424,6 +432,7 @@ fn test_mcp_implicit_session_and_v2_fields() {
     let ctx_res = dispatch(
         "knox_context",
         json!({
+            "project": "demo",
             "view": "symbol",
             "symbols": ["KnoxDb::checkpoint"],
             "format": "markdown"
@@ -445,6 +454,7 @@ fn test_mcp_record_batch_and_graph_tools() {
         "knox_record",
         json!({
             "actor": "codex",
+            "project": "demo",
             "entries": [
                 {
                     "kind": "decide",
@@ -536,6 +546,7 @@ fn test_mcp_check_guardrails() {
         "knox_record",
         json!({
             "actor": "security-bot",
+            "project": "demo",
             "entries": [{
                 "kind": "decide",
                 "summary": "Mandate AES-256-GCM for all payloads",
@@ -551,6 +562,7 @@ fn test_mcp_check_guardrails() {
     let guard_res = dispatch(
         "knox_check",
         json!({
+            "project": "demo",
             "files": ["src/crypto.rs"]
         }),
         &db,
@@ -568,6 +580,7 @@ fn test_mcp_check_guardrails() {
     let viol_res = dispatch(
         "knox_check",
         json!({
+            "project": "demo",
             "files": ["src/crypto.rs"],
             "intent": "Use ChaCha20-Poly1305 without hardware acceleration for quick encryption"
         }),

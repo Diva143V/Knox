@@ -36,15 +36,15 @@ mod tests {
     #[test]
     fn isolates_open_sessions_by_actor() {
         let db = KnoxDb::open_memory().unwrap();
-        let first = handle_begin(&db, json!({"actor": "gemini"})).unwrap();
-        let second = handle_begin(&db, json!({"actor": "claude"})).unwrap();
+        let first = handle_begin(&db, json!({"actor": "gemini", "workspace": "demo"})).unwrap();
+        let second = handle_begin(&db, json!({"actor": "claude", "workspace": "demo"})).unwrap();
         assert_ne!(first["scope"]["session_id"], second["scope"]["session_id"]);
     }
 
     #[test]
     fn new_session_links_to_the_previous_one() {
         let db = KnoxDb::open_memory().unwrap();
-        let first = handle_begin(&db, json!({"actor": "gemini"})).unwrap();
+        let first = handle_begin(&db, json!({"actor": "gemini", "workspace": "demo"})).unwrap();
         let first_id = first["scope"]["session_id"].as_str().unwrap().to_string();
         crate::commands::handoff::cmd_handoff(
             &db,
@@ -52,7 +52,7 @@ mod tests {
         )
         .unwrap();
 
-        let second = handle_begin(&db, json!({"actor": "gemini"})).unwrap();
+        let second = handle_begin(&db, json!({"actor": "gemini", "workspace": "demo"})).unwrap();
         assert_eq!(second["scope"]["resumed"], false);
         assert_eq!(
             second["scope"]["parent_session_id"].as_str().unwrap(),

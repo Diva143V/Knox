@@ -140,6 +140,9 @@ impl KnoxDb {
     /// Reclaims unused database pages and defragments storage via SQLite VACUUM.
     pub fn vacuum(&self) -> KnoxResult<()> {
         self.conn.execute("VACUUM", [])?;
+        // VACUUM can renumber implicit rowids, which invalidates the external-content
+        // FTS5 index keyed on content_rowid='rowid'. Rebuild it to keep search correct.
+        self.conn.execute("INSERT INTO actions_fts(actions_fts) VALUES('rebuild')", [])?;
         Ok(())
     }
 

@@ -14,13 +14,15 @@
 use serde_json::json;
 
 use knox::core::budget::estimate_tokens;
+use knox::core::types::KnoxAction;
+use knox::core::ids::ActionId;
 use knox::mcp::handlers::dispatch;
+use knox::mcp::protocol::ToolDescription;
 use knox::mcp::tools::{all_tools, LISTED_TOOL_NAMES, TOOL_COUNT};
+use knox::metrics::measure_token_efficiency;
 use knox::storage::db::KnoxDb;
 use knox::storage::nodes::insert_action;
 use knox::storage::sessions::{start_session, end_session};
-use knox::core::types::KnoxAction;
-use knox::core::ids::ActionId;
 use chrono::Utc;
 
 /// A labelled query with expected top-5 action IDs for recall@5 measurement.
@@ -41,7 +43,13 @@ struct BenchResult {
 
 /// Seed the database with fixture-derived actions for benchmarking.
 fn seed_benchmark_db(db: &KnoxDb) -> Vec<ActionId> {
-    let session = start_session(db, "bench-agent", None).unwrap();
+    let session = start_session(db, "bench-agent", Some("demo")).unwrap();
+    knox::storage::nodes::insert_project(db, &knox::core::types::Project {
+        id: knox::core::ids::ProjectId("demo".to_string()),
+        name: "demo".to_string(),
+        path: "demo".to_string(),
+        created_at: Utc::now(),
+    }).unwrap();
     let mut ids = Vec::new();
 
     let actions: Vec<KnoxAction> = vec![
@@ -499,7 +507,12 @@ fn labelled_queries() -> Vec<LabelledQuery> {
 
 /// Run a single labelled query and measure metrics.
 fn run_query(db: &KnoxDb, query: &LabelledQuery) -> BenchResult {
-    let res = dispatch("knox_context", query.params.clone(), db);
+    // All seeded actions belong to project "demo"; inject it so queries match.
+    let mut params = query.params.clone();
+    if params.get("project").is_none() {
+        params.as_object_mut().unwrap().insert("project".to_string(), json!("demo"));
+    }
+    let res = dispatch("knox_context", params, db);
     let result = res.result.expect("query should return a result");
     let response_text = serde_json::to_string(&result).unwrap();
     let response_tokens = estimate_tokens(&response_text);
@@ -549,6 +562,35 @@ fn bench_tool_list_token_cost() {
 }
 
 #[test]
+fn bench_metrics_tool_efficiency() {
+    // Wire metrics::measure_token_efficiency into the benchmark so the
+    // documented token-efficiency claim is reproducible from the test suite.
+    let tools: Vec<ToolDescription> = all_tools();
+    let action = KnoxAction {
+        id: ActionId::new(),
+        actor: "bench-agent".to_string(),
+        action_type: "decide".to_string(),
+        summary: "Benchmark token efficiency measurement".to_string(),
+        files: vec!["src/mcp/tools.rs".to_string()],
+        ..Default::default()
+    };
+    let report = measure_token_efficiency(&tools, &[action]);
+
+    eprintln!("--- P0 Benchmark: metrics token efficiency ---");
+    eprintln!("Tool count: {}", report.tool_count);
+    eprintln!("Tool definition tokens: {}", report.tool_definition_tokens);
+    eprintln!("Compact context tokens: {}", report.compact_context_tokens);
+    eprintln!("Markdown context tokens: {}", report.markdown_context_tokens);
+    eprintln!("JSON context tokens: {}", report.json_context_tokens);
+
+    assert_eq!(report.tool_count, TOOL_COUNT);
+    assert!(report.tool_definition_tokens > 0);
+    assert!(report.tool_definition_tokens <= 850, "tool definition tokens {} exceed target 850", report.tool_definition_tokens);
+    assert!(report.compact_context_tokens < report.json_context_tokens);
+    assert!(report.compact_savings_percent() > 0);
+}
+
+#[test]
 fn bench_recall_at_5() {
     let db = KnoxDb::open_memory().unwrap();
     seed_benchmark_db(&db);
@@ -568,7 +610,11 @@ fn bench_recall_at_5() {
         if result.within_budget {
             total_within_budget += 1;
         }
-        let results_count = dispatch("knox_context", query.params.clone(), &db)
+        let mut count_params = query.params.clone();
+        if count_params.get("project").is_none() {
+            count_params.as_object_mut().unwrap().insert("project".to_string(), json!("demo"));
+        }
+        let results_count = dispatch("knox_context", count_params, &db)
             .result
             .unwrap()
             .get("results")
@@ -629,7 +675,8 @@ fn bench_budget_enforcement() {
     for budget in [200, 400, 600, 800, 1000, 1200, 2000, 4000] {
         let params = json!({
             "action_type": "write",
-            "budget": budget
+            "budget": budget,
+            "project": "demo"
         });
         let res = dispatch("knox_context", params, &db);
         let result = res.result.unwrap();
@@ -655,7 +702,7 @@ fn bench_round_trips_per_workflow() {
     // A complete workflow: begin -> record -> context -> handoff
     let begin_res = dispatch(
         "knox_begin",
-        json!({"actor": "bench-agent", "workspace": "bench"}),
+        json!({"actor": "bench-agent", "workspace": "demo"}),
         &db,
     );
     assert!(begin_res.error.is_none());
@@ -669,6 +716,7 @@ fn bench_round_trips_per_workflow() {
         json!({
             "session_id": session_id,
             "actor": "bench-agent",
+            "project": "demo",
             "entries": [{"kind": "write", "summary": "Benchmark smoke test", "files": ["src/bench.rs"]}]
         }),
         &db,
@@ -677,7 +725,7 @@ fn bench_round_trips_per_workflow() {
 
     let ctx_res = dispatch(
         "knox_context",
-        json!({"query": "benchmark smoke test"}),
+        json!({"project": "demo", "query": "benchmark smoke test"}),
         &db,
     );
     assert!(ctx_res.error.is_none());
