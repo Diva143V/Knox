@@ -171,11 +171,24 @@ fn insert_action_relations_and_symbols(
     let mut stmt_rel = conn.prepare_cached(
         "INSERT OR IGNORE INTO action_relations (from_action_id, to_action_id, relation_type) VALUES (?1, ?2, ?3)",
     )?;
+    let mut stmt_edge = conn.prepare_cached(
+        "INSERT OR IGNORE INTO edges (id, from_action_id, to_action_id, edge_type, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+    )?;
+    let now = Utc::now().to_rfc3339();
     for rel in relations {
         stmt_rel.execute(params![
             id.as_str(),
             rel.target_id.as_str(),
             rel.relation_type.to_string(),
+        ])?;
+        let edge_id = format!("{}:{}:{}", id, rel.target_id, rel.relation_type);
+        stmt_edge.execute(params![
+            edge_id,
+            id.as_str(),
+            rel.target_id.as_str(),
+            rel.relation_type.to_string(),
+            now,
         ])?;
     }
 

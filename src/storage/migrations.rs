@@ -48,6 +48,10 @@ pub fn run_migrations(conn: &Connection) -> KnoxResult<()> {
         apply_v7(conn)?;
     }
 
+    if current_version < 8 {
+        apply_v8(conn)?;
+    }
+
     Ok(())
 }
 
@@ -396,6 +400,62 @@ fn apply_v7(conn: &Connection) -> KnoxResult<()> {
     Ok(())
 }
 
+const V8_SCHEMA_SQL: &str = "BEGIN TRANSACTION;
+
+-- Edge table: unified typed causal graph edges.
+-- Replaces the need to query parent_action_id, superseded_by, and
+-- action_relations separately. One query: \"everything connected to this\".
+CREATE TABLE IF NOT EXISTS edges (
+    id TEXT PRIMARY KEY,
+    from_action_id TEXT NOT NULL,
+    to_action_id TEXT NOT NULL,
+    edge_type TEXT NOT NULL
+        CHECK (edge_type IN ('follows', 'contradicts', 'implements', 'depends_on',
+                             'verifies', 'relates_to', 'reverts', 'supersedes')),
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (from_action_id) REFERENCES actions(id) ON DELETE CASCADE,
+    FOREIGN KEY (to_action_id)   REFERENCES actions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_action_id);
+CREATE INDEX IF NOT EXISTS idx_edges_to   ON edges(to_action_id);
+CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
+
+-- Keep edges in sync with actions.parent_action_id (follows edges).
+CREATE TRIGGER IF NOT EXISTS edges_ai_follows AFTER INSERT ON actions BEGIN
+    INSERT INTO edges(id, from_action_id, to_action_id, edge_type, created_at)
+    SELECT new.id, new.id, new.parent_action_id, 'follows', new.timestamp
+    WHERE new.parent_action_id IS NOT NULL;
+END;
+
+-- Keep edges in sync with actions.superseded_by (supersedes edges).
+-- superseded_by is set by mark_superseded_conn, not in the initial INSERT.
+CREATE TRIGGER IF NOT EXISTS edges_au_supersedes AFTER UPDATE OF superseded_by ON actions BEGIN
+    INSERT INTO edges(id, from_action_id, to_action_id, edge_type, created_at)
+    SELECT new.id, old.id, new.superseded_by, 'supersedes', new.timestamp
+    WHERE new.superseded_by IS NOT NULL AND old.superseded_by IS NULL;
+END;
+
+-- Migrate existing action_relations into edges.
+INSERT OR IGNORE INTO edges(id, from_action_id, to_action_id, edge_type, created_at)
+SELECT
+    from_action_id || ':' || to_action_id || ':' || relation_type,
+    from_action_id,
+    to_action_id,
+    relation_type,
+    (SELECT timestamp FROM actions WHERE id = from_action_id LIMIT 1)
+FROM action_relations;
+
+UPDATE knox_meta SET value = '8' WHERE key = 'schema_version';
+
+COMMIT;";
+
+/// Applies the additive v8 edge-table foundation (typed causal edges).
+fn apply_v8(conn: &Connection) -> KnoxResult<()> {
+    conn.execute_batch(V8_SCHEMA_SQL)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,11 +465,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         let version = get_schema_version(&conn).unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
 
         // Re-running migrations should be idempotent
         run_migrations(&conn).unwrap();
         let version2 = get_schema_version(&conn).unwrap();
-        assert_eq!(version2, 7);
+        assert_eq!(version2, 8);
     }
 }
