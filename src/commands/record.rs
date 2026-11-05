@@ -29,7 +29,7 @@ const MAX_WARNINGS: usize = 5;
 pub struct RecordParams {
     pub actor: String,
     /// Project scope (required — cross-project writes are rejected).
-    pub project: Option<String>,
+    pub project: String,
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
@@ -396,8 +396,7 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             "actor must not be empty".to_string(),
         ));
     }
-    let project = input.project.as_deref()
-        .filter(|p| !p.trim().is_empty());
+    let project = input.project;
     if input.entries.is_empty() {
         return Err(KnoxError::InvalidInput(
             "record requires at least one entry".to_string(),
@@ -416,7 +415,7 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let (session_id, is_implicit) = resolve_session(
         db,
         input.actor.trim(),
-        project,
+        Some(&project),
         input.session_id.as_deref(),
     )?;
     let session = crate::storage::sessions::get_session(db, &session_id)?

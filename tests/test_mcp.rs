@@ -90,6 +90,7 @@ fn test_mcp_decision_recording_and_parent_link() {
         json!({
             "session_id": session_id,
             "actor": "gemini",
+            "project": "demo",
             "entries": [{
                 "kind": "decide",
                 "summary": "Decided petgraph architecture",
@@ -687,4 +688,70 @@ Implement the clean removal of egui dependencies from Cargo.toml
             .summary
             .contains("egui")
     );
+}
+
+#[test]
+fn test_mcp_stdio_stdout_purity() {
+    // Regression test for A1: tracing must write to stderr, never stdout.
+    // Every line on stdout must be valid JSON-RPC, even when warnings fire.
+    // This test requires the pre-built knox.exe binary (built in CI).
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+
+    let exe = std::env::var("KNOX_TEST_BIN")
+        .unwrap_or_else(|_| {
+            std::env::var("CARGO_MANIFEST_DIR").unwrap()
+                + "/target/release/knox.exe"
+        });
+    let exe_path = std::path::Path::new(&exe);
+    if !exe_path.exists() {
+        eprintln!("skipping test_mcp_stdio_stdout_purity: {exe} not found");
+        return;
+    }
+
+    let mut child = Command::new(&exe)
+        .args(["serve", "--stdio"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn knox serve --stdio");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let mut stdout = BufReader::new(stdout);
+
+    // Send initialize
+    writeln!(
+        stdin,
+        "{}",
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {}
+        })
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+
+    let mut stdout_lines = Vec::new();
+    let mut line = String::new();
+    while stdout.read_line(&mut line).unwrap_or(0) > 0 {
+        stdout_lines.push(line.clone());
+        line.clear();
+    }
+
+    // Every stdout line must parse as JSON-RPC
+    for line in &stdout_lines {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            serde_json::from_str::<serde_json::Value>(trimmed)
+                .unwrap_or_else(|e| panic!("stdout is not valid JSON-RPC: {trimmed} (err: {e})"));
+        }
+    }
+
+    // Clean up
+    let _ = child.kill();
+    let _ = child.wait();
 }

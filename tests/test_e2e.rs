@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
+use chrono::Utc;
 use tempfile::tempdir;
 
 use knox::commands::*;
@@ -128,11 +129,19 @@ fn test_e2e_mcp_context_and_human_scan_flow() {
     let db_path = dir.path().join("knox_mcp_scan.db");
     let db = KnoxDb::open(&db_path).unwrap();
 
+    // Register project "demo" so ingest and context queries can scope to it
+    knox::storage::nodes::insert_project(&db, &knox::core::types::Project {
+        id: knox::core::ids::ProjectId("demo".to_string()),
+        name: "demo".to_string(),
+        path: "demo".to_string(),
+        created_at: Utc::now(),
+    }).unwrap();
+
     cmd_ingest(&fixture_transcript_path(), &db, false).unwrap();
 
     let ctx_res = dispatch(
         "knox_context",
-        json!({"file_path": "src/parser.rs"}),
+        json!({"file_path": "src/parser.rs", "project": "demo"}),
         &db,
     );
     assert!(

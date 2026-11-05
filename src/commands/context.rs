@@ -23,12 +23,12 @@ use crate::storage::db::KnoxDb;
 use crate::storage::queries::query_actions;
 
 /// Input parameters for `knox_context`.
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize)]
 pub struct ContextParams {
     /// Optional file path filter.
     pub file_path: Option<String>,
     /// Project scope filter (required — cross-project reads are rejected).
-    pub project: Option<String>,
+    pub project: String,
     /// Optional session identifier filter.
     pub session_id: Option<String>,
     /// Optional actor name filter.
@@ -71,9 +71,6 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             "Invalid context params: {e}"
         )))?;
 
-    let project = input.project.as_deref()
-        .filter(|p| !p.trim().is_empty());
-
     let since_dt = if let Some(ref s) = input.since {
         Some(
             DateTime::parse_from_rfc3339(s)
@@ -94,7 +91,7 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let filter = QueryFilter {
         file_path: input.file_path.as_deref().map(normalize_query_file_path),
         file_path_exact: false,
-        project: project.map(|p| p.to_string()),
+        project: Some(input.project.clone()),
         session_id: input.session_id.map(SessionId::from),
         actor: input.actor,
         since: since_dt,
@@ -129,8 +126,8 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 
     let title = if let Some(ref fp) = input.file_path {
         format!("Context for `{fp}`")
-    } else if let Some(ref p) = input.project {
-        format!("Project Context `{p}`")
+    } else if !input.project.is_empty() {
+        format!("Project Context `{}`", input.project)
     } else {
         "Active Knox Context".to_string()
     };
