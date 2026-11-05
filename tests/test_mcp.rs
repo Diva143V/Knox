@@ -721,7 +721,8 @@ fn test_mcp_stdio_stdout_purity() {
     let stdout = child.stdout.take().unwrap();
     let mut stdout = BufReader::new(stdout);
 
-    // Send initialize
+    // Send initialize, then drop stdin so the server sees EOF and drains its
+    // response to stdout.
     writeln!(
         stdin,
         "{}",
@@ -734,6 +735,7 @@ fn test_mcp_stdio_stdout_purity() {
     )
     .unwrap();
     stdin.flush().unwrap();
+    drop(stdin);
 
     let mut stdout_lines = Vec::new();
     let mut line = String::new();
@@ -751,7 +753,15 @@ fn test_mcp_stdio_stdout_purity() {
         }
     }
 
+    // A real initialize response must have been received — an empty stdout
+    // means the server never responded, which would look like a pass.
+    assert!(
+        !stdout_lines.is_empty(),
+        "serve --stdio produced no stdout response to initialize"
+    );
+
     // Clean up
     let _ = child.kill();
     let _ = child.wait();
 }
+

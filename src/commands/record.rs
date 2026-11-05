@@ -396,7 +396,11 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             "actor must not be empty".to_string(),
         ));
     }
-    let project = input.project;
+    if input.project.is_empty() {
+        return Err(KnoxError::NoScope(
+            "project is required — cross-project writes are rejected".to_string(),
+        ));
+    }
     if input.entries.is_empty() {
         return Err(KnoxError::InvalidInput(
             "record requires at least one entry".to_string(),
@@ -415,7 +419,7 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let (session_id, is_implicit) = resolve_session(
         db,
         input.actor.trim(),
-        Some(&project),
+        Some(&input.project),
         input.session_id.as_deref(),
     )?;
     let session = crate::storage::sessions::get_session(db, &session_id)?

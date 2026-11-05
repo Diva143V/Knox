@@ -33,6 +33,10 @@ pub enum KnoxError {
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
+    /// No project scope was provided (caller did not pass `project`).
+    #[error("NO_SCOPE: no project scope provided — pass `project` to scope the call")]
+    NoScope(String),
+
     /// The same idempotency key was reused with a different payload.
     #[error("IDEM_CONFLICT: idempotency key reused with a different payload: {0}")]
     IdemConflict(String),

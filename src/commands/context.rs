@@ -71,6 +71,13 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             "Invalid context params: {e}"
         )))?;
 
+    let project = input.project.clone();
+    if project.is_empty() {
+        return Err(crate::core::error::KnoxError::NoScope(
+            "project is required — cross-project reads are rejected".to_string(),
+        ));
+    }
+
     let since_dt = if let Some(ref s) = input.since {
         Some(
             DateTime::parse_from_rfc3339(s)
