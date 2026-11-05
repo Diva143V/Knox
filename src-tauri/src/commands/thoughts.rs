@@ -1,10 +1,11 @@
 //! IPC command handlers for recording quick thoughts, doubts, micro-decisions, and resolving doubts.
 
 use chrono::Utc;
-use knox::core::ids::ActionId;
+use knox::core::ids::{ActionId, ProjectId};
 use knox::core::types::KnoxAction;
 use knox::storage::db::KnoxDb;
 use knox::storage::nodes::{insert_action, resolve_doubt as db_resolve_doubt};
+use knox::storage::sessions::resolve_project_identifier;
 use tauri::State;
 
 use crate::AppState;
@@ -17,6 +18,7 @@ pub fn record_quick_thought_impl(
     actor: Option<String>,
     context_summary: Option<String>,
     files: Option<Vec<String>>,
+    project: Option<String>,
 ) -> Result<String, String> {
     let trimmed_summary = summary.trim();
     if trimmed_summary.is_empty() {
@@ -40,6 +42,11 @@ pub fn record_quick_thought_impl(
         .filter(|a| !a.is_empty())
         .unwrap_or_else(|| "human".to_string());
 
+    let project_id = project
+        .as_deref()
+        .and_then(|p| resolve_project_identifier(db, p).ok().flatten())
+        .map(ProjectId::from);
+
     let action = KnoxAction {
         id: action_id.clone(),
         actor: actor_str,
@@ -51,7 +58,7 @@ pub fn record_quick_thought_impl(
         is_current: true,
         timestamp: Utc::now(),
         session_id: None,
-        project_id: None,
+        project_id,
         parent_action_id: None,
         supersedes: None,
         relations: Vec::new(),
@@ -110,9 +117,10 @@ pub async fn record_quick_thought(
     actor: Option<String>,
     context_summary: Option<String>,
     files: Option<Vec<String>>,
+    project: Option<String>,
 ) -> Result<String, String> {
     let db = state.db.lock().await;
-    record_quick_thought_impl(&db, summary, category, actor, context_summary, files)
+    record_quick_thought_impl(&db, summary, category, actor, context_summary, files, project)
 }
 
 /// Resolves an open doubt in the knowledge graph.
@@ -142,6 +150,7 @@ mod tests {
             "doubt".to_string(),
             Some("engineer".to_string()),
             Some("Architecture review".to_string()),
+            None,
             None,
         );
         assert!(id_res.is_ok());

@@ -195,7 +195,8 @@ fn map_error(id: Option<Value>, err: KnoxError) -> McpResponse {
         | KnoxError::OversizeInput(msg)
         | KnoxError::InvalidRef(msg)
         | KnoxError::CrossProject(msg)
-        | KnoxError::Cycle(msg) => McpResponse::error(id, McpError::invalid_params(msg)),
+        | KnoxError::Cycle(msg)
+        | KnoxError::NoScope(msg) => McpResponse::error(id, McpError::invalid_params(msg)),
         KnoxError::Json(e) => McpResponse::error(id, McpError::parse_error(e.to_string())),
         other => McpResponse::error(id, McpError::internal_error(other.to_string())),
     }
