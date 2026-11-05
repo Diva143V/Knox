@@ -29,7 +29,7 @@ const MAX_WARNINGS: usize = 5;
 pub struct RecordParams {
     pub actor: String,
     /// Project scope (required — cross-project writes are rejected).
-    pub project: String,
+    pub project: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
@@ -396,7 +396,7 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             "actor must not be empty".to_string(),
         ));
     }
-    if input.project.is_empty() {
+    if input.project.is_none() {
         return Err(KnoxError::NoScope(
             "project is required — cross-project writes are rejected".to_string(),
         ));
@@ -416,10 +416,11 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         }
     }
 
+    let project = input.project.as_deref();
     let (session_id, is_implicit) = resolve_session(
         db,
         input.actor.trim(),
-        Some(&input.project),
+        project,
         input.session_id.as_deref(),
     )?;
     let session = crate::storage::sessions::get_session(db, &session_id)?

@@ -694,7 +694,9 @@ Implement the clean removal of egui dependencies from Cargo.toml
 fn test_mcp_stdio_stdout_purity() {
     // Regression test for A1: tracing must write to stderr, never stdout.
     // Every line on stdout must be valid JSON-RPC, even when warnings fire.
-    // This test requires the pre-built knox.exe binary (built in CI).
+    // This test requires the pre-built knox.exe binary; if it isn't built yet
+    // (e.g. `cargo test --workspace` runs before `cargo build --release` in CI),
+    // build it first so the test actually exercises something.
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};
 
@@ -705,8 +707,16 @@ fn test_mcp_stdio_stdout_purity() {
         });
     let exe_path = std::path::Path::new(&exe);
     if !exe_path.exists() {
-        eprintln!("skipping test_mcp_stdio_stdout_purity: {exe} not found");
-        return;
+        // Build the release binary so the test has something to run against.
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let build = Command::new("cargo")
+            .args(["build", "--release", "--manifest-path", &format!("{manifest_dir}/Cargo.toml")])
+            .spawn()
+            .expect("failed to spawn cargo build --release")
+            .wait()
+            .expect("cargo build --release failed");
+        assert!(build.success(), "cargo build --release failed");
+        assert!(exe_path.exists(), "knox.exe not found after build");
     }
 
     let mut child = Command::new(&exe)
