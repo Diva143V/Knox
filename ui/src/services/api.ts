@@ -545,6 +545,7 @@ export const KnoxAPI = {
     actor?: string;
     contextSummary?: string;
     files?: string[];
+    project?: string;
   }): Promise<string> {
     if (!isTauri) {
       const mockId = `mock-action-${Date.now()}`;
@@ -564,6 +565,7 @@ export const KnoxAPI = {
         significance: params.category === "major_decision" ? "major" : "minor",
         is_resolved: params.category !== "doubt",
         context_summary: params.contextSummary || null,
+        project_id: params.project || null,
       });
       return mockId;
     }
@@ -574,6 +576,7 @@ export const KnoxAPI = {
       contextSummary: params.contextSummary || null,
       context_summary: params.contextSummary || null,
       files: params.files || null,
+      project: params.project || null,
     });
   },
 

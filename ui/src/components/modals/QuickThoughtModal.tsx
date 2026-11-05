@@ -24,7 +24,7 @@ export const QuickThoughtModal: React.FC<QuickThoughtModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { showToast, refreshData } = useKnoxStore();
+  const { showToast, refreshData, activeProjectScope } = useKnoxStore();
   const [summary, setSummary] = useState("");
   const [category, setCategory] = useState<ThoughtCategory>("doubt");
   const [contextSummary, setContextSummary] = useState("");
@@ -63,6 +63,7 @@ export const QuickThoughtModal: React.FC<QuickThoughtModalProps> = ({
         actor: "human",
         contextSummary: contextSummary.trim() || undefined,
         files: files.length > 0 ? files : undefined,
+        project: activeProjectScope || undefined,
       });
 
       showToast(

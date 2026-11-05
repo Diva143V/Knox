@@ -108,11 +108,13 @@ jobs:
       - name: Build UI assets
         run: pnpm --dir ui build
 
-      - name: Run full workspace test suite
-        run: cargo test --workspace --verbose
-
-      - name: Build release binary and bundles
+      - name: Build release binary
         run: pnpm tauri build ${{ matrix.bundle_args }}
+
+      - name: Run full workspace test suite
+        env:
+          KNOX_TEST_BIN: ${{ matrix.binary_path }}
+        run: cargo test --workspace --verbose
 
       - name: Verify build outputs exist
         shell: bash
