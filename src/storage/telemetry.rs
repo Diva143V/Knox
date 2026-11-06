@@ -392,7 +392,7 @@ mod tests {
         record_query_log_best_effort(&db, &old_entry);
 
         // 2. Fresh entry (1 day old)
-        let fresh_ts = Utc::now().timestamp_millis() - (1 * 86_400_000);
+        let fresh_ts = Utc::now().timestamp_millis() - 86_400_000;
         let fresh_entry = QueryLogEntry {
             id: "ql_fresh".to_string(),
             ts_ms: fresh_ts,
