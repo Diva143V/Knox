@@ -26,6 +26,7 @@ import { ActionBadge } from "@/components/ui/ActionBadge";
 import { ActorBadge } from "@/components/ui/ActorBadge";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -700,10 +701,18 @@ export const IngestView: React.FC = () => {
               </Button>
             </CardHeader>
             <CardContent className="p-3 space-y-2">
-              {detectedTranscripts.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">
-                  {isScanning ? "Scanning local drives..." : "No local agent transcripts detected. Drop files or paste logs above."}
-                </p>
+              {isScanning ? (
+                <div className="space-y-2 py-1" role="status" aria-label="Scanning for transcripts">
+                  <Skeleton className="h-14 w-full rounded-md" />
+                  <Skeleton className="h-14 w-full rounded-md" />
+                </div>
+              ) : detectedTranscripts.length === 0 ? (
+                <EmptyState
+                  compact
+                  icon={<Sparkles className="size-5 text-muted-foreground/50" />}
+                  title="No local agent transcripts detected"
+                  description="Knox scans standard session log paths for Antigravity, Claude, and Cursor. Drop files or paste logs to ingest."
+                />
               ) : (
                 detectedTranscripts.map((t) => (
                   <div
@@ -757,6 +766,37 @@ export const IngestView: React.FC = () => {
             <p className="font-mono text-2xs break-all">{ingestError}</p>
           </div>
         </div>
+      )}
+
+      {/* Loading Skeleton while parsing transcript preview */}
+      {isPreviewing && !preview && (
+        <Card
+          className="border-border bg-card p-4 space-y-4"
+          role="status"
+          aria-label="Parsing transcript and generating preview"
+        >
+          <div className="flex items-center justify-between border-b border-border/60 pb-3">
+            <div className="flex items-center gap-2">
+              <Skeleton className="size-4 rounded-sm" />
+              <Skeleton className="h-4 w-48 rounded-sm" />
+            </div>
+            <Skeleton className="h-4 w-20 rounded-sm" />
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="p-2.5 rounded-lg bg-card/60 border border-border space-y-1.5">
+                <Skeleton className="h-3 w-16 mx-auto rounded-sm" />
+                <Skeleton className="h-6 w-12 mx-auto rounded-sm" />
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2 pt-2">
+            <Skeleton className="h-3 w-36 rounded-sm" />
+            <Skeleton className="h-12 w-full rounded-md" />
+            <Skeleton className="h-12 w-full rounded-md" />
+            <Skeleton className="h-12 w-full rounded-md" />
+          </div>
+        </Card>
       )}
 
       {/* Interactive Dry-Run Staging Preview Panel */}

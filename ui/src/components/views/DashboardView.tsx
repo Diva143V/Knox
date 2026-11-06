@@ -13,6 +13,7 @@ import { ActionRow, ACTION_ROW_GRID } from "@/components/ui/ActionRow";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonRow } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { cn } from "@/lib/cn";
 import { APP_VERSION } from "@/lib/navigation";
 import type { KnoxAction } from "@/types/knox";
@@ -86,7 +87,7 @@ const WeekActivity: React.FC<{ actions: KnoxAction[] }> = ({ actions }) => {
 
   return (
     <div className="flex gap-3">
-      <div className="flex w-6 shrink-0 flex-col justify-between pb-9 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
+      <div className="flex w-6 shrink-0 flex-col justify-between pb-9 text-right font-mono text-3xs tabular-nums text-muted-foreground">
         <span>{peak}</span>
         <span>{mid}</span>
         <span>0</span>
@@ -119,7 +120,7 @@ const WeekActivity: React.FC<{ actions: KnoxAction[] }> = ({ actions }) => {
                   key={day.date}
                   className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1"
                 >
-                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                  <span className="font-mono text-3xs tabular-nums text-muted-foreground">
                     {day.count}
                   </span>
                   <div
@@ -144,13 +145,13 @@ const WeekActivity: React.FC<{ actions: KnoxAction[] }> = ({ actions }) => {
             <div key={day.date} className="min-w-0 flex-1 text-center">
               <div
                 className={cn(
-                  "truncate text-[11px] leading-tight",
+                  "truncate text-3xs leading-tight",
                   day.isToday ? "text-foreground" : "text-muted-foreground"
                 )}
               >
                 {day.label}
               </div>
-              <div className="truncate font-mono text-[10px] leading-tight text-muted-foreground/70 sm:text-[11px]">
+              <div className="truncate font-mono text-3xs leading-tight text-muted-foreground/70">
                 {day.date}
               </div>
             </div>
@@ -179,18 +180,18 @@ const Metric: React.FC<{
   >
     <span className="truncate text-xs text-muted-foreground">{label}</span>
     <span className="mt-2 flex items-baseline gap-1.5">
-      <span className="font-mono text-[22px] leading-none tabular-nums tracking-tight text-foreground">
+      <span className="font-mono text-2xl leading-none tabular-nums tracking-tight text-foreground">
         {typeof value === "number" ? numberFormat.format(value) : value}
       </span>
       {suffix && (
-        <span className="font-mono text-[11px] text-muted-foreground">
+        <span className="font-mono text-3xs text-muted-foreground">
           {suffix}
         </span>
       )}
     </span>
     <span
       className={cn(
-        "mt-2 truncate text-[11px]",
+        "mt-2 truncate text-3xs",
         tone === "warning" ? "text-warning" : "text-muted-foreground"
       )}
     >
@@ -204,7 +205,7 @@ const Fact: React.FC<{ label: string; children: React.ReactNode }> = ({
   children,
 }) => (
   <div className="px-3 py-2.5">
-    <dt className="truncate text-[11px] text-muted-foreground">{label}</dt>
+    <dt className="truncate text-3xs text-muted-foreground">{label}</dt>
     <dd className="mt-1 truncate font-mono text-xs tabular-nums text-foreground">
       {children}
     </dd>
@@ -269,28 +270,26 @@ export const DashboardView: React.FC = () => {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-6xl space-y-5 px-4 py-5 sm:px-6 sm:py-6">
         {/* Title row: scope, health pill, provenance, one primary action */}
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h1 className="text-xl font-medium tracking-tight text-wrap-balance text-foreground">
-                {scopeName}
-              </h1>
-              <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
-                <span
-                  className={cn(
-                    "size-1.5 rounded-full",
-                    isLoading
-                      ? "bg-warning"
-                      : status
-                      ? "bg-success"
-                      : "bg-muted-foreground"
-                  )}
-                  aria-hidden
-                />
-                {isLoading ? "Syncing…" : status ? `Synced · v${APP_VERSION}` : "Database unavailable"}
-              </span>
-            </div>
-            <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+        <PageHeader
+          title={scopeName}
+          status={
+            <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border px-2 py-0.5 text-3xs text-muted-foreground">
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  isLoading
+                    ? "bg-warning"
+                    : status
+                    ? "bg-success"
+                    : "bg-muted-foreground"
+                )}
+                aria-hidden
+              />
+              {isLoading ? "Syncing…" : status ? `Synced · v${APP_VERSION}` : "Database unavailable"}
+            </span>
+          }
+          meta={
+            <>
               <span translate="no" title={config?.kg_path || "knox.db"}>
                 {databaseName}
               </span>
@@ -298,30 +297,31 @@ export const DashboardView: React.FC = () => {
               <span translate="no">stdio</span>
               <span aria-hidden className="text-border">/</span>
               <span>updated {formatAge(status?.last_action_timestamp)}</span>
-            </p>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Button
-              variant="primary"
-              size="md"
-              onClick={() => setActiveTab("graph")}
-              className="gap-1.5 whitespace-nowrap"
-            >
-              <Network className="size-3.5" aria-hidden />
-              Open graph
-            </Button>
-            <Button
-              variant="ghost"
-              size="md"
-              onClick={() => setActiveTab("query")}
-              className="gap-1.5 whitespace-nowrap"
-            >
-              <Search className="size-3.5" aria-hidden />
-              Query
-            </Button>
-          </div>
-        </header>
+            </>
+          }
+          actions={
+            <>
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => setActiveTab("graph")}
+                className="gap-1.5 whitespace-nowrap"
+              >
+                <Network className="size-3.5" aria-hidden />
+                Open graph
+              </Button>
+              <Button
+                variant="ghost"
+                size="md"
+                onClick={() => setActiveTab("query")}
+                className="gap-1.5 whitespace-nowrap"
+              >
+                <Search className="size-3.5" aria-hidden />
+                Query
+              </Button>
+            </>
+          }
+        />
 
         {/* What is live now: the newest record, with its own facts */}
         <section
@@ -330,7 +330,7 @@ export const DashboardView: React.FC = () => {
         >
           <div className="flex flex-col lg:flex-row">
             <div className="min-w-0 flex-1 p-4 lg:p-5">
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <div className="flex items-center gap-2 text-3xs text-muted-foreground">
                 <Activity className="size-3.5" aria-hidden />
                 <h2 id="latest-memory-heading" className="font-normal">
                   Latest recorded memory
@@ -352,7 +352,7 @@ export const DashboardView: React.FC = () => {
                   <p className="line-clamp-2 text-base font-semibold leading-snug text-foreground underline-offset-4 group-hover:underline decoration-border">
                     {latest.summary}
                   </p>
-                  <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+                  <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-3xs text-muted-foreground">
                     <span className="uppercase tracking-[0.06em]">
                       {latest.action_type}
                     </span>
@@ -464,7 +464,7 @@ export const DashboardView: React.FC = () => {
               >
                 Actions recorded, last 7 days
               </h2>
-              <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              <p className="font-mono text-3xs tabular-nums text-muted-foreground">
                 <span className="text-foreground">{weekCount}</span> in 7d
                 <span className="mx-1.5 text-border" aria-hidden>/</span>
                 <span className="text-foreground">
@@ -494,7 +494,7 @@ export const DashboardView: React.FC = () => {
               >
                 Needs attention
               </h2>
-              <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              <span className="font-mono text-3xs tabular-nums text-muted-foreground">
                 {attentionCount}
               </span>
             </div>
@@ -507,14 +507,14 @@ export const DashboardView: React.FC = () => {
                   onClick={() => setSelectedAction(doubt)}
                   className="block w-full min-w-0 cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus-ring"
                 >
-                  <span className="flex items-center gap-1.5 font-mono text-[11px] text-warning">
+                  <span className="flex items-center gap-1.5 font-mono text-3xs text-warning">
                     <CircleHelp className="size-3 shrink-0" aria-hidden />
                     Open question
                   </span>
                   <span className="mt-1 block line-clamp-2 text-[13px] leading-snug text-foreground">
                     {doubt.summary}
                   </span>
-                  <span className="mt-1 block font-mono text-[11px] text-muted-foreground">
+                  <span className="mt-1 block font-mono text-3xs text-muted-foreground">
                     {doubt.actor} · {formatAge(doubt.timestamp)}
                   </span>
                 </button>
@@ -527,9 +527,9 @@ export const DashboardView: React.FC = () => {
                   className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus-ring"
                 >
                   <span className="text-[13px] text-foreground">
-                    Superseded records
+                    Outdated records
                   </span>
-                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                  <span className="font-mono text-3xs tabular-nums text-muted-foreground">
                     {staleActions.length}
                   </span>
                 </button>
@@ -538,18 +538,18 @@ export const DashboardView: React.FC = () => {
               {attentionCount === 0 && !isLoading && (
                 <div className="space-y-3">
                   <p className="px-2 py-1.5 text-[13px] leading-relaxed text-muted-foreground">
-                    No open doubts, no superseded decisions.
+                    No open doubts, no outdated decisions.
                   </p>
 
                   {agentShares.length > 0 && (
                     <div className="border-t border-rule px-2 pt-3">
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-3xs text-muted-foreground">
                         Written by, all time
                       </p>
                       <ul className="mt-2 space-y-2">
                         {agentShares.map(({ actor, count, share }) => (
                           <li key={actor} className="min-w-0">
-                            <div className="flex items-baseline justify-between gap-2 font-mono text-[11px]">
+                            <div className="flex items-baseline justify-between gap-2 font-mono text-3xs">
                               <span className="truncate text-foreground">
                                 {actor}
                               </span>
@@ -616,7 +616,7 @@ export const DashboardView: React.FC = () => {
               >
                 Recent activity
               </h2>
-              <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              <span className="font-mono text-3xs tabular-nums text-muted-foreground">
                 {recentActions.length} of {numberFormat.format(totalActions)}
               </span>
             </div>
@@ -635,14 +635,14 @@ export const DashboardView: React.FC = () => {
             <div
               className={cn(
                 ACTION_ROW_GRID,
-                "h-8 border-b border-rule px-4 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground"
+                "h-8 border-b border-rule px-4 font-mono text-3xs uppercase tracking-[0.06em] text-muted-foreground"
               )}
               aria-hidden
             >
               <span className="order-1">Time</span>
               <span className="order-2 lg:order-4">Summary</span>
-              <span className="order-3 lg:order-3">Type</span>
-              <span className="order-4 hidden lg:order-2 lg:block">Actor</span>
+              <span className="order-3 lg:order-3">Kind</span>
+              <span className="order-4 hidden lg:order-2 lg:block">Agent</span>
               <span className="order-5 hidden lg:block">File</span>
               <span className="order-6 hidden text-right lg:block">Δ</span>
             </div>

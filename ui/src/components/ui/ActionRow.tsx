@@ -45,7 +45,7 @@ export const ActionRow: React.FC<ActionRowProps> = ({
 
   const content = (
     <>
-      <span className="order-1 truncate whitespace-nowrap font-mono text-[11px] tabular-nums text-muted-foreground">
+      <span className="order-1 truncate whitespace-nowrap font-mono text-3xs tabular-nums text-muted-foreground">
         {formattedTime}
       </span>
 
@@ -61,7 +61,7 @@ export const ActionRow: React.FC<ActionRowProps> = ({
         <ActorBadge actor={action.actor} />
       </span>
 
-      <span className="order-5 hidden min-w-0 items-center gap-1 font-mono text-[11px] text-muted-foreground lg:flex">
+      <span className="order-5 hidden min-w-0 items-center gap-1 font-mono text-3xs text-muted-foreground lg:flex">
         {action.files && action.files.length > 0 ? (
           <>
             <FileCode className="size-3 shrink-0 opacity-70" aria-hidden />
@@ -79,7 +79,7 @@ export const ActionRow: React.FC<ActionRowProps> = ({
         )}
       </span>
 
-      <span className="order-6 hidden items-center justify-end gap-1.5 font-mono text-[11px] tabular-nums lg:flex">
+      <span className="order-6 hidden items-center justify-end gap-1.5 font-mono text-3xs tabular-nums lg:flex">
         {hasDelta ? (
           <>
             {added > 0 && <span className="text-success">+{added}</span>}

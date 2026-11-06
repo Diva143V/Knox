@@ -82,7 +82,7 @@ Location: ${window.location.href}`;
             <div className="p-3.5 rounded-[var(--radius-control)] bg-[#0d1117] border border-[#30363d] font-mono text-xs text-rose-300 overflow-x-auto max-h-48 whitespace-pre-wrap break-all">
               {this.state.error?.message || "Unknown error"}
               {this.state.error?.stack && (
-                <span className="block mt-2 text-[11px] text-slate-500 font-sans">
+                <span className="block mt-2 text-3xs text-slate-500 font-sans">
                   {this.state.error.stack}
                 </span>
               )}

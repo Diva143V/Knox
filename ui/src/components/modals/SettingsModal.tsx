@@ -454,7 +454,7 @@ export const SettingsModal: React.FC = () => {
                       </label>
                     </div>
 
-                    <p className="font-mono text-[11px] text-muted-foreground">
+                    <p className="font-mono text-3xs text-muted-foreground">
                       {userSettings.accentColor ?? "Following the theme accent"}
                     </p>
                   </div>

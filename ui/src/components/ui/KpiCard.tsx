@@ -15,7 +15,7 @@ interface KpiCardProps {
   className?: string;
 }
 
-/** Divided metric cell: 12 muted label, 22 mono figure, one line of context. */
+/** Divided metric cell: 12 muted label, 24 mono figure, one line of context. */
 export const KpiCard: React.FC<KpiCardProps> = ({
   title,
   value,
@@ -30,20 +30,20 @@ export const KpiCard: React.FC<KpiCardProps> = ({
       <span className="flex items-baseline justify-between gap-2">
         <span className="truncate text-xs text-muted-foreground">{title}</span>
         {badge && (
-          <span className="shrink-0 rounded-[3px] bg-muted px-1 py-0.5 font-mono text-[11px] text-muted-foreground">
+          <span className="shrink-0 rounded-[3px] bg-muted px-1 py-0.5 font-mono text-3xs text-muted-foreground">
             {badge}
           </span>
         )}
       </span>
 
       <span className="mt-2 flex items-baseline gap-1.5">
-        <span className="font-mono text-[22px] leading-none tabular-nums tracking-tight text-foreground">
+        <span className="font-mono text-2xl leading-none tabular-nums tracking-tight text-foreground">
           {value}
         </span>
       </span>
 
       {(subtitle || trend) && (
-        <span className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        <span className="mt-2 flex items-center justify-between gap-2 text-3xs text-muted-foreground">
           {subtitle && <span className="min-w-0 truncate">{subtitle}</span>}
           {trend && (
             <span

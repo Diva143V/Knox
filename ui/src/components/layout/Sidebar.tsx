@@ -146,7 +146,7 @@ export const Sidebar: React.FC = () => {
                   </span>
                   <span
                     className={cn(
-                      "max-w-full truncate text-[10px] leading-none md:hidden",
+                      "max-w-full truncate text-3xs leading-none md:hidden",
                       isActive ? "text-foreground" : "text-muted-foreground"
                     )}
                   >

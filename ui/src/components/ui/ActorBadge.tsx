@@ -25,7 +25,7 @@ export const ActorBadge: React.FC<ActorBadgeProps> = ({
   return (
     <span
       className={cn(
-        "inline-flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground",
+        "inline-flex min-w-0 items-center gap-1.5 text-3xs text-muted-foreground",
         className
       )}
       title={actor}

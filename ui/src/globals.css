@@ -83,7 +83,7 @@
   --shadow-sm: var(--shadow-sm-token);
   --shadow-md: var(--shadow-md-token);
 
-  --font-sans: "Public Sans", "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas,
     monospace;
@@ -114,9 +114,9 @@
 
   --background: #171719;
   --sidebar: #131217;
-  --card: #131217;
+  --card: #1d1d21;
   --popover: #1c1c1f;
-  --border: #222224;
+  --border: #323236;
   --border-subtle: #1b1a1f;
   --surface: #131217;
   --raised: #212023;
@@ -130,7 +130,7 @@
   --primary-foreground: #ffffff;
   --primary-hover: #3d78be;
   --primary-muted: rgba(74, 138, 214, 0.14);
-  --focus-ring: rgba(74, 138, 214, 0.45);
+  --focus-ring: rgba(74, 138, 214, 0.85);
 
   --success: #44a282;
   --warning: #d9a441;
@@ -173,7 +173,7 @@
   --primary-foreground: #ffffff;
   --primary-hover: #164da0;
   --primary-muted: rgba(29, 95, 191, 0.12);
-  --focus-ring: rgba(29, 95, 191, 0.4);
+  --focus-ring: rgba(29, 95, 191, 0.85);
 
   --success: #2e7d32;
   --warning: #b45309;

@@ -247,7 +247,7 @@ export const ActionDetail: React.FC<ActionDetailProps> = ({
             variant="secondary"
             size="sm"
             onClick={() => openEditNode(action)}
-            className="h-6 px-2 text-[11px] gap-1 text-foreground"
+            className="h-6 px-2 text-3xs gap-1 text-foreground"
             title="Edit node summary, relations, tags, and files"
           >
             <Edit3 className="size-3 text-primary" />

@@ -278,9 +278,9 @@ export const QueryView: React.FC = () => {
                   value={actorFilter}
                   onChange={(e) => setActorFilter(e.target.value)}
                   className={selectClass}
-                  aria-label="Filter by actor"
+                  aria-label="Filter by agent"
                 >
-                  <option value="">All Actors</option>
+                  <option value="">All Agents</option>
                   {knownActors.map((act) => (
                     <option key={act} value={act}>
                       {act}
@@ -292,9 +292,9 @@ export const QueryView: React.FC = () => {
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
                   className={selectClass}
-                  aria-label="Filter by action type"
+                  aria-label="Filter by kind"
                 >
-                  <option value="">All Types</option>
+                  <option value="">All Kinds</option>
                   {knownTypes.map((typ) => (
                     <option key={typ} value={typ}>
                       {typ}

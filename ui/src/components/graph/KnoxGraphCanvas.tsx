@@ -1081,9 +1081,9 @@ export const KnoxGraphCanvas: React.FC = () => {
             {/* Interactive Search Results Dropdown */}
             {isSearchDropdownOpen && searchMatches.length > 0 && (
               <div className="absolute top-full left-0 mt-1.5 w-80 sm:w-96 max-h-80 overflow-y-auto bg-card/95 border border-border/80 rounded-lg shadow-2xl backdrop-blur-md z-50 py-1 divide-y divide-border/40 animate-in fade-in zoom-in-95 duration-150">
-                <div className="px-2.5 py-1 text-[11px] font-mono text-muted-foreground flex items-center justify-between">
+                <div className="px-2.5 py-1 text-3xs font-mono text-muted-foreground flex items-center justify-between">
                   <span>Matching Nodes ({searchMatches.length})</span>
-                  <span className="text-[10px]">Use ↑↓ to navigate • Enter to jump</span>
+                  <span className="text-3xs">Use ↑↓ to navigate • Enter to jump</span>
                 </div>
                 <div className="py-0.5">
                   {searchMatches.map((match, idx) => {
@@ -1104,11 +1104,11 @@ export const KnoxGraphCanvas: React.FC = () => {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <ActionBadge
                             type={match.action.action_type}
-                            className="text-[10px] px-1 py-0"
+                            className="text-3xs px-1 py-0"
                           />
                           <ActorBadge
                             actor={match.action.actor}
-                            className="text-[10px] px-1 py-0"
+                            className="text-3xs px-1 py-0"
                           />
                           {match.action.significance === "major" && (
                             <span className="text-[9px] font-mono uppercase bg-warning/15 text-warning px-1 rounded-xs border border-warning/30">
@@ -1116,7 +1116,7 @@ export const KnoxGraphCanvas: React.FC = () => {
                             </span>
                           )}
                           {match.matchField !== "summary" && match.matchDetail && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-background/80 text-primary border border-border px-1.5 py-0.5 rounded-xs ml-auto truncate max-w-[140px]">
+                            <span className="inline-flex items-center gap-1 text-3xs font-mono bg-background/80 text-primary border border-border px-1.5 py-0.5 rounded-xs ml-auto truncate max-w-[140px]">
                               {match.matchField === "file" && <FileCode className="size-2.5 shrink-0" />}
                               {match.matchField === "symbol" && <Zap className="size-2.5 shrink-0" />}
                               {match.matchField === "tag" && <Tag className="size-2.5 shrink-0" />}

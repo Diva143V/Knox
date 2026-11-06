@@ -206,7 +206,7 @@ export const EditNodeModal: React.FC = () => {
             <div>
               <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
                 Edit Knowledge Node
-                <ActionBadge type={actionType} className="text-[10px] px-1.5 py-0" />
+                <ActionBadge type={actionType} className="text-3xs px-1.5 py-0" />
               </h2>
               <p className="text-xs text-muted-foreground font-mono truncate max-w-md">
                 ID: {editingAction.id}
@@ -367,10 +367,10 @@ export const EditNodeModal: React.FC = () => {
                       className="flex items-center justify-between gap-2 p-2 rounded-md bg-background border border-border text-xs"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-mono text-[10px] uppercase font-semibold text-primary px-1.5 py-0.5 rounded-xs bg-primary/10 border border-primary/20 shrink-0">
+                        <span className="font-mono text-3xs uppercase font-semibold text-primary px-1.5 py-0.5 rounded-xs bg-primary/10 border border-primary/20 shrink-0">
                           {rel.relation_type}
                         </span>
-                        <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
+                        <span className="text-muted-foreground shrink-0 font-mono text-3xs">
                           →
                         </span>
                         <span className="truncate text-foreground font-medium" title={targetAction?.summary || rel.target_id}>
@@ -562,7 +562,7 @@ export const EditNodeModal: React.FC = () => {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3.5 border-t border-border bg-muted/20 shrink-0">
-          <span className="text-[11px] text-muted-foreground font-mono">
+          <span className="text-3xs text-muted-foreground font-mono">
             Press <kbd className="px-1 py-0.5 bg-muted rounded border border-border">Ctrl+Enter</kbd> to save
           </span>
           <div className="flex items-center gap-2">

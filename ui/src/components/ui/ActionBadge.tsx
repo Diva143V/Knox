@@ -21,7 +21,7 @@ export const ActionBadge: React.FC<ActionBadgeProps> = ({
   return (
     <span
       className={cn(
-        "inline-flex items-center font-mono text-[11px] uppercase tracking-[0.06em]",
+        "inline-flex items-center font-mono text-3xs uppercase tracking-[0.06em]",
         isOpenQuestion ? "text-warning" : "text-muted-foreground",
         className
       )}

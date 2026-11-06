@@ -122,7 +122,7 @@ export const StatsView: React.FC = () => {
             <CardHeader className="flex-row items-center justify-between space-y-0 pb-0">
               <CardTitle className="flex items-center gap-2">
                 <Users className="size-4 text-plan" aria-hidden />
-                By Actor
+                By Agent
               </CardTitle>
               <Badge variant="secondary" className="font-mono">
                 {actorEntries.length} unique
@@ -132,8 +132,8 @@ export const StatsView: React.FC = () => {
               {actorEntries.length === 0 ? (
                 <EmptyState
                   compact
-                  title="No actor data"
-                  description="Ingest a transcript to populate actor volume."
+                  title="No agent data"
+                  description="Ingest a transcript to populate agent volume."
                 />
               ) : (
                 actorEntries.map(([actor, count]) => {
@@ -175,18 +175,18 @@ export const StatsView: React.FC = () => {
             <CardHeader className="flex-row items-center justify-between space-y-0 pb-0">
               <CardTitle className="flex items-center gap-2">
                 <Layers className="size-4 text-success" aria-hidden />
-                By Type
+                By Kind
               </CardTitle>
               <Badge variant="secondary" className="font-mono">
-                {typeEntries.length} types
+                {typeEntries.length} kinds
               </Badge>
             </CardHeader>
             <CardContent className="pt-4 space-y-3.5">
               {typeEntries.length === 0 ? (
                 <EmptyState
                   compact
-                  title="No type data"
-                  description="Ingest a transcript to populate action types."
+                  title="No kind data"
+                  description="Ingest a transcript to populate action kinds."
                 />
               ) : (
                 typeEntries.map(([type, count]) => {

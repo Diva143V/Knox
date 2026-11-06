@@ -5,7 +5,6 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronRight,
-  Search,
   HardDrive,
   Plus,
   RefreshCw,
@@ -26,6 +25,8 @@ import {
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { KnoxAPI } from "@/services/api";
 import type { DetectedMcpApp, McpCommandMode, McpScanLog } from "@/types/knox";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -1070,7 +1071,7 @@ export const McpView: React.FC = () => {
                     size="sm"
                     onClick={() => refreshConfigs(true, true)}
                     disabled={isScanning || isDeepScanning}
-                    title="Deep scan across all drive letters (C:\, D:\, etc.)"
+                    title="Deep scan across system drives and storage volumes"
                   >
                     <HardDrive
                       className={cn(
@@ -1079,7 +1080,7 @@ export const McpView: React.FC = () => {
                       )}
                     />
                     <span>
-                      {isDeepScanning ? "Searching Drives..." : "Deep Search PC"}
+                      {isDeepScanning ? "Searching System..." : "Deep Search"}
                     </span>
                   </Button>
 
@@ -1161,16 +1162,42 @@ export const McpView: React.FC = () => {
 
               {/* Detected Applications List */}
               <div className="space-y-2">
-                {apps.length === 0 ? (
-                  <div className="py-8 text-center space-y-2 border border-dashed border-border rounded-lg p-4">
-                    <Search className="size-6 text-muted-foreground/40 mx-auto" />
-                    <p className="text-xs font-medium text-foreground">
-                      No applications detected yet
-                    </p>
-                    <p className="text-2xs text-muted-foreground">
-                      Click Quick Scan or Deep Search PC to scan your system.
-                    </p>
+                {isScanning || isDeepScanning ? (
+                  <div className="space-y-2 py-1" role="status" aria-label="Scanning for MCP applications">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-md border border-border bg-card/60 gap-3"
+                      >
+                        <div className="space-y-2 min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <Skeleton className="h-4 w-28 rounded-sm" />
+                            <Skeleton className="h-4 w-16 rounded-sm" />
+                          </div>
+                          <Skeleton className="h-3 w-48 rounded-sm" />
+                        </div>
+                        <Skeleton className="h-8 w-24 rounded-md shrink-0" />
+                      </div>
+                    ))}
                   </div>
+                ) : apps.length === 0 ? (
+                  <EmptyState
+                    icon={<HardDrive className="size-6 text-muted-foreground/50" />}
+                    title="No applications detected"
+                    description="Run Quick Scan or Deep Search to discover installed MCP clients across your system."
+                    action={
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => refreshConfigs(false, true)}
+                        className="gap-1.5"
+                      >
+                        <RefreshCw className="size-3.5" />
+                        Quick scan
+                      </Button>
+                    }
+                    compact
+                  />
                 ) : (
                   <>
                     {visibleApps.map((app) => {
@@ -1787,7 +1814,7 @@ export const McpView: React.FC = () => {
                 {isScanning
                   ? "Quick scan in progress..."
                   : isDeepScanning
-                  ? "Deep scanning drives..."
+                  ? "Deep scanning system volumes..."
                   : "Idle / Complete"}
               </span>
             </div>

@@ -14,7 +14,7 @@ export interface PageHeaderProps {
 }
 
 /**
- * The one view title block. 20/500 title, 13 muted description, actions right,
+ * The one view title block. 24/500 title, 13 muted description, actions right,
  * mono meta line below — the widest type step on a view is always this title.
  */
 export const PageHeader: React.FC<PageHeaderProps> = ({
@@ -40,7 +40,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
               {icon}
             </span>
           )}
-          <h1 className="text-xl font-medium tracking-tight text-foreground text-wrap-balance">
+          <h1 className="text-2xl font-medium tracking-tight text-foreground text-wrap-balance">
             {title}
           </h1>
           {status}
@@ -51,7 +51,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           </p>
         )}
         {meta && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-3xs text-muted-foreground">
             {meta}
           </div>
         )}
