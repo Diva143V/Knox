@@ -72,27 +72,42 @@ impl ModelRouter {
                 }
             }
             ModelProfileKind::Cloud => {
-                let adapter = Arc::new(CloudAdapter::new(
-                    &profile.endpoint,
-                    profile.api_key.clone(),
-                    &profile.embedding_model,
-                    &profile.chat_model,
-                ));
-                Self {
-                    profile,
-                    embedding: Some(adapter.clone()),
-                    rerank: Some(adapter.clone()),
-                    answering: Some(adapter.clone()),
-                    extraction: Some(adapter.clone()),
-                    contradiction: Some(adapter),
+                if !profile.allow_cloud_egress {
+                    tracing::warn!(
+                        endpoint = %profile.endpoint,
+                        "Cloud model profile requires explicit egress opt-in (KNOX_ALLOW_CLOUD_EGRESS=true); refusing to load outbound adapters"
+                    );
+                    Self {
+                        profile,
+                        embedding: None,
+                        rerank: None,
+                        answering: None,
+                        extraction: None,
+                        contradiction: None,
+                    }
+                } else {
+                    let adapter = Arc::new(CloudAdapter::new(
+                        &profile.endpoint,
+                        profile.api_key.clone(),
+                        &profile.embedding_model,
+                        &profile.chat_model,
+                    ));
+                    Self {
+                        profile,
+                        embedding: Some(adapter.clone()),
+                        rerank: Some(adapter.clone()),
+                        answering: Some(adapter.clone()),
+                        extraction: Some(adapter.clone()),
+                        contradiction: Some(adapter),
+                    }
                 }
             }
         }
     }
 
-    /// True if an active model backend is enabled (not Off).
+    /// True if an active model backend is enabled and authorized.
     pub fn is_enabled(&self) -> bool {
-        self.profile.kind.is_enabled()
+        self.profile.kind.is_enabled() && self.embedding.is_some()
     }
 
     /// Returns the active embedding model, if enabled.

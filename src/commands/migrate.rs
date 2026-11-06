@@ -331,7 +331,7 @@ mod tests {
         drop(db);
 
         let before = migration_check(&path).unwrap();
-        assert_eq!(before.schema_version, 10);
+        assert_eq!(before.schema_version, 11);
         let (after, backup) = migration_apply(&path).unwrap();
         assert_eq!(after.integrity, "ok");
         assert!(backup.exists());

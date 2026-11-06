@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::core::error::KnoxResult;
+use crate::core::error::{KnoxError, KnoxResult};
 use crate::mcp::handlers::dispatch_request;
 use crate::mcp::protocol::{McpError, McpRequest, McpResponse};
 use crate::mcp::session_manager::SessionManager;
@@ -62,7 +62,15 @@ where
             continue;
         }
 
-        if let Some(resp) = handle_line(trimmed, &shared_db) {
+        let shared_db_clone = shared_db.clone();
+        let trimmed_owned = trimmed.to_string();
+        let resp = tokio::task::spawn_blocking(move || {
+            handle_line(&trimmed_owned, &shared_db_clone)
+        })
+        .await
+        .map_err(|e| KnoxError::Io(std::io::Error::other(format!("MCP blocking task failed: {e}"))))?;
+
+        if let Some(resp) = resp {
             send_response(&mut writer, &resp).await?;
         }
     }

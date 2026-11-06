@@ -350,7 +350,7 @@ fn test_c3_doctor_diagnostics_and_report() {
     let report = cmd_doctor(&db, Some("demo")).unwrap();
 
     assert_eq!(report.integrity_check, "ok");
-    assert_eq!(report.schema_version, 10);
+    assert_eq!(report.schema_version, 11);
     assert_eq!(report.zombie_sessions, 1);
     assert_eq!(report.empty_breakdown.no_match, 1);
     assert_eq!(report.empty_breakdown.no_records, 1);
@@ -371,7 +371,7 @@ fn test_c3_doctor_diagnostics_and_report() {
     let text = format_doctor_report(&report);
     assert!(text.contains("=== Knox Health & Diagnostics Report ==="));
     assert!(text.contains("SQLite Integrity Check : ok"));
-    assert!(text.contains("Schema Version         : v10"));
+    assert!(text.contains("Schema Version         : v11"));
     assert!(text.contains("Zombie Sessions (>24h) : 1"));
     assert!(text.contains("unsupported_edge"));
     assert!(text.contains("Query Empty Rate       : 66.67%"));

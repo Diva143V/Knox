@@ -401,3 +401,56 @@ fn test_h2_related_section_in_grouped_context() {
     assert!(digest.contains("caused_by"));
 }
 
+#[test]
+fn test_c2_cloud_egress_guard_and_project_egress() {
+    use knox::core::config::KnoxConfig;
+    use knox::models::ModelRouter;
+    use knox::storage::{is_project_egress_allowed, set_project_egress, KnoxDb};
+
+    // 1. Cloud profile with allow_cloud_egress = false refuses to attach adapters
+    let config = KnoxConfig {
+        model_profile: "cloud".to_string(),
+        model_endpoint: Some("https://api.openai.com/v1".to_string()),
+        model_api_key: Some("sk-test".to_string()),
+        allow_cloud_egress: false,
+        ..Default::default()
+    };
+    let router = ModelRouter::from_config(&config);
+    assert!(router.embedding().is_none(), "Cloud profile without egress opt-in must not load embedding adapter");
+    assert!(!router.is_enabled(), "Cloud profile without egress opt-in must not be enabled");
+
+    // 2. Cloud profile with allow_cloud_egress = true attaches adapters
+    let config_allowed = KnoxConfig {
+        model_profile: "cloud".to_string(),
+        model_endpoint: Some("https://api.openai.com/v1".to_string()),
+        model_api_key: Some("sk-test".to_string()),
+        allow_cloud_egress: true,
+        ..Default::default()
+    };
+    let router_allowed = ModelRouter::from_config(&config_allowed);
+    assert!(router_allowed.embedding().is_some(), "Cloud profile with egress opt-in must load embedding adapter");
+    assert!(router_allowed.is_enabled());
+
+    // 3. Project-level egress check (v11 schema migration)
+    let db = KnoxDb::open_memory().unwrap();
+    let proj = knox::core::types::Project {
+        id: knox::core::ids::ProjectId::new(),
+        name: "LocalProject".to_string(),
+        path: "D:\\LocalOnly".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    };
+    knox::storage::insert_project(&db, &proj).unwrap();
+
+    // Invariant: default egress is false (data never leaves the machine)
+    assert!(!is_project_egress_allowed(&db, proj.id.as_str()).unwrap());
+
+    // Explicit opt-in grants egress
+    set_project_egress(&db, proj.id.as_str(), true).unwrap();
+    assert!(is_project_egress_allowed(&db, proj.id.as_str()).unwrap());
+
+    // Revocation turns egress off
+    set_project_egress(&db, proj.id.as_str(), false).unwrap();
+    assert!(!is_project_egress_allowed(&db, proj.id.as_str()).unwrap());
+}
+

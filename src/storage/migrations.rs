@@ -60,6 +60,10 @@ pub fn run_migrations(conn: &Connection) -> KnoxResult<()> {
         apply_v10(conn)?;
     }
 
+    if current_version < 11 {
+        apply_v11(conn)?;
+    }
+
     Ok(())
 }
 
@@ -709,6 +713,20 @@ fn apply_v10(conn: &Connection) -> KnoxResult<()> {
     Ok(())
 }
 
+const V11_SCHEMA_SQL: &str = "BEGIN TRANSACTION;
+
+ALTER TABLE projects ADD COLUMN egress INTEGER NOT NULL DEFAULT 0;
+
+UPDATE knox_meta SET value = '11' WHERE key = 'schema_version';
+
+COMMIT;";
+
+/// Applies the v11 schema update: adds egress permission gate on projects.
+fn apply_v11(conn: &Connection) -> KnoxResult<()> {
+    conn.execute_batch(V11_SCHEMA_SQL)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,11 +736,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         let version = get_schema_version(&conn).unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 11);
 
         // Re-running migrations should be idempotent
         run_migrations(&conn).unwrap();
         let version2 = get_schema_version(&conn).unwrap();
-        assert_eq!(version2, 10);
+        assert_eq!(version2, 11);
     }
 }

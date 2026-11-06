@@ -58,6 +58,7 @@ pub struct ModelProfile {
     pub api_key: Option<String>,
     pub embedding_model: String,
     pub chat_model: String,
+    pub allow_cloud_egress: bool,
 }
 
 impl ModelProfile {
@@ -99,6 +100,7 @@ impl ModelProfile {
             api_key: config.model_api_key.clone(),
             embedding_model,
             chat_model,
+            allow_cloud_egress: config.allow_cloud_egress,
         }
     }
 
@@ -110,6 +112,7 @@ impl ModelProfile {
             api_key: None,
             embedding_model: "mock-embed-64d".to_string(),
             chat_model: "mock-grounded-v1".to_string(),
+            allow_cloud_egress: true,
         }
     }
 
@@ -121,6 +124,7 @@ impl ModelProfile {
             api_key: None,
             embedding_model: "none".to_string(),
             chat_model: "none".to_string(),
+            allow_cloud_egress: false,
         }
     }
 }

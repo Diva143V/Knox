@@ -176,6 +176,32 @@ pub fn resolve_or_create_project(
     Ok(ProjectId::from(id_str))
 }
 
+/// Checks whether outbound cloud model egress is authorized for the given project.
+///
+/// Invariant: defaults to `false` (0) so data never leaves the machine without an explicit opt-in.
+pub fn is_project_egress_allowed(db: &KnoxDb, project_id: &str) -> KnoxResult<bool> {
+    let conn = db.conn();
+    let egress: Option<i64> = conn
+        .query_row(
+            "SELECT egress FROM projects WHERE id = ?1",
+            params![project_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(egress.unwrap_or(0) == 1)
+}
+
+/// Sets or revokes outbound cloud model egress permission for the given project.
+pub fn set_project_egress(db: &KnoxDb, project_id: &str, allowed: bool) -> KnoxResult<()> {
+    let conn = db.conn();
+    let val = if allowed { 1 } else { 0 };
+    conn.execute(
+        "UPDATE projects SET egress = ?1 WHERE id = ?2",
+        params![val, project_id],
+    )?;
+    Ok(())
+}
+
 /// Starts a new work session in Knox, optionally associated with a project.
 pub fn start_session(db: &KnoxDb, actor: &str, project: Option<&str>) -> KnoxResult<Session> {
     let conn = db.conn();

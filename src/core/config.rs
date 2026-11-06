@@ -47,6 +47,9 @@ pub struct KnoxConfig {
     /// Model identifier for text chat and synthesis (e.g. "llama3.2", "gpt-4o-mini").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_model: Option<String>,
+    /// Explicit opt-in permission flag for outbound cloud model requests.
+    #[serde(default)]
+    pub allow_cloud_egress: bool,
 }
 
 fn default_model_profile() -> String {
@@ -122,6 +125,11 @@ impl KnoxConfig {
             if !trimmed.is_empty() {
                 config.chat_model = Some(trimmed.to_string());
             }
+        }
+
+        if let Ok(egress) = env::var("KNOX_ALLOW_CLOUD_EGRESS") {
+            let trimmed = egress.trim().to_lowercase();
+            config.allow_cloud_egress = trimmed == "1" || trimmed == "true" || trimmed == "yes";
         }
 
         config
@@ -212,6 +220,7 @@ impl Default for KnoxConfig {
             model_api_key: None,
             embedding_model: None,
             chat_model: None,
+            allow_cloud_egress: false,
         }
     }
 }
@@ -314,6 +323,7 @@ mod tests {
             model_api_key: None,
             embedding_model: Some("nomic-embed-text".to_string()),
             chat_model: Some("llama3.2".to_string()),
+            allow_cloud_egress: false,
         };
 
         config.save_to_file(&file_path).unwrap();

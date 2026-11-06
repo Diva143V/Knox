@@ -59,6 +59,9 @@ pub struct DoctorReport {
 
 /// Runs operational diagnostics and computes a `DoctorReport`.
 pub fn cmd_doctor(db: &KnoxDb, project: Option<&str>) -> KnoxResult<DoctorReport> {
+    // 90-day retention sweep: automatically prunes telemetry rows older than 90 days
+    let _ = crate::storage::prune_query_log(db, 90)?;
+
     let stats = crate::storage::get_query_log_stats(db, project)?;
     let zombie_sessions = crate::storage::get_zombie_session_count(db)?;
     let top_rejected_edge_types = crate::storage::get_top_rejected_edge_types(db, 10)?;
@@ -228,7 +231,7 @@ mod tests {
         let db = KnoxDb::open_memory().unwrap();
         let report = cmd_doctor(&db, None).unwrap();
         assert_eq!(report.integrity_check, "ok");
-        assert_eq!(report.schema_version, 10);
+        assert_eq!(report.schema_version, 11);
         assert_eq!(report.zombie_sessions, 0);
         assert_eq!(report.empty_rate, 0.0);
         assert!(!report.bound_models.is_empty());

@@ -36,11 +36,12 @@ pub use registry::{
     registry_path,
 };
 pub use sessions::{
-    end_session, find_open_session, get_session, list_recent_sessions, resolve_or_create_project,
-    resolve_project_identifier, start_session, timeout_stale_sessions,
+    end_session, find_open_session, get_session, is_project_egress_allowed, list_recent_sessions,
+    resolve_or_create_project, resolve_project_identifier, set_project_egress, start_session,
+    timeout_stale_sessions,
 };
 pub use telemetry::{
     QueryTelemetryStats, determine_empty_reason, get_action_duplicate_stats, get_query_latencies,
     get_query_log_stats, get_successful_query_token_stats, get_top_rejected_edge_types,
-    get_zombie_session_count, record_query_log,
+    get_zombie_session_count, prune_query_log, record_query_log, record_query_log_best_effort,
 };
