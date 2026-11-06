@@ -26,16 +26,17 @@ use knox::storage::sessions::{start_session, end_session};
 use chrono::Utc;
 
 /// A labelled query with expected top-5 action IDs for recall@5 measurement.
+#[derive(Debug, Clone, serde::Deserialize)]
 struct LabelledQuery {
-    name: &'static str,
+    name: String,
     params: serde_json::Value,
-    expected_ids: &'static [&'static str],
+    expected_ids: Vec<String>,
     budget: usize,
 }
 
 /// A measurable benchmark result.
 struct BenchResult {
-    _name: &'static str,
+    _name: String,
     response_tokens: usize,
     within_budget: bool,
     recall_at_5: f64,
@@ -48,6 +49,7 @@ fn seed_benchmark_db(db: &KnoxDb) -> Vec<ActionId> {
         id: knox::core::ids::ProjectId("demo".to_string()),
         name: "demo".to_string(),
         path: "demo".to_string(),
+        remote: None,
         created_at: Utc::now(),
     }).unwrap();
     let mut ids = Vec::new();
@@ -260,249 +262,61 @@ fn seed_benchmark_db(db: &KnoxDb) -> Vec<ActionId> {
     ids
 }
 
-/// Build 40 labelled queries covering files, symbols, decisions, doubts, and summary text.
-/// Uses the actual GetContextParams fields: file_path, symbols, query.
+/// Loads a set of labelled queries from a JSON file.
+fn load_queries_from_json(path: &str) -> Vec<LabelledQuery> {
+    let content = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("failed to read query set at {path}: {e}"));
+    serde_json::from_str(&content)
+        .unwrap_or_else(|e| panic!("failed to parse queries from {path}: {e}"))
+}
+
+/// Build labelled queries by combining the disjoint tune.json and eval.json sets.
 fn labelled_queries() -> Vec<LabelledQuery> {
-    vec![
-        // File-scoped queries (1-10) - use file_path field
-        LabelledQuery {
-            name: "parser file",
-            params: json!({"file_path": "src/parser.rs"}),
-            expected_ids: &["a-f1-plan-parser", "a-f1-write-parser", "a-f1-test-parser"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "storage db file",
-            params: json!({"file_path": "src/storage/db.rs"}),
-            expected_ids: &["a-f2-decide-wal"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "graph traversal file",
-            params: json!({"file_path": "src/graph/traversal.rs"}),
-            expected_ids: &["a-f3-plan-traversal", "a-f3-write-traversal"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "auth jwt file",
-            params: json!({"file_path": "src/auth/jwt.rs"}),
-            expected_ids: &["a-f5-write-jwt", "a-f5-test-auth"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "cargo toml file",
-            params: json!({"file_path": "Cargo.toml"}),
-            expected_ids: &["a-f4-decide-toml", "a-f4-supersede-toml"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "tauri ingest file",
-            params: json!({"file_path": "src-tauri/src/commands/ingest.rs"}),
-            expected_ids: &["a-f2-doubt-wal-ui", "a-f2-answer-wal-ui"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "auth oauth2 file",
-            params: json!({"file_path": "src/auth/oauth2.rs"}),
-            expected_ids: &["a-f5-write-oauth2"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "auth session file",
-            params: json!({"file_path": "src/auth/session.rs"}),
-            expected_ids: &["a-f5-write-session"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "graph test file",
-            params: json!({"file_path": "tests/graph_traversal_test.rs"}),
-            expected_ids: &["a-f3-write-test"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "auth mod file",
-            params: json!({"file_path": "src/auth/mod.rs"}),
-            expected_ids: &["a-f5-plan-auth"],
-            budget: 1200,
-        },
-        // Symbol-scoped queries (11-20) - use symbols field
-        LabelledQuery {
-            name: "parse symbol",
-            params: json!({"symbols": ["parse"]}),
-            expected_ids: &["a-f1-plan-parser", "a-f1-write-parser"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "KnoxDb symbol",
-            params: json!({"symbols": ["KnoxDb"]}),
-            expected_ids: &["a-f2-decide-wal"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "traverse_bidirectional symbol",
-            params: json!({"symbols": ["traverse_bidirectional"]}),
-            expected_ids: &["a-f3-plan-traversal", "a-f3-write-traversal"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "sign verify symbol",
-            params: json!({"symbols": ["sign", "verify"]}),
-            expected_ids: &["a-f5-write-jwt"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "authorize symbol",
-            params: json!({"symbols": ["authorize"]}),
-            expected_ids: &["a-f5-write-oauth2"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "Session symbol",
-            params: json!({"symbols": ["Session"]}),
-            expected_ids: &["a-f5-write-session"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "Ast symbol",
-            params: json!({"symbols": ["Ast"]}),
-            expected_ids: &["a-f1-write-parser"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "WAL symbol",
-            params: json!({"symbols": ["WAL"]}),
-            expected_ids: &["a-f2-decide-wal"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "AuthService symbol",
-            params: json!({"symbols": ["AuthService"]}),
-            expected_ids: &["a-f5-plan-auth"],
-            budget: 1200,
-        },
-        // Decision/doubt queries (21-30) - use query field
-        LabelledQuery {
-            name: "SQLite WAL decision",
-            params: json!({"query": "SQLite WAL mode concurrent read write"}),
-            expected_ids: &["a-f2-decide-wal"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "Tauri UI blocking doubt",
-            params: json!({"file_path": "src-tauri/src/commands/ingest.rs"}),
-            expected_ids: &["a-f2-doubt-wal-ui", "a-f2-answer-wal-ui"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "TOML config decision",
-            params: json!({"file_path": "Cargo.toml"}),
-            expected_ids: &["a-f4-decide-toml", "a-f4-supersede-toml"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "auth service plan",
-            params: json!({"file_path": "src/auth/mod.rs"}),
-            expected_ids: &["a-f5-plan-auth"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "open doubts",
-            params: json!({"action_type": "doubt"}),
-            expected_ids: &["a-f2-doubt-wal-ui"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "architectural decisions",
-            params: json!({"action_type": "decide"}),
-            expected_ids: &["a-f2-decide-wal", "a-f4-decide-toml", "a-f4-supersede-toml"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "parser stream",
-            params: json!({"file_path": "src/parser.rs"}),
-            expected_ids: &["a-f1-plan-parser", "a-f1-write-parser"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "graph bidirectional edges",
-            params: json!({"file_path": "src/graph/traversal.rs"}),
-            expected_ids: &["a-f3-plan-traversal", "a-f3-write-traversal"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "auth verify",
-            params: json!({"file_path": "src/auth/jwt.rs"}),
-            expected_ids: &["a-f5-test-auth"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "config format",
-            params: json!({"file_path": "Cargo.toml"}),
-            expected_ids: &["a-f4-decide-toml", "a-f4-supersede-toml"],
-            budget: 1200,
-        },
-        // Broad/mixed queries (31-40)
-        LabelledQuery {
-            name: "all parser actions",
-            params: json!({"file_path": "src/parser.rs"}),
-            expected_ids: &["a-f1-plan-parser", "a-f1-write-parser", "a-f1-test-parser"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "all auth actions",
-            params: json!({"symbols": ["AuthService", "sign", "verify", "authorize", "Session"]}),
-            expected_ids: &["a-f5-plan-auth", "a-f5-write-jwt", "a-f5-write-oauth2", "a-f5-write-session", "a-f5-test-auth"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "all db actions",
-            params: json!({"file_path": "src/storage/db.rs"}),
-            expected_ids: &["a-f2-decide-wal", "a-f2-doubt-wal-ui", "a-f2-answer-wal-ui"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "all graph actions",
-            params: json!({"file_path": "src/graph/traversal.rs"}),
-            expected_ids: &["a-f3-plan-traversal", "a-f3-write-traversal", "a-f3-write-test"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "config decisions",
-            params: json!({"action_type": "decide"}),
-            expected_ids: &["a-f4-decide-toml", "a-f4-supersede-toml"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "ui blocking",
-            params: json!({"file_path": "src-tauri/src/commands/ingest.rs"}),
-            expected_ids: &["a-f2-doubt-wal-ui", "a-f2-answer-wal-ui"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "test results",
-            params: json!({"action_type": "verify"}),
-            expected_ids: &["a-f1-test-parser", "a-f5-test-auth"],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "clippy lints",
-            params: json!({"action_type": "verify"}),
-            expected_ids: &[],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "nonexistent xyzzy",
-            params: json!({"file_path": "nonexistent/xyzzy.rs"}),
-            expected_ids: &[],
-            budget: 1200,
-        },
-        LabelledQuery {
-            name: "all writes",
-            params: json!({"action_type": "write"}),
-            expected_ids: &["a-f1-write-parser", "a-f3-write-traversal", "a-f3-write-test", "a-f5-write-jwt", "a-f5-write-oauth2", "a-f5-write-session"],
-            budget: 1200,
-        },
-    ]
+    let mut queries = load_queries_from_json("tests/queries/tune.json");
+    queries.extend(load_queries_from_json("tests/queries/eval.json"));
+    queries
+}
+
+/// Asserts that the tuning set (`tune.json`) and evaluation set (`eval.json`)
+/// have strictly zero overlap in both query names and query parameters.
+///
+/// Fails in CI if benchmark leakage or parameter duplication occurs.
+#[test]
+fn test_tune_and_eval_queries_have_zero_overlap() {
+    let tune = load_queries_from_json("tests/queries/tune.json");
+    let eval = load_queries_from_json("tests/queries/eval.json");
+
+    assert!(!tune.is_empty(), "tune.json must not be empty");
+    assert!(!eval.is_empty(), "eval.json must not be empty");
+
+    let tune_names: std::collections::HashSet<_> = tune.iter().map(|q| &q.name).collect();
+    let eval_names: std::collections::HashSet<_> = eval.iter().map(|q| &q.name).collect();
+
+    assert_eq!(tune_names.len(), tune.len(), "duplicate query names found inside tune.json");
+    assert_eq!(eval_names.len(), eval.len(), "duplicate query names found inside eval.json");
+
+    let name_overlap: Vec<_> = tune_names.intersection(&eval_names).collect();
+    assert!(
+        name_overlap.is_empty(),
+        "CI failure: tune.json and eval.json have overlapping query names: {:?}",
+        name_overlap
+    );
+
+    let tune_params: std::collections::HashSet<_> = tune
+        .iter()
+        .map(|q| serde_json::to_string(&q.params).unwrap())
+        .collect();
+    let eval_params: std::collections::HashSet<_> = eval
+        .iter()
+        .map(|q| serde_json::to_string(&q.params).unwrap())
+        .collect();
+
+    let param_overlap: Vec<_> = tune_params.intersection(&eval_params).collect();
+    assert!(
+        param_overlap.is_empty(),
+        "CI failure: tune.json and eval.json have overlapping query parameters: {:?}",
+        param_overlap
+    );
 }
 
 /// Run a single labelled query and measure metrics.
@@ -520,8 +334,8 @@ fn run_query(db: &KnoxDb, query: &LabelledQuery) -> BenchResult {
     // Count how many expected IDs appear in the response text
     let expected_count = query.expected_ids.len();
     let mut recalled_count = 0usize;
-    for expected in query.expected_ids {
-        if response_text.contains(expected) {
+    for expected in &query.expected_ids {
+        if response_text.contains(expected.as_str()) {
             recalled_count += 1;
         }
     }
@@ -536,7 +350,7 @@ fn run_query(db: &KnoxDb, query: &LabelledQuery) -> BenchResult {
     let within_budget = response_tokens <= query.budget;
 
     BenchResult {
-        _name: query.name,
+        _name: query.name.clone(),
         response_tokens,
         within_budget,
         recall_at_5,

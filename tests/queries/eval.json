@@ -1,0 +1,225 @@
+[
+  {
+    "name": "eval tauri ingest file",
+    "params": {
+      "file_path": "src-tauri/src/commands/ingest.rs"
+    },
+    "expected_ids": [
+      "a-f2-doubt-wal-ui",
+      "a-f2-answer-wal-ui"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval oauth2 file",
+    "params": {
+      "file_path": "src/auth/oauth2.rs"
+    },
+    "expected_ids": [
+      "a-f5-write-oauth2"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval auth session file",
+    "params": {
+      "file_path": "src/auth/session.rs"
+    },
+    "expected_ids": [
+      "a-f5-write-session"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval graph test file",
+    "params": {
+      "file_path": "tests/graph_traversal_test.rs"
+    },
+    "expected_ids": [
+      "a-f3-write-test"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval ast symbol",
+    "params": {
+      "symbols": [
+        "Ast"
+      ]
+    },
+    "expected_ids": [
+      "a-f1-write-parser"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval wal symbol",
+    "params": {
+      "symbols": [
+        "WAL"
+      ]
+    },
+    "expected_ids": [
+      "a-f2-decide-wal"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval authservice symbol",
+    "params": {
+      "symbols": [
+        "AuthService"
+      ]
+    },
+    "expected_ids": [
+      "a-f5-plan-auth"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval session struct symbol",
+    "params": {
+      "symbols": [
+        "Session"
+      ]
+    },
+    "expected_ids": [
+      "a-f5-write-session"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval oauth2 with symbol",
+    "params": {
+      "file_path": "src/auth/oauth2.rs",
+      "symbols": [
+        "authorize"
+      ]
+    },
+    "expected_ids": [
+      "a-f5-write-oauth2"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval parser interface query",
+    "params": {
+      "query": "Implement parser interface Ast"
+    },
+    "expected_ids": [
+      "a-f1-write-parser"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval tauri batch ingests query",
+    "params": {
+      "query": "SQLite WAL mode block Tauri UI"
+    },
+    "expected_ids": [
+      "a-f2-doubt-wal-ui"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval adopt toml historical query",
+    "params": {
+      "query": "adopt TOML for configuration",
+      "current_only": false
+    },
+    "expected_ids": [
+      "a-f4-decide-toml"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval concurrent readers query",
+    "params": {
+      "query": "concurrent readers on Tauri UI thread"
+    },
+    "expected_ids": [
+      "a-f2-answer-wal-ui"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval graph traversal test query",
+    "params": {
+      "query": "graph traversal test"
+    },
+    "expected_ids": [
+      "a-f3-write-test"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval jwt sign verify query",
+    "params": {
+      "query": "JWT sign verify"
+    },
+    "expected_ids": [
+      "a-f5-write-jwt"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval all verify actions query",
+    "params": {
+      "action_type": "verify"
+    },
+    "expected_ids": [
+      "a-f1-test-parser",
+      "a-f5-test-auth"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval all plan actions query",
+    "params": {
+      "action_type": "plan"
+    },
+    "expected_ids": [
+      "a-f1-plan-parser",
+      "a-f3-plan-traversal",
+      "a-f5-plan-auth"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval all write actions query",
+    "params": {
+      "action_type": "write"
+    },
+    "expected_ids": [
+      "a-f1-write-parser",
+      "a-f3-write-traversal",
+      "a-f3-write-test",
+      "a-f5-write-jwt",
+      "a-f5-write-oauth2",
+      "a-f5-write-session"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval auth and jwt query",
+    "params": {
+      "file_path": "src/auth/jwt.rs",
+      "symbols": [
+        "sign"
+      ]
+    },
+    "expected_ids": [
+      "a-f5-write-jwt",
+      "a-f5-test-auth"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "eval nonexistent file query",
+    "params": {
+      "file_path": "nonexistent/ghost_eval.rs"
+    },
+    "expected_ids": [],
+    "budget": 1200
+  }
+]

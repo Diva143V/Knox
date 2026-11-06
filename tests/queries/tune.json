@@ -1,0 +1,223 @@
+[
+  {
+    "name": "tune parser file",
+    "params": {
+      "file_path": "src/parser.rs"
+    },
+    "expected_ids": [
+      "a-f1-plan-parser",
+      "a-f1-write-parser",
+      "a-f1-test-parser"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune db file",
+    "params": {
+      "file_path": "src/storage/db.rs"
+    },
+    "expected_ids": [
+      "a-f2-decide-wal"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune traversal file",
+    "params": {
+      "file_path": "src/graph/traversal.rs"
+    },
+    "expected_ids": [
+      "a-f3-plan-traversal",
+      "a-f3-write-traversal"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune jwt file",
+    "params": {
+      "file_path": "src/auth/jwt.rs"
+    },
+    "expected_ids": [
+      "a-f5-write-jwt",
+      "a-f5-test-auth"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune cargo toml file",
+    "params": {
+      "file_path": "Cargo.toml"
+    },
+    "expected_ids": [
+      "a-f4-decide-toml",
+      "a-f4-supersede-toml"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune parse symbol",
+    "params": {
+      "symbols": [
+        "parse"
+      ]
+    },
+    "expected_ids": [
+      "a-f1-plan-parser",
+      "a-f1-write-parser"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune knoxdb symbol",
+    "params": {
+      "symbols": [
+        "KnoxDb"
+      ]
+    },
+    "expected_ids": [
+      "a-f2-decide-wal"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune traverse symbol",
+    "params": {
+      "symbols": [
+        "traverse_bidirectional"
+      ]
+    },
+    "expected_ids": [
+      "a-f3-plan-traversal",
+      "a-f3-write-traversal"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune sign verify symbol",
+    "params": {
+      "symbols": [
+        "sign",
+        "verify"
+      ]
+    },
+    "expected_ids": [
+      "a-f5-write-jwt"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune authorize symbol",
+    "params": {
+      "symbols": [
+        "authorize"
+      ]
+    },
+    "expected_ids": [
+      "a-f5-write-oauth2"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune sqlite wal decision query",
+    "params": {
+      "query": "SQLite WAL mode concurrent read write"
+    },
+    "expected_ids": [
+      "a-f2-decide-wal"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune open doubts query",
+    "params": {
+      "action_type": "doubt"
+    },
+    "expected_ids": [
+      "a-f2-doubt-wal-ui"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune decisions query",
+    "params": {
+      "action_type": "decide"
+    },
+    "expected_ids": [
+      "a-f2-decide-wal",
+      "a-f4-decide-toml",
+      "a-f4-supersede-toml"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune token streaming query",
+    "params": {
+      "query": "parser module token streaming"
+    },
+    "expected_ids": [
+      "a-f1-plan-parser"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune auth service plan",
+    "params": {
+      "file_path": "src/auth/mod.rs"
+    },
+    "expected_ids": [
+      "a-f5-plan-auth"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune bidirectional edges plan query",
+    "params": {
+      "query": "bidirectional edges"
+    },
+    "expected_ids": [
+      "a-f3-plan-traversal"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune test parser query",
+    "params": {
+      "query": "cargo test parser passed"
+    },
+    "expected_ids": [
+      "a-f1-test-parser"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune backwards compatibility query",
+    "params": {
+      "query": "JSON config backwards compatibility"
+    },
+    "expected_ids": [
+      "a-f4-supersede-toml"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune auth plan with symbol",
+    "params": {
+      "file_path": "src/auth/mod.rs",
+      "symbols": [
+        "AuthService"
+      ]
+    },
+    "expected_ids": [
+      "a-f5-plan-auth"
+    ],
+    "budget": 1200
+  },
+  {
+    "name": "tune nonexistent file",
+    "params": {
+      "file_path": "nonexistent/missing_tune.rs"
+    },
+    "expected_ids": [],
+    "budget": 1200
+  }
+]
