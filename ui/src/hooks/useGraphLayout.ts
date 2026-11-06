@@ -10,7 +10,19 @@ import {
   forceCollide,
   forceX,
   forceY,
+  type SimulationNodeDatum,
+  type SimulationLinkDatum,
 } from "d3-force";
+
+interface D3LayoutNode extends SimulationNodeDatum {
+  id: string;
+  radius: number;
+}
+
+interface D3LayoutLink extends SimulationLinkDatum<D3LayoutNode> {
+  source: string | D3LayoutNode;
+  target: string | D3LayoutNode;
+}
 
 export type LayoutEngine = "hierarchical" | "dagre" | "force" | "grid";
 
@@ -116,7 +128,7 @@ export const useGraphLayout = () => {
 
         if (engine === "force") {
           // D3 Physics Force-Directed Layout
-          const simNodes = nodes.map((n) => {
+          const simNodes: D3LayoutNode[] = nodes.map((n) => {
             const dims = getNodeDimensions(n.type);
             return {
               id: n.id,
@@ -126,7 +138,7 @@ export const useGraphLayout = () => {
             };
           });
 
-          const simLinks = edges
+          const simLinks: D3LayoutLink[] = edges
             .filter(
               (e) =>
                 nodes.some((n) => n.id === e.source) &&
@@ -134,17 +146,17 @@ export const useGraphLayout = () => {
             )
             .map((e) => ({ source: e.source, target: e.target }));
 
-          const sim = forceSimulation(simNodes as any)
+          const sim = forceSimulation<D3LayoutNode>(simNodes)
             .force(
               "link",
-              forceLink(simLinks as any)
-                .id((d: any) => d.id)
+              forceLink<D3LayoutNode, D3LayoutLink>(simLinks)
+                .id((d) => d.id)
                 .distance(160)
             )
             .force("charge", forceManyBody().strength(-600))
             .force(
               "collide",
-              forceCollide((d: any) => d.radius + 24).iterations(2)
+              forceCollide<D3LayoutNode>((d) => d.radius + 24).iterations(2)
             )
             .force("x", forceX(450).strength(0.04))
             .force("y", forceY(350).strength(0.04))
@@ -155,7 +167,7 @@ export const useGraphLayout = () => {
 
           const simMap = new Map<string, { x: number; y: number }>();
           for (const sn of simNodes) {
-            simMap.set(sn.id, { x: sn.x, y: sn.y });
+            simMap.set(sn.id, { x: sn.x ?? 0, y: sn.y ?? 0 });
           }
 
           return nodes.map((node) => {

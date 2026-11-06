@@ -631,12 +631,20 @@ export const McpView: React.FC = () => {
   // Setup live event listener for scan logs
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let isMounted = true;
     KnoxAPI.listenMcpScanLogs((log) => {
-      setLogs((prev) => [...prev, log]);
+      if (isMounted) {
+        setLogs((prev) => [...prev, log]);
+      }
     }).then((fn) => {
-      unlisten = fn;
+      if (isMounted) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
     });
     return () => {
+      isMounted = false;
       if (unlisten) unlisten();
     };
   }, []);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   FolderGit2,
   Sparkles,
@@ -76,16 +76,43 @@ export const WorkspaceView: React.FC = () => {
     }
   }, []);
 
-  // Check and auto-advance ONLY on initial mount
-  useEffect(() => {
-    checkStatus(workspacePath, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const isFirstMountRef = useRef(true);
 
-  // Refresh content on path change without interrupting user step navigation
+  // Check workspace status with clean cancellation teardown; auto-advance only on mount
   useEffect(() => {
-    checkStatus(workspacePath, false);
-  }, [workspacePath, checkStatus]);
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const [md, hook] = await Promise.all([
+          KnoxAPI.getKnoxMd(workspacePath),
+          KnoxAPI.getHookStatus(workspacePath),
+        ]);
+        if (cancelled) return;
+        setKnoxMdContent(md);
+        setHookInstalled(hook);
+
+        if (isFirstMountRef.current) {
+          isFirstMountRef.current = false;
+          if (md && hook) {
+            setCurrentStep(4);
+          } else if (md) {
+            setCurrentStep(3);
+          } else {
+            setCurrentStep(1);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setKnoxMdContent(null);
+          setHookInstalled(false);
+        }
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspacePath]);
 
   useEffect(() => {
     let cancelled = false;

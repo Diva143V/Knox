@@ -125,6 +125,13 @@ pub fn get_embeddings_batch(
 }
 
 /// Scans stored embeddings and returns the top matching action IDs ordered by cosine similarity.
+///
+/// # Performance & Scalability
+/// This performs an in-memory linear brute-force scan over all rows in the `embeddings` table.
+/// On modern hardware with SQLite WAL and 384-dimensional embeddings (e.g. all-MiniLM-L6-v2),
+/// this linear scan executes in sub-millisecond to low tens-of-milliseconds up to ~50,000 vectors.
+/// For repositories exceeding 50,000 embedded actions, an approximate nearest-neighbor index
+/// (such as `sqlite-vec` or an external HNSW/Faiss index) should be adopted.
 pub fn find_similar_actions(
     db: &KnoxDb,
     target_vector: &[f32],

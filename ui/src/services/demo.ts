@@ -335,9 +335,7 @@ export const DemoAPI = {
     return "Database vacuum completed successfully.";
   },
 
-  async revealDbFolder(): Promise<void> {
-    console.log("Mock revealDbFolder called");
-  },
+  async revealDbFolder(): Promise<void> {},
 
   async openFileDialog(_options?: {
     name?: string;
