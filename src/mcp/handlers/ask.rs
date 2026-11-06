@@ -72,25 +72,10 @@ pub fn handle_ask(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         strict_citations: input.strict_citations,
     };
 
-    // 4. ModelRouter resolution & embedding-based search if active
-    let mut config = KnoxConfig::from_env();
-    if let Some(ref pid) = project_id {
-        if !config.allow_cloud_egress {
-            if let Ok(allowed) = crate::storage::is_project_egress_allowed(db, pid) {
-                if allowed {
-                    config.allow_cloud_egress = true;
-                }
-            }
-        }
-    }
-
-    if config.model_profile.to_lowercase() == "cloud" && !config.allow_cloud_egress {
-        return Err(KnoxError::Model(
-            "Cloud model requests blocked: project has not enabled egress and KNOX_ALLOW_CLOUD_EGRESS is not set".to_string()
-        ));
-    }
-
-    let router = ModelRouter::from_config(&config);
+    // 4. ModelRouter resolution & embedding-based search if active (fails closed on cloud without egress)
+    let config = KnoxConfig::from_env();
+    let router = ModelRouter::for_project(&config, Some(db), project_id.as_deref());
+    router.check_egress()?;
 
     if router.is_enabled() {
         if let Ok(q_vec) = router.embed(&sanitized_question) {

@@ -865,7 +865,8 @@ pub fn commit_record_batch(
 ) -> KnoxResult<Value> {
     let dry_run = batch.dry_run;
     let config = crate::core::config::KnoxConfig::from_env();
-    let router = crate::models::router::ModelRouter::from_config(&config);
+    let project_id = batch.prepared.first().and_then(|e| e.action.project_id.as_ref().map(|p| p.as_str()));
+    let router = crate::models::router::ModelRouter::for_project(&config, Some(db), project_id);
 
     db.with_tx(|conn| {
         let mut recorded = Vec::with_capacity(batch.prepared.len());

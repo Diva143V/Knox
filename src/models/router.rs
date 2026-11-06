@@ -30,8 +30,38 @@ pub struct ModelRouter {
 impl ModelRouter {
     /// Creates a router from KnoxConfig.
     pub fn from_config(config: &KnoxConfig) -> Self {
-        let profile = ModelProfile::from_config(config);
+        Self::for_project(config, None, None)
+    }
+
+    /// Creates a router from KnoxConfig, resolving project-level cloud egress in SQLite if needed.
+    pub fn for_project(
+        config: &KnoxConfig,
+        db: Option<&crate::storage::KnoxDb>,
+        project_id: Option<&str>,
+    ) -> Self {
+        let mut resolved_config = config.clone();
+        if !resolved_config.allow_cloud_egress {
+            if let (Some(db), Some(pid)) = (db, project_id) {
+                if let Ok(allowed) = crate::storage::is_project_egress_allowed(db, pid) {
+                    if allowed {
+                        resolved_config.allow_cloud_egress = true;
+                    }
+                }
+            }
+        }
+        let profile = ModelProfile::from_config(&resolved_config);
         Self::from_profile(profile)
+    }
+
+    /// Verifies that egress is permitted; returns KnoxError::Model if cloud profile lacks authorization.
+    pub fn check_egress(&self) -> KnoxResult<()> {
+        if self.profile.kind == ModelProfileKind::Cloud && !self.profile.allow_cloud_egress {
+            Err(KnoxError::Model(
+                "Cloud model requests blocked: project has not enabled egress and KNOX_ALLOW_CLOUD_EGRESS is not set".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     /// Creates a router from a resolved ModelProfile.
@@ -135,13 +165,21 @@ impl ModelRouter {
         self.contradiction.clone()
     }
 
-    /// Embeds text with fallback: fails gracefully if models are disabled.
+    /// Embeds text with fallback: fails gracefully if models are disabled or egress is blocked.
     pub fn embed(&self, text: &str) -> KnoxResult<Vec<f32>> {
         match &self.embedding {
             Some(m) => m.embed(text),
-            None => Err(KnoxError::Model(
-                "Model profile is 'off'. Enable models via KNOX_MODEL_PROFILE or config to use embeddings.".to_string(),
-            )),
+            None => {
+                if self.profile.kind == ModelProfileKind::Cloud && !self.profile.allow_cloud_egress {
+                    Err(KnoxError::Model(
+                        "Cloud model requests blocked: project has not enabled egress and KNOX_ALLOW_CLOUD_EGRESS is not set".to_string(),
+                    ))
+                } else {
+                    Err(KnoxError::Model(
+                        "Model profile is 'off'. Enable models via KNOX_MODEL_PROFILE or config to use embeddings.".to_string(),
+                    ))
+                }
+            }
         }
     }
 

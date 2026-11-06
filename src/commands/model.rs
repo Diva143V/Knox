@@ -17,6 +17,7 @@ pub fn cmd_model_status(config: &KnoxConfig) -> KnoxResult<()> {
     println!("Embedding Model   : {}", profile.embedding_model);
     println!("Chat / Ask Model  : {}", profile.chat_model);
     println!("API Key Configured: {}", if profile.api_key.is_some() { "yes" } else { "no" });
+    println!("Cloud Egress      : {}", if profile.allow_cloud_egress { "ALLOWED" } else { "BLOCKED (requires project egress or KNOX_ALLOW_CLOUD_EGRESS=true)" });
     println!();
 
     if !profile.kind.is_enabled() {

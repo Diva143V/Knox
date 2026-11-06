@@ -119,7 +119,7 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 
     let mut result = query_actions(db, &filter)?;
     let config = crate::core::config::KnoxConfig::from_env();
-    let router = ModelRouter::from_config(&config);
+    let router = ModelRouter::for_project(&config, Some(db), input.project.as_deref());
     result.results = rank_actions_hybrid(
         result.results,
         ranking_file.as_deref(),

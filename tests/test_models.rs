@@ -452,5 +452,19 @@ fn test_c2_cloud_egress_guard_and_project_egress() {
     // Revocation turns egress off
     set_project_egress(&db, proj.id.as_str(), false).unwrap();
     assert!(!is_project_egress_allowed(&db, proj.id.as_str()).unwrap());
+
+    // 4. ModelRouter::for_project fails closed on LocalProject when egress = 0
+    let router_proj_blocked = ModelRouter::for_project(&config, Some(&db), Some(proj.id.as_str()));
+    assert!(!router_proj_blocked.is_enabled());
+    assert!(router_proj_blocked.check_egress().is_err());
+    let err_msg = router_proj_blocked.embed("test query").unwrap_err().to_string();
+    assert!(err_msg.contains("Cloud model requests blocked"));
+
+    // 5. ModelRouter::for_project enables cloud adapters when project grants egress
+    set_project_egress(&db, proj.id.as_str(), true).unwrap();
+    let router_proj_allowed = ModelRouter::for_project(&config, Some(&db), Some(proj.id.as_str()));
+    assert!(router_proj_allowed.is_enabled());
+    assert!(router_proj_allowed.check_egress().is_ok());
+    assert!(router_proj_allowed.embedding().is_some());
 }
 
