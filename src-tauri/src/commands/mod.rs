@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod dialog;
+pub mod doctor;
 pub mod graph;
 pub mod ingest;
 pub mod mcp;

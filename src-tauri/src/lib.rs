@@ -18,14 +18,21 @@ pub struct AppState {
     pub config: Arc<Mutex<KnoxConfig>>,
 }
 
+/// Logs a fatal startup or runtime error to stderr, temporary directory, and CWD.
+fn write_fatal_error(msg: &str) {
+    eprintln!("{msg}");
+    let temp_log = std::env::temp_dir().join("knox-desktop-error.log");
+    let _ = std::fs::write(&temp_log, msg);
+    let _ = std::fs::write("knox-desktop-error.log", msg);
+}
+
 /// Initializes the SQLite database or exits cleanly on fatal error.
 fn init_db(kg_path: &std::path::Path) -> KnoxDb {
     match KnoxDb::open(kg_path) {
         Ok(db) => db,
         Err(e) => {
             let msg = format!("Failed to initialize Knox SQLite database: {e}");
-            eprintln!("{msg}");
-            let _ = std::fs::write("knox-desktop-error.log", &msg);
+            write_fatal_error(&msg);
             std::process::exit(1);
         }
     }
@@ -199,14 +206,14 @@ pub fn run() {
             commands::mcp::remove_mcp_config,
             commands::thoughts::record_quick_thought,
             commands::thoughts::resolve_doubt,
+            commands::doctor::run_doctor,
         ])
         .setup(setup_tray)
         .on_window_event(handle_window_event);
 
     if let Err(e) = builder.run(tauri::generate_context!()) {
         let msg = format!("Error while running Knox Tauri application: {e}");
-        eprintln!("{msg}");
-        let _ = std::fs::write("knox-desktop-error.log", &msg);
+        write_fatal_error(&msg);
         std::process::exit(1);
     }
 }

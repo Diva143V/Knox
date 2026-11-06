@@ -33,10 +33,17 @@ fn search_via_fts(
         actions
     };
     let count = filtered_actions.len();
+    let reason = if count == 0 {
+        Some("no_match".to_string())
+    } else {
+        None
+    };
     Ok(QueryResult {
         results: filtered_actions,
         total_count: count,
         has_more: false,
+        reason,
+        next: None,
     })
 }
 
@@ -48,6 +55,7 @@ fn apply_in_memory_filters(
     significance: Option<&str>,
     is_resolved: Option<bool>,
 ) {
+    let initial_len = result.results.len();
     if let Some(act_type) = action_type {
         let trimmed_type = act_type.trim().to_lowercase();
         if !trimmed_type.is_empty() {
@@ -82,6 +90,10 @@ fn apply_in_memory_filters(
             });
         }
     }
+
+    if result.results.len() != initial_len {
+        result.total_count = result.results.len();
+    }
 }
 
 /// Queries actions with flexible filtering or full-text search.
@@ -90,6 +102,7 @@ fn apply_in_memory_filters(
 pub async fn query_actions(
     state: State<'_, AppState>,
     search: Option<String>,
+    project: Option<String>,
     file_path: Option<String>,
     actor: Option<String>,
     action_type: Option<String>,
@@ -109,6 +122,7 @@ pub async fn query_actions(
         let no_extra_filters = file_path.is_none()
             && actor.is_none()
             && action_type.is_none()
+            && project.is_none()
             && parsed_since.is_none()
             && significance.is_none()
             && is_resolved.is_none();
@@ -117,9 +131,16 @@ pub async fn query_actions(
         }
     }
 
+    let clean_action_type = action_type.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let clean_search = search.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let clean_project = project.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+
     let filter = QueryFilter {
         file_path: file_path.filter(|s| !s.trim().is_empty()),
         actor: actor.filter(|s| !s.trim().is_empty()),
+        action_type: clean_action_type.clone(),
+        query: clean_search.clone(),
+        project: clean_project,
         since: parsed_since,
         current_only: current_only_flag,
         limit: max_limit,
@@ -129,8 +150,8 @@ pub async fn query_actions(
     let mut result = db_query_actions(&db, &filter).map_err(|e| e.to_string())?;
     apply_in_memory_filters(
         &mut result,
-        action_type.as_deref(),
-        search.as_deref(),
+        clean_action_type.as_deref(),
+        clean_search.as_deref(),
         significance.as_deref(),
         is_resolved,
     );
@@ -211,6 +232,8 @@ mod tests {
             results: vec![action1, action2],
             total_count: 2,
             has_more: false,
+            reason: None,
+            next: None,
         };
 
         // Filter by action_type

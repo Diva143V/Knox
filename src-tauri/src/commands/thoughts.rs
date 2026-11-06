@@ -42,10 +42,17 @@ pub fn record_quick_thought_impl(
         .filter(|a| !a.is_empty())
         .unwrap_or_else(|| "human".to_string());
 
-    let project_id = project
-        .as_deref()
-        .and_then(|p| resolve_project_identifier(db, p).ok().flatten())
-        .map(ProjectId::from);
+    let project_id = match project.as_deref() {
+        Some(p) if !p.trim().is_empty() => {
+            let resolved = resolve_project_identifier(db, p.trim())
+                .map_err(|e| format!("Failed to resolve project '{p}': {e}"))?;
+            match resolved {
+                Some(id) => Some(ProjectId::from(id)),
+                None => return Err(format!("Project not found: '{p}'")),
+            }
+        }
+        _ => None,
+    };
 
     let action = KnoxAction {
         id: action_id.clone(),

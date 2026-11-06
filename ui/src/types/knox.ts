@@ -31,6 +31,7 @@ export interface KnoxAction {
   // V4 Causal Code Delta Fields
   commit_sha?: string | null;
   delta_summary?: DeltaSummary | null;
+  project_id?: string | null;
 }
 
 export interface DeltaSummary {

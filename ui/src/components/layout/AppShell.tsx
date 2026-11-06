@@ -36,6 +36,12 @@ export const AppShell: React.FC = () => {
 
       <CustomTitlebar />
 
+      {import.meta.env.VITE_DEMO === "1" && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-3 py-1 text-center text-xs text-amber-400 font-mono tracking-wide">
+          DEMO MODE · Running with mock fixtures (VITE_DEMO=1)
+        </div>
+      )}
+
       {/* Column on narrow windows (rail becomes a bottom bar), row on desktop. */}
       <div className="flex min-h-0 flex-1 flex-col-reverse overflow-hidden md:flex-row">
         <Sidebar />

@@ -514,7 +514,8 @@ pub async fn inject_mcp_config(
     // Create a backup copy before writing
     if path.exists() {
         let backup_path = path.with_extension("bak");
-        let _ = fs::copy(&path, &backup_path);
+        fs::copy(&path, &backup_path)
+            .map_err(|e| format!("Failed to create backup at {}: {e}", backup_path.display()))?;
     }
 
     let mut json_val: serde_json::Value = if path.exists() {
@@ -593,7 +594,8 @@ pub async fn remove_mcp_config(file_path: String) -> Result<bool, String> {
 
     // Create a backup copy before writing
     let backup_path = path.with_extension("bak");
-    let _ = fs::copy(&path, &backup_path);
+    fs::copy(&path, &backup_path)
+        .map_err(|e| format!("Failed to create backup at {}: {e}", backup_path.display()))?;
 
     let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {e}"))?;
     let mut json_val: serde_json::Value =

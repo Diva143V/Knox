@@ -24,23 +24,36 @@ const isTauri =
   typeof window !== "undefined" &&
   ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
 
+const isDemo = import.meta.env.VITE_DEMO === "1";
+
+function ensureRuntime(operation: string) {
+  if (!isTauri && !isDemo) {
+    throw new Error(
+      `Knox Desktop runtime error: '${operation}' requires Tauri IPC. For web development preview, run with VITE_DEMO=1.`
+    );
+  }
+}
+
+let demoApiPromise: Promise<typeof import("./demo")["DemoAPI"]> | null = null;
+function getDemoApi() {
+  if (!demoApiPromise) {
+    demoApiPromise = import("./demo").then((m) => m.DemoAPI);
+  }
+  return demoApiPromise;
+}
+
 export const KnoxAPI = {
   async getStatus(): Promise<StatusReport> {
-    if (!isTauri) {
-      return {
-        total_actions: 42,
-        total_sessions: 5,
-        projects_tracked: 2,
-        last_action_timestamp: new Date().toISOString(),
-        actions_by_actor: { gemini: 24, cursor: 12, human: 6 },
-        actions_by_type: { write: 20, decide: 10, plan: 8, debug: 4 },
-      };
+    if (isDemo) {
+      return (await getDemoApi()).getStatus();
     }
+    ensureRuntime("getStatus");
     return invoke<StatusReport>("get_status");
   },
 
   async queryActions(params: {
     search?: string;
+    project?: string;
     filePath?: string;
     file_path?: string;
     actor?: string;
@@ -53,26 +66,17 @@ export const KnoxAPI = {
     significance?: string;
     is_resolved?: boolean;
   }): Promise<QueryResult> {
-    if (!isTauri) {
-      let filtered = mockActions;
-      if (params.significance) {
-        filtered = filtered.filter((a) => (a.significance || "major") === params.significance);
-      }
-      if (typeof params.is_resolved === "boolean") {
-        filtered = filtered.filter((a) => (a.is_resolved ?? true) === params.is_resolved);
-      }
-      return {
-        results: filtered,
-        total_count: filtered.length,
-        has_more: false,
-      };
+    if (isDemo) {
+      return (await getDemoApi()).queryActions(params);
     }
+    ensureRuntime("queryActions");
     const filePath = params.filePath || params.file_path || null;
     const actionType = params.actionType || params.action_type || null;
     const currentOnly = params.currentOnly ?? params.current_only ?? true;
 
     return invoke<QueryResult>("query_actions", {
       search: params.search || null,
+      project: params.project || null,
       filePath: filePath,
       file_path: filePath,
       actor: params.actor || null,
@@ -89,23 +93,26 @@ export const KnoxAPI = {
   },
 
   async getAction(id: string): Promise<KnoxAction | null> {
-    if (!isTauri) {
-      return mockActions.find((a) => a.id === id) || null;
+    if (isDemo) {
+      return (await getDemoApi()).getAction(id);
     }
+    ensureRuntime("getAction");
     return invoke<KnoxAction | null>("get_action", { id });
   },
 
   async getActionDeltas(actionId: string): Promise<ActionDelta[]> {
-    if (!isTauri) {
-      return [];
+    if (isDemo) {
+      return (await getDemoApi()).getActionDeltas(actionId);
     }
+    ensureRuntime("getActionDeltas");
     return invoke<ActionDelta[]>("get_action_deltas", { actionId, action_id: actionId });
   },
 
   async getGraphData(currentOnly?: boolean, limit?: number): Promise<KnoxAction[]> {
-    if (!isTauri) {
-      return mockActions;
+    if (isDemo) {
+      return (await getDemoApi()).getGraphData(currentOnly, limit);
     }
+    ensureRuntime("getGraphData");
     const current = currentOnly ?? false;
     return invoke<KnoxAction[]>("get_graph_data", {
       currentOnly: current,
@@ -115,22 +122,17 @@ export const KnoxAPI = {
   },
 
   async updateAction(params: UpdateActionPayload): Promise<KnoxAction> {
-    if (!isTauri) {
-      const idx = mockActions.findIndex((a) => a.id === params.id);
-      if (idx !== -1) {
-        mockActions[idx] = {
-          ...mockActions[idx],
-          ...params,
-          relations: params.relations ?? mockActions[idx].relations,
-        };
-        return mockActions[idx];
-      }
-      throw new Error("Action not found in mock");
+    if (isDemo) {
+      return (await getDemoApi()).updateAction(params);
     }
+    ensureRuntime("updateAction");
     return invoke<KnoxAction>("update_action", { params });
   },
 
   async listenDbChanged(callback: () => void): Promise<() => void> {
+    if (isDemo) {
+      return (await getDemoApi()).listenDbChanged(callback);
+    }
     if (!isTauri) {
       return () => {};
     }
@@ -140,15 +142,10 @@ export const KnoxAPI = {
   },
 
   async ingestTranscript(path: string): Promise<IngestReport> {
-    if (!isTauri) {
-      return {
-        actions_imported: 7,
-        files_touched: 3,
-        sessions_created: 1,
-        duplicates_skipped: 0,
-        tool_detected: "antigravity",
-      };
+    if (isDemo) {
+      return (await getDemoApi()).ingestTranscript(path);
     }
+    ensureRuntime("ingestTranscript");
     return invoke<IngestReport>("ingest_transcript", { path });
   },
 
@@ -156,15 +153,10 @@ export const KnoxAPI = {
     content: string,
     actorOverride?: string
   ): Promise<IngestReport> {
-    if (!isTauri) {
-      return {
-        actions_imported: 4,
-        files_touched: 2,
-        sessions_created: 1,
-        duplicates_skipped: 0,
-        tool_detected: actorOverride || "generic",
-      };
+    if (isDemo) {
+      return (await getDemoApi()).ingestRawTranscript(content, actorOverride);
     }
+    ensureRuntime("ingestRawTranscript");
     return invoke<IngestReport>("ingest_raw_transcript", {
       content,
       actorOverride: actorOverride || null,
@@ -176,19 +168,10 @@ export const KnoxAPI = {
     path?: string;
     content?: string;
   }): Promise<IngestPreview> {
-    if (!isTauri) {
-      return {
-        tool_detected: params.path?.includes("claude") ? "claude" : "antigravity",
-        total_actions: 5,
-        plans_count: 2,
-        writes_count: 2,
-        debugs_count: 1,
-        decisions_count: 0,
-        files_touched: ["src/lib.rs", "src/main.rs"],
-        duplicates_count: 0,
-        sample_actions: [],
-      };
+    if (isDemo) {
+      return (await getDemoApi()).previewTranscript(params);
     }
+    ensureRuntime("previewTranscript");
     return invoke<IngestPreview>("preview_transcript", {
       path: params.path || null,
       content: params.content || null,
@@ -199,15 +182,10 @@ export const KnoxAPI = {
     projectPath: string,
     maxCommits?: number
   ): Promise<IngestReport> {
-    if (!isTauri) {
-      return {
-        actions_imported: 15,
-        files_touched: 8,
-        sessions_created: 1,
-        duplicates_skipped: 0,
-        tool_detected: "git",
-      };
+    if (isDemo) {
+      return (await getDemoApi()).ingestGitHistory(projectPath, maxCommits);
     }
+    ensureRuntime("ingestGitHistory");
     return invoke<IngestReport>("ingest_git_history", {
       projectPath,
       project_path: projectPath,
@@ -219,17 +197,10 @@ export const KnoxAPI = {
   async detectLocalTranscripts(
     projectPath?: string
   ): Promise<DetectedTranscript[]> {
-    if (!isTauri) {
-      return [
-        {
-          path: "fixtures/transcript_antigravity.jsonl",
-          source: "Antigravity",
-          size_bytes: 4200,
-          last_modified: new Date().toISOString(),
-          estimated_actions: 6,
-        },
-      ];
+    if (isDemo) {
+      return (await getDemoApi()).detectLocalTranscripts(projectPath);
     }
+    ensureRuntime("detectLocalTranscripts");
     return invoke<DetectedTranscript[]>("detect_local_transcripts", {
       projectPath: projectPath || null,
       project_path: projectPath || null,
@@ -237,83 +208,74 @@ export const KnoxAPI = {
   },
 
   async initProject(path: string): Promise<string> {
-    if (!isTauri) {
-      return `Initialized Knox in ${path}`;
+    if (isDemo) {
+      return (await getDemoApi()).initProject(path);
     }
+    ensureRuntime("initProject");
     return invoke<string>("init_project", { path });
   },
 
   async getProjects(): Promise<Project[]> {
-    if (!isTauri) {
-      return [
-        {
-          id: "p-001",
-          name: "Knox",
-          path: "D:\\Knox",
-          created_at: new Date().toISOString(),
-        },
-      ];
+    if (isDemo) {
+      return (await getDemoApi()).getProjects();
     }
+    ensureRuntime("getProjects");
     return invoke<Project[]>("get_projects");
   },
 
   async scanStaged(project?: string): Promise<ScanReport> {
-    if (!isTauri) {
-      return {
-        human_edits_detected: 0,
-        actions_recorded: 0,
-        files_scanned: ["src/lib.rs", "src/main.rs"],
-        diff_stat: " 2 files changed, 10 insertions(+), 2 deletions(-)",
-      };
+    if (isDemo) {
+      return (await getDemoApi()).scanStaged(project);
     }
+    ensureRuntime("scanStaged");
     return invoke<ScanReport>("scan_staged", { project: project || null });
   },
 
   async installHook(path: string): Promise<string> {
-    if (!isTauri) return "Installed hook";
+    if (isDemo) {
+      return (await getDemoApi()).installHook(path);
+    }
+    ensureRuntime("installHook");
     return invoke<string>("install_hook", { path });
   },
 
   async uninstallHook(path: string): Promise<string> {
-    if (!isTauri) return "Uninstalled hook";
+    if (isDemo) {
+      return (await getDemoApi()).uninstallHook(path);
+    }
+    ensureRuntime("uninstallHook");
     return invoke<string>("uninstall_hook", { path });
   },
 
   async getKnoxMd(path: string): Promise<string | null> {
-    if (!isTauri) return null;
+    if (isDemo) {
+      return (await getDemoApi()).getKnoxMd(path);
+    }
+    ensureRuntime("getKnoxMd");
     return invoke<string | null>("get_knox_md", { path });
   },
 
   async getHookStatus(path: string): Promise<boolean> {
-    if (!isTauri) return false;
+    if (isDemo) {
+      return (await getDemoApi()).getHookStatus(path);
+    }
+    ensureRuntime("getHookStatus");
     return invoke<boolean>("get_hook_status", { path });
   },
 
   async startSession(actor: string, project?: string): Promise<Session> {
-    if (!isTauri) {
-      return {
-        id: "mock-sess-001",
-        actor,
-        project: project || null,
-        started_at: new Date().toISOString(),
-        ended_at: null,
-        is_open: true,
-      };
+    if (isDemo) {
+      return (await getDemoApi()).startSession(actor, project);
     }
+    ensureRuntime("startSession");
     return invoke<Session>("start_session", { actor, project: project || null });
   },
 
   async endSession(sessionId: string): Promise<Session> {
-    if (!isTauri) {
-      return {
-        id: sessionId,
-        actor: "gemini",
-        project: null,
-        started_at: new Date().toISOString(),
-        ended_at: new Date().toISOString(),
-        is_open: false,
-      };
+    if (isDemo) {
+      return (await getDemoApi()).endSession(sessionId);
     }
+    ensureRuntime("endSession");
     return invoke<Session>("end_session", {
       sessionId,
       session_id: sessionId,
@@ -321,29 +283,18 @@ export const KnoxAPI = {
   },
 
   async getSessions(limit?: number): Promise<Session[]> {
-    if (!isTauri) {
-      return [
-        {
-          id: "s-001",
-          actor: "gemini",
-          project: "knox",
-          started_at: new Date().toISOString(),
-          ended_at: null,
-          is_open: true,
-        },
-      ];
+    if (isDemo) {
+      return (await getDemoApi()).getSessions(limit);
     }
+    ensureRuntime("getSessions");
     return invoke<Session[]>("get_sessions", { limit: limit ?? 20 });
   },
 
   async getConfig(): Promise<KnoxConfig> {
-    if (!isTauri) {
-      return {
-        kg_path: "~/.knox/knox.db",
-        session_timeout_seconds: 1800,
-        global_mode: true,
-      };
+    if (isDemo) {
+      return (await getDemoApi()).getConfig();
     }
+    ensureRuntime("getConfig");
     return invoke<KnoxConfig>("get_config");
   },
 
@@ -352,13 +303,10 @@ export const KnoxAPI = {
     globalMode?: boolean;
     kgPath?: string;
   }): Promise<KnoxConfig> {
-    if (!isTauri) {
-      return {
-        kg_path: params.kgPath ?? "~/.knox/knox.db",
-        session_timeout_seconds: params.sessionTimeoutSeconds ?? 1800,
-        global_mode: params.globalMode ?? true,
-      };
+    if (isDemo) {
+      return (await getDemoApi()).updateConfig(params);
     }
+    ensureRuntime("updateConfig");
     return invoke<KnoxConfig>("update_config", {
       sessionTimeoutSeconds: params.sessionTimeoutSeconds,
       session_timeout_seconds: params.sessionTimeoutSeconds,
@@ -370,47 +318,42 @@ export const KnoxAPI = {
   },
 
   async saveConfig(config: KnoxConfig): Promise<KnoxConfig> {
-    if (!isTauri) {
-      return config;
+    if (isDemo) {
+      return (await getDemoApi()).saveConfig(config);
     }
+    ensureRuntime("saveConfig");
     return invoke<KnoxConfig>("save_config", { config });
   },
 
   async getDbStats(): Promise<DbStats> {
-    if (!isTauri) {
-      return {
-        db_size_bytes: 4200000,
-        wal_size_bytes: 131072,
-        page_count: 1024,
-        page_size: 4096,
-        total_actions: 42,
-        total_sessions: 5,
-        total_relations: 18,
-        schema_version: 3,
-      };
+    if (isDemo) {
+      return (await getDemoApi()).getDbStats();
     }
+    ensureRuntime("getDbStats");
     return invoke<DbStats>("get_db_stats");
   },
 
   async runDbIntegrity(): Promise<string> {
-    if (!isTauri) {
-      return "ok";
+    if (isDemo) {
+      return (await getDemoApi()).runDbIntegrity();
     }
+    ensureRuntime("runDbIntegrity");
     return invoke<string>("run_db_integrity");
   },
 
   async runDbVacuum(): Promise<string> {
-    if (!isTauri) {
-      return "Database vacuum completed successfully.";
+    if (isDemo) {
+      return (await getDemoApi()).runDbVacuum();
     }
+    ensureRuntime("runDbVacuum");
     return invoke<string>("run_db_vacuum");
   },
 
   async revealDbFolder(): Promise<void> {
-    if (!isTauri) {
-      console.log("Mock revealDbFolder called");
-      return;
+    if (isDemo) {
+      return (await getDemoApi()).revealDbFolder();
     }
+    ensureRuntime("revealDbFolder");
     return invoke<void>("reveal_db_folder");
   },
 
@@ -418,6 +361,9 @@ export const KnoxAPI = {
     name?: string;
     extensions?: string[];
   }): Promise<string | null> {
+    if (isDemo) {
+      return (await getDemoApi()).openFileDialog(options);
+    }
     if (!isTauri) return null;
     try {
       return await invoke<string | null>("open_file_dialog", {
@@ -431,6 +377,9 @@ export const KnoxAPI = {
   },
 
   async openFolderDialog(): Promise<string | null> {
+    if (isDemo) {
+      return (await getDemoApi()).openFolderDialog();
+    }
     if (!isTauri) return null;
     try {
       return await invoke<string | null>("open_folder_dialog");
@@ -441,67 +390,26 @@ export const KnoxAPI = {
   },
 
   async detectMcpConfigs(): Promise<DetectedMcpApp[]> {
-    if (!isTauri) {
-      return [
-        {
-          id: "cursor",
-          name: "Cursor",
-          category: "ide",
-          file_path: "~/.cursor/mcp.json",
-          exists: true,
-          is_configured: false,
-          format: "standard",
-          last_modified: "2026-10-30 14:20:00 UTC",
-          is_custom: false,
-        },
-        {
-          id: "claude-desktop",
-          name: "Claude Desktop",
-          category: "ide",
-          file_path: "%APPDATA%\\Claude\\claude_desktop_config.json",
-          exists: true,
-          is_configured: false,
-          format: "standard",
-          last_modified: "2026-10-29 11:15:00 UTC",
-          is_custom: false,
-        },
-        {
-          id: "antigravity",
-          name: "Antigravity / Gemini CLI",
-          category: "ide",
-          file_path: "~/.gemini/config/mcp_config.json",
-          exists: true,
-          is_configured: true,
-          format: "standard",
-          last_modified: "2026-10-31 09:12:00 UTC",
-          is_custom: false,
-        },
-      ];
+    if (isDemo) {
+      return (await getDemoApi()).detectMcpConfigs();
     }
+    ensureRuntime("detectMcpConfigs");
     return invoke<DetectedMcpApp[]>("detect_mcp_configs");
   },
 
   async deepScanMcpConfigs(): Promise<DetectedMcpApp[]> {
-    if (!isTauri) {
-      return this.detectMcpConfigs();
+    if (isDemo) {
+      return (await getDemoApi()).deepScanMcpConfigs();
     }
+    ensureRuntime("deepScanMcpConfigs");
     return invoke<DetectedMcpApp[]>("deep_scan_mcp_configs");
   },
 
   async inspectCustomMcpConfig(filePath: string): Promise<DetectedMcpApp> {
-    if (!isTauri) {
-      return {
-        id: "custom-mock",
-        name: "Custom App",
-        category: "custom",
-        file_path: filePath,
-        exists: true,
-        is_configured: false,
-        format: "standard",
-        last_modified: new Date().toISOString(),
-        is_custom: true,
-      };
+    if (isDemo) {
+      return (await getDemoApi()).inspectCustomMcpConfig(filePath);
     }
+    ensureRuntime("inspectCustomMcpConfig");
     return invoke<DetectedMcpApp>("inspect_custom_mcp_config", {
       filePath,
       file_path: filePath,
@@ -509,9 +417,10 @@ export const KnoxAPI = {
   },
 
   async injectMcpConfig(filePath: string, useSystemCommand?: boolean): Promise<boolean> {
-    if (!isTauri) {
-      return true;
+    if (isDemo) {
+      return (await getDemoApi()).injectMcpConfig(filePath, useSystemCommand);
     }
+    ensureRuntime("injectMcpConfig");
     return invoke<boolean>("inject_mcp_config", {
       filePath,
       file_path: filePath,
@@ -521,9 +430,10 @@ export const KnoxAPI = {
   },
 
   async removeMcpConfig(filePath: string): Promise<boolean> {
-    if (!isTauri) {
-      return true;
+    if (isDemo) {
+      return (await getDemoApi()).removeMcpConfig(filePath);
     }
+    ensureRuntime("removeMcpConfig");
     return invoke<boolean>("remove_mcp_config", {
       filePath,
       file_path: filePath,
@@ -531,6 +441,9 @@ export const KnoxAPI = {
   },
 
   async listenMcpScanLogs(callback: (log: McpScanLog) => void): Promise<() => void> {
+    if (isDemo) {
+      return (await getDemoApi()).listenMcpScanLogs(callback);
+    }
     if (!isTauri) {
       return () => {};
     }
@@ -547,28 +460,10 @@ export const KnoxAPI = {
     files?: string[];
     project?: string;
   }): Promise<string> {
-    if (!isTauri) {
-      const mockId = `mock-action-${Date.now()}`;
-      mockActions.unshift({
-        id: mockId,
-        actor: params.actor || "human",
-        action_type: params.category === "doubt" ? "doubt" : params.category.includes("decision") ? "decide" : "dialogue",
-        summary: params.summary,
-        files: params.files || [],
-        tags: [params.category],
-        confidence: 1.0,
-        timestamp: new Date().toISOString(),
-        session_id: null,
-        parent_action_id: null,
-        supersedes: null,
-        is_current: true,
-        significance: params.category === "major_decision" ? "major" : "minor",
-        is_resolved: params.category !== "doubt",
-        context_summary: params.contextSummary || null,
-        project_id: params.project || null,
-      });
-      return mockId;
+    if (isDemo) {
+      return (await getDemoApi()).recordQuickThought(params);
     }
+    ensureRuntime("recordQuickThought");
     return invoke<string>("record_quick_thought", {
       summary: params.summary,
       category: params.category,
@@ -585,14 +480,10 @@ export const KnoxAPI = {
     resolutionNote: string;
     resolverActionId?: string;
   }): Promise<boolean> {
-    if (!isTauri) {
-      const target = mockActions.find((a) => a.id === params.doubtId);
-      if (target) {
-        target.is_resolved = true;
-        target.resolution_note = params.resolutionNote;
-      }
-      return true;
+    if (isDemo) {
+      return (await getDemoApi()).resolveDoubt(params);
     }
+    ensureRuntime("resolveDoubt");
     return invoke<boolean>("resolve_doubt", {
       doubtId: params.doubtId,
       doubt_id: params.doubtId,
@@ -603,63 +494,3 @@ export const KnoxAPI = {
     });
   },
 };
-
-const mockActions: KnoxAction[] = [
-  {
-    id: "a-001",
-    actor: "gemini",
-    action_type: "write",
-    summary: "Implemented Tauri v2 IPC command architecture",
-    files: ["src-tauri/src/lib.rs", "src-tauri/src/commands/mod.rs"],
-    tags: ["tauri", "ipc", "architecture"],
-    confidence: 0.95,
-    timestamp: "2026-10-30T09:00:00Z",
-    session_id: "s-001",
-    parent_action_id: null,
-    supersedes: null,
-    is_current: true,
-  },
-  {
-    id: "a-002",
-    actor: "antigravity",
-    action_type: "decide",
-    summary: "Adopted Linear/Raycast dark OKLCH aesthetic and React Flow",
-    files: ["ui/src/globals.css", "ui/src/components/graph/KnoxGraphCanvas.tsx"],
-    tags: ["ui", "design-system", "oklch"],
-    confidence: 0.9,
-    timestamp: "2026-10-30T09:10:00Z",
-    session_id: "s-001",
-    parent_action_id: "a-001",
-    supersedes: null,
-    is_current: true,
-  },
-  {
-    id: "a-003",
-    actor: "human",
-    action_type: "plan",
-    summary: "Create consumer-grade desktop application for Knox v1.2.0",
-    files: ["v1.2.0.md"],
-    tags: ["planning", "roadmap"],
-    confidence: 1.0,
-    timestamp: "2026-10-30T08:30:00Z",
-    session_id: "s-001",
-    parent_action_id: null,
-    supersedes: null,
-    is_current: true,
-  },
-  {
-    id: "a-004",
-    actor: "cursor",
-    action_type: "debug",
-    summary: "cargo check on knox-desktop passes with 0 warnings",
-    files: ["src-tauri/Cargo.toml"],
-    tags: ["build", "cargo"],
-    confidence: 0.85,
-    timestamp: "2026-10-30T09:20:00Z",
-    session_id: "s-001",
-    parent_action_id: "a-002",
-    supersedes: null,
-    is_current: true,
-  },
-];
-
