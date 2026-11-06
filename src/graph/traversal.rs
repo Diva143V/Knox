@@ -1,7 +1,7 @@
 //! Traversal algorithms for navigating the Knox causal knowledge graph.
 
 use petgraph::Direction;
-use petgraph::visit::{Bfs, EdgeRef};
+use petgraph::visit::EdgeRef;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::loader::{KnoxGraph, build_node_index};
@@ -10,7 +10,8 @@ use crate::core::types::KnoxAction;
 
 /// Edge types that express a cause for the source node. `relates_to` is
 /// associative rather than causal and is deliberately excluded.
-fn is_causal_edge(edge_type: &str) -> bool {
+/// Note: "parent" is retained for backward compatibility with pre-v9 schemas or legacy mock graphs.
+pub(crate) fn is_causal_edge(edge_type: &str) -> bool {
     matches!(
         edge_type,
         "caused_by" | "parent" | "supersedes" | "depends_on" | "implements" | "verifies" | "reverts" | "resolves"
@@ -20,6 +21,7 @@ fn is_causal_edge(edge_type: &str) -> bool {
 /// Deterministic preference order when several incoming causal edges exist.
 fn causal_priority(edge_type: &str) -> u8 {
     match edge_type {
+        // "parent" is retained alongside "caused_by" for backward compatibility with pre-v9 schemas.
         "caused_by" | "parent" => 0,
         "supersedes" => 1,
         "implements" => 2,
@@ -79,7 +81,8 @@ pub fn causal_chain(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> 
 }
 
 /// Retrieves all causal descendants (actions caused directly or indirectly by `action_id`).
-/// Uses breadth-first search traversing outgoing edges.
+/// Uses breadth-first search traversing outgoing edges filtered strictly by `is_causal_edge`.
+/// Non-causal relations such as `relates_to` and `contradicts` are deliberately excluded.
 pub fn descendants(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
     let node_index = build_node_index(graph);
     let Some(&start_idx) = node_index.get(action_id) else {
@@ -87,20 +90,30 @@ pub fn descendants(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
     };
 
     let mut result = Vec::new();
-    let mut bfs = Bfs::new(graph, start_idx);
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
 
-    // Skip the root starting node
-    let _ = bfs.next(graph);
+    visited.insert(start_idx);
+    queue.push_back(start_idx);
 
-    while let Some(next_idx) = bfs.next(graph) {
-        result.push(graph[next_idx].clone());
+    while let Some(curr) = queue.pop_front() {
+        for edge in graph.edges_directed(curr, Direction::Outgoing) {
+            if is_causal_edge(&edge.weight().edge_type) {
+                let target = edge.target();
+                if visited.insert(target) {
+                    result.push(graph[target].clone());
+                    queue.push_back(target);
+                }
+            }
+        }
     }
 
     result
 }
 
 /// Retrieves all causal ancestors (actions that led to `action_id`).
-/// Uses breadth-first search traversing incoming edges.
+/// Uses breadth-first search traversing incoming edges filtered strictly by `is_causal_edge`.
+/// Non-causal relations such as `relates_to` and `contradicts` are deliberately excluded.
 pub fn ancestors(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
     let node_index = build_node_index(graph);
     let Some(&start_idx) = node_index.get(action_id) else {
@@ -115,10 +128,13 @@ pub fn ancestors(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
     queue.push_back(start_idx);
 
     while let Some(curr) = queue.pop_front() {
-        for parent_idx in graph.neighbors_directed(curr, Direction::Incoming) {
-            if visited.insert(parent_idx) {
-                result.push(graph[parent_idx].clone());
-                queue.push_back(parent_idx);
+        for edge in graph.edges_directed(curr, Direction::Incoming) {
+            if is_causal_edge(&edge.weight().edge_type) {
+                let source = edge.source();
+                if visited.insert(source) {
+                    result.push(graph[source].clone());
+                    queue.push_back(source);
+                }
             }
         }
     }
@@ -126,8 +142,9 @@ pub fn ancestors(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
     result
 }
 
-/// Finds the shortest directed path between two actions in the graph.
-/// Returns `Some([from, ..., to])` if connected, or `None` if unreachable.
+/// Finds the shortest directed causal path between two actions in the graph.
+/// Returns `Some([from, ..., to])` if connected via causal edges, or `None` if unreachable.
+/// Non-causal relations such as `relates_to` and `contradicts` are deliberately excluded.
 pub fn path_between(graph: &KnoxGraph, from: &ActionId, to: &ActionId) -> Option<Vec<KnoxAction>> {
     let node_index = build_node_index(graph);
     let from_idx = *node_index.get(from)?;
@@ -152,10 +169,13 @@ pub fn path_between(graph: &KnoxGraph, from: &ActionId, to: &ActionId) -> Option
             break;
         }
 
-        for neighbor in graph.neighbors_directed(curr, Direction::Outgoing) {
-            if visited.insert(neighbor) {
-                prev_map.insert(neighbor, curr);
-                queue.push_back(neighbor);
+        for edge in graph.edges_directed(curr, Direction::Outgoing) {
+            if is_causal_edge(&edge.weight().edge_type) {
+                let neighbor = edge.target();
+                if visited.insert(neighbor) {
+                    prev_map.insert(neighbor, curr);
+                    queue.push_back(neighbor);
+                }
             }
         }
     }
@@ -337,5 +357,99 @@ mod tests {
         let chain_follows = causal_chain(&graph, &follows_child.id);
         assert_eq!(chain_follows.len(), 1);
         assert_eq!(chain_follows[0].id, follows_child.id);
+    }
+
+    #[test]
+    fn test_ancestors_and_descendants_exclude_relates_to_and_contradicts() {
+        let mut graph = KnoxGraph::new();
+        let plan = mock_action("human", "plan", "Initial architecture plan", None);
+        let write = mock_action("gemini", "write", "Code implementation", None);
+        let test = mock_action("cursor", "test", "Integration tests", None);
+        let note = mock_action("human", "note", "Associative note", None);
+        let conflict = mock_action("human", "decide", "Conflicting proposal", None);
+
+        let plan_idx = graph.add_node(plan.clone());
+        let write_idx = graph.add_node(write.clone());
+        let test_idx = graph.add_node(test.clone());
+        let note_idx = graph.add_node(note.clone());
+        let conflict_idx = graph.add_node(conflict.clone());
+
+        // Causal edges: plan -> write -> test
+        graph.add_edge(
+            plan_idx,
+            write_idx,
+            KnoxEdge {
+                edge_type: "implements".to_string(),
+                timestamp: Utc::now(),
+                session_id: None,
+                tool_source: None,
+            },
+        );
+        graph.add_edge(
+            write_idx,
+            test_idx,
+            KnoxEdge {
+                edge_type: "verifies".to_string(),
+                timestamp: Utc::now(),
+                session_id: None,
+                tool_source: None,
+            },
+        );
+
+        // Non-causal edges: note relates_to write; conflict contradicts plan
+        graph.add_edge(
+            write_idx,
+            note_idx,
+            KnoxEdge {
+                edge_type: "relates_to".to_string(),
+                timestamp: Utc::now(),
+                session_id: None,
+                tool_source: None,
+            },
+        );
+        graph.add_edge(
+            plan_idx,
+            conflict_idx,
+            KnoxEdge {
+                edge_type: "contradicts".to_string(),
+                timestamp: Utc::now(),
+                session_id: None,
+                tool_source: None,
+            },
+        );
+
+        // Descendants of plan: must find write and test, but NOT note or conflict
+        let desc = descendants(&graph, &plan.id);
+        let desc_ids: Vec<ActionId> = desc.into_iter().map(|a| a.id).collect();
+        assert_eq!(desc_ids.len(), 2);
+        assert!(desc_ids.contains(&write.id));
+        assert!(desc_ids.contains(&test.id));
+        assert!(!desc_ids.contains(&note.id), "relates_to must never be traversed as a descendant");
+        assert!(!desc_ids.contains(&conflict.id), "contradicts must never be traversed as a descendant");
+
+        // Ancestors of test: must find write and plan, but NOT note or conflict
+        let anc = ancestors(&graph, &test.id);
+        let anc_ids: Vec<ActionId> = anc.into_iter().map(|a| a.id).collect();
+        assert_eq!(anc_ids.len(), 2);
+        assert!(anc_ids.contains(&write.id));
+        assert!(anc_ids.contains(&plan.id));
+        assert!(!anc_ids.contains(&note.id), "relates_to must never be traversed as an ancestor");
+        assert!(!anc_ids.contains(&conflict.id), "contradicts must never be traversed as an ancestor");
+
+        // Path between: plan -> test exists; plan -> note must be None
+        let p_causal = path_between(&graph, &plan.id, &test.id);
+        assert!(p_causal.is_some());
+        let p_ids: Vec<ActionId> = p_causal.unwrap().into_iter().map(|a| a.id).collect();
+        assert_eq!(p_ids, vec![plan.id.clone(), write.id.clone(), test.id.clone()]);
+
+        let p_associative = path_between(&graph, &plan.id, &note.id);
+        assert!(p_associative.is_none(), "path_between must return None across non-causal relations");
+
+        let p_contradiction = path_between(&graph, &plan.id, &conflict.id);
+        assert!(p_contradiction.is_none(), "path_between must return None across contradicts");
+
+        // Directionality: path_between(test, plan) must be None (causes point to effects)
+        let p_reverse = path_between(&graph, &test.id, &plan.id);
+        assert!(p_reverse.is_none(), "path_between must follow directed causality, not reverse");
     }
 }

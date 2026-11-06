@@ -269,4 +269,49 @@ mod tests {
         assert_eq!(subgraph.node_count(), 3);
         assert_eq!(subgraph.edge_count(), 2);
     }
+
+    #[test]
+    fn test_loader_petgraph_edge_direction_and_traversal_symmetry() {
+        let db = KnoxDb::open_memory().unwrap();
+
+        let plan = create_action("human", "plan", "Plan step", None);
+        let write = create_action("gemini", "write", "Write step", Some(plan.id.clone()));
+        insert_action(&db, &plan).unwrap();
+        insert_action(&db, &write).unwrap();
+
+        let subgraph = load_subgraph(&db, &[plan.id.clone(), write.id.clone()], 2).unwrap();
+        let node_map = build_node_index(&subgraph);
+        let plan_idx = *node_map.get(&plan.id).unwrap();
+        let write_idx = *node_map.get(&write.id).unwrap();
+
+        // 1. Explicitly assert the petgraph edge direction: cause (plan) -> effect (write)
+        assert!(
+            subgraph.find_edge(plan_idx, write_idx).is_some(),
+            "Petgraph must direct edges from cause (plan) to effect (write)"
+        );
+        assert!(
+            subgraph.find_edge(write_idx, plan_idx).is_none(),
+            "Petgraph must NOT direct edges backwards from effect to cause"
+        );
+
+        // 2. Assert causal_chain traverses incoming edges from write back to plan
+        let chain = crate::graph::traversal::causal_chain(&subgraph, &write.id);
+        assert_eq!(chain.len(), 2);
+        assert_eq!(chain[0].id, write.id);
+        assert_eq!(chain[1].id, plan.id);
+
+        // 3. Assert descendants traverses outgoing edges from plan forward to write
+        let desc = crate::graph::traversal::descendants(&subgraph, &plan.id);
+        assert_eq!(desc.len(), 1);
+        assert_eq!(desc[0].id, write.id);
+
+        // 4. Assert ancestors traverses incoming edges from write back to plan
+        let anc = crate::graph::traversal::ancestors(&subgraph, &write.id);
+        assert_eq!(anc.len(), 1);
+        assert_eq!(anc[0].id, plan.id);
+
+        // 5. Assert leaf has no descendants and root has no ancestors
+        assert!(crate::graph::traversal::descendants(&subgraph, &write.id).is_empty());
+        assert!(crate::graph::traversal::ancestors(&subgraph, &plan.id).is_empty());
+    }
 }
