@@ -116,14 +116,18 @@ fn tool_check() -> ToolDescription {
 fn tool_trace() -> ToolDescription {
     ToolDescription::new(
         "knox_trace",
-        "Traces causal ancestry from an action or file using only causal graph edges.",
+        "Traces causal ancestry or downstream impact using causal graph edges.",
         json!({
             "type": "object",
             "properties": {
                 "from": {"type": "string"},
                 "file_path": {"type": "string"},
                 "depth": {"type": "integer", "minimum": 1, "default": 10},
-                "max_nodes": {"type": "integer", "minimum": 1, "default": 200}
+                "max_nodes": {"type": "integer", "minimum": 1, "default": 200},
+                "direction": {
+                    "type": "string",
+                    "enum": ["ancestors", "descendants", "impact", "both"]
+                }
             },
             "anyOf": [
                 {"required": ["from"]},

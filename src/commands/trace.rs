@@ -40,6 +40,9 @@ pub fn cmd_trace(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             if let Some(depth) = map.remove("depth") {
                 map.insert("max_depth".to_string(), depth);
             }
+            if let Some(mode) = map.remove("mode") {
+                map.entry("direction".to_string()).or_insert(mode);
+            }
             // Default format is markdown so the response can be truncated to budget.
             map.entry("format".to_string())
                 .or_insert_with(|| Value::String("markdown".to_string()));
@@ -49,9 +52,15 @@ pub fn cmd_trace(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     }
     if let Some(file_path) = object.get("file_path").and_then(Value::as_str) {
         let max_nodes = object.get("max_nodes").and_then(Value::as_u64);
+        let direction = object
+            .get("direction")
+            .or_else(|| object.get("mode"))
+            .and_then(Value::as_str)
+            .unwrap_or("ancestors");
         let mut lineage_params = json!({
             "file_path": file_path,
             "max_depth": object.get("depth").and_then(Value::as_u64).unwrap_or(10),
+            "direction": direction,
             // Default format is markdown so the response can be truncated to budget.
             "format": object.get("format").and_then(Value::as_str).unwrap_or("markdown")
         });
@@ -102,9 +111,11 @@ fn render_trace_budget(
 
     let mut response = json!({
         "target_id": result.get("target_id"),
+        "direction": result.get("direction").unwrap_or(&json!("ancestors")),
         "depth": result.get("depth"),
         "chain": result.get("chain"),
         "lineage": result.get("lineage"),
+        "impact": result.get("impact"),
         "markdown": md,
         "budget": budget,
         "budget_used": budget_used,

@@ -364,6 +364,48 @@ pub fn format_lineage_markdown_with_reason(
     out
 }
 
+/// Formats downstream causal impact (descendants) into an indented list showing blast radius.
+pub fn format_impact_markdown_with_reason(
+    target_label: &str,
+    descendants: &[KnoxAction],
+    reason: Option<&str>,
+) -> String {
+    if descendants.is_empty() {
+        if let Some(r) = reason {
+            return format!("### Downstream Impact for `{target_label}`\n*No downstream dependent actions found (reason: {r}).*");
+        } else {
+            return format!("### Downstream Impact for `{target_label}`\n*No downstream dependent actions found.*");
+        }
+    }
+
+    let mut out = String::with_capacity(1024);
+    out.push_str(&format!(
+        "### Downstream Impact for `{target_label}` ({} dependent actions)\n\n",
+        descendants.len()
+    ));
+
+    for (i, act) in descendants.iter().enumerate() {
+        let ts = act.timestamp.format("%Y-%m-%d %H:%M").to_string();
+        out.push_str(&format!(
+            "{}. **{}** [`{}`] by `@{}` ({}):\n   {}\n",
+            i + 1,
+            act.action_type.to_uppercase(),
+            act.id,
+            act.actor,
+            ts,
+            act.summary
+        ));
+        if !act.files.is_empty() {
+            out.push_str(&format!("   *Impacted files*: {}\n", act.files.join(", ")));
+        }
+        if let Some(ref r) = act.rationale {
+            out.push_str(&format!("   *Rationale*: {}\n", r));
+        }
+    }
+
+    out
+}
+
 /// Formats guardrails (active decisions, constraint violations, open doubts, and rejected patterns) for target files before editing.
 pub fn format_guardrails_markdown(
     files: &[String],

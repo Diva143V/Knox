@@ -52,6 +52,8 @@ pub enum Commands {
     Ask(AskArgs),
     /// Pre-flight guardrail check against active architectural constraints.
     Check(CheckArgs),
+    /// Trace causal ancestry or downstream impact for an action or file.
+    Trace(TraceArgs),
 }
 
 /// Arguments for `knox init`.
@@ -290,6 +292,38 @@ pub struct CheckArgs {
     pub json: bool,
 }
 
+/// Arguments for `knox trace`.
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+pub struct TraceArgs {
+    /// Action ID to trace from.
+    #[arg(long)]
+    pub from: Option<String>,
+
+    /// Target file path to trace.
+    #[arg(short, long)]
+    pub file: Option<String>,
+
+    /// Traversal search depth limit.
+    #[arg(short, long, default_value = "10")]
+    pub depth: usize,
+
+    /// Maximum nodes to explore in the component.
+    #[arg(long, default_value = "200")]
+    pub max_nodes: usize,
+
+    /// Traversal direction ('ancestors', 'descendants', 'impact', or 'both').
+    #[arg(long, default_value = "ancestors")]
+    pub direction: String,
+
+    /// Token budget for trace output (default: 800).
+    #[arg(short, long, default_value = "800")]
+    pub budget: usize,
+
+    /// Format output as JSON instead of human-readable Markdown.
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,6 +539,31 @@ mod tests {
                 assert!(!args.strict);
             }
             _ => panic!("Expected Check subcommand"),
+        }
+    }
+
+    #[test]
+    fn test_parse_trace_subcommand() {
+        let cli = KnoxCli::try_parse_from([
+            "knox",
+            "trace",
+            "--from",
+            "act_123",
+            "--direction",
+            "descendants",
+            "--depth",
+            "5",
+            "--json",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Trace(args)) => {
+                assert_eq!(args.from, Some("act_123".to_string()));
+                assert_eq!(args.direction, "descendants");
+                assert_eq!(args.depth, 5);
+                assert!(args.json);
+            }
+            _ => panic!("Expected Trace subcommand"),
         }
     }
 }

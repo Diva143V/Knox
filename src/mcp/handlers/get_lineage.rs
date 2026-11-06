@@ -14,7 +14,7 @@ use crate::storage::db::KnoxDb;
 /// Input parameters for `knox_get_lineage`.
 #[derive(Debug, Deserialize, Default)]
 pub struct GetLineageParams {
-    /// Target action identifier to trace backwards.
+    /// Target action identifier to trace backwards or forwards.
     pub action_id: Option<String>,
     /// Or target file path to trace the latest action for.
     pub file_path: Option<String>,
@@ -24,6 +24,8 @@ pub struct GetLineageParams {
     pub max_nodes: Option<usize>,
     /// Output representation format ("markdown" | "json", defaults to "markdown").
     pub format: Option<String>,
+    /// Traversal direction ("ancestors" | "descendants" | "impact" | "both", defaults to "ancestors").
+    pub direction: Option<String>,
 }
 
 /// Handles the `knox_get_lineage` tool invocation.
@@ -72,34 +74,59 @@ pub fn handle_get_lineage(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let mut truncated = false;
     let mut frontier: Vec<String> = Vec::new();
 
-    let chain = if let Some(ref tid) = target_id {
+    let direction_str = input
+        .direction
+        .as_deref()
+        .unwrap_or("ancestors")
+        .to_ascii_lowercase();
+
+    let (subgraph_dir, is_impact, is_both) = match direction_str.as_str() {
+        "descendants" | "impact" | "downstream" => (SubgraphDirection::Descendants, true, false),
+        "both" => (SubgraphDirection::Both, false, true),
+        _ => (SubgraphDirection::Ancestors, false, false),
+    };
+
+    let (chain, impact_list) = if let Some(ref tid) = target_id {
         if empty_reason.is_none() {
             let bounded = load_subgraph_bounded(
                 db,
                 std::slice::from_ref(tid),
                 max_depth,
                 max_nodes,
-                SubgraphDirection::Ancestors,
+                subgraph_dir,
             )?;
             truncated = bounded.truncated;
             frontier = bounded.frontier_ids.into_iter().map(|id| id.0).collect();
-            let c = causal_chain(&bounded.graph, tid);
-            if c.is_empty() {
-                empty_reason = Some(
-                    crate::storage::telemetry::determine_empty_reason(
-                        db,
-                        None,
-                        input.file_path.as_deref(),
-                    )
-                    .to_string(),
-                );
+
+            if is_impact {
+                let desc = crate::graph::traversal::descendants(&bounded.graph, tid);
+                if desc.is_empty() {
+                    empty_reason = Some("no_downstream_dependents".to_string());
+                }
+                (Vec::new(), desc)
+            } else if is_both {
+                let c = causal_chain(&bounded.graph, tid);
+                let desc = crate::graph::traversal::descendants(&bounded.graph, tid);
+                (c, desc)
+            } else {
+                let c = causal_chain(&bounded.graph, tid);
+                if c.is_empty() {
+                    empty_reason = Some(
+                        crate::storage::telemetry::determine_empty_reason(
+                            db,
+                            None,
+                            input.file_path.as_deref(),
+                        )
+                        .to_string(),
+                    );
+                }
+                (c, Vec::new())
             }
-            c
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         }
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
 
     let format_mode = input
@@ -118,50 +145,70 @@ pub fn handle_get_lineage(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .map(|id| id.to_string())
         .unwrap_or_default();
 
-    if format_mode == "json" {
-        let mut val = json!({
-            "target_id": target_id_str,
-            "depth": chain.len(),
-            "chain": chain.clone(),
-            "lineage": chain,
-            "truncated": truncated,
-            "frontier": frontier,
-        });
-        if let Some(ref r) = empty_reason {
-            val["reason"] = json!(r);
-        }
-        Ok(val)
+    let total_depth = if is_impact {
+        impact_list.len()
+    } else if is_both {
+        chain.len() + impact_list.len()
     } else {
-        let mut md = crate::mcp::format::format_lineage_markdown_with_reason(
+        chain.len()
+    };
+
+    let mut raw_md = if is_impact {
+        crate::mcp::format::format_impact_markdown_with_reason(
+            label,
+            &impact_list,
+            empty_reason.as_deref(),
+        )
+    } else if is_both {
+        let anc_md = crate::mcp::format::format_lineage_markdown_with_reason(
             label,
             &chain,
             empty_reason.as_deref(),
         );
-        if truncated {
-            let note = format!(
-                "*Traversal truncated at {max_nodes} nodes. Frontier: {}*\n\n",
-                frontier.join(", ")
-            );
-            if let Some(pos) = md.find("\n\n") {
-                md.insert_str(pos + 2, &note);
-            } else {
-                md.push_str(&note);
-            }
+        let imp_md = crate::mcp::format::format_impact_markdown_with_reason(
+            label,
+            &impact_list,
+            None,
+        );
+        format!("{anc_md}\n\n{imp_md}")
+    } else {
+        crate::mcp::format::format_lineage_markdown_with_reason(
+            label,
+            &chain,
+            empty_reason.as_deref(),
+        )
+    };
+
+    if truncated {
+        let note = format!(
+            "*Traversal truncated at {max_nodes} nodes. Frontier: {}*\n\n",
+            frontier.join(", ")
+        );
+        if let Some(pos) = raw_md.find("\n\n") {
+            raw_md.insert_str(pos + 2, &note);
+        } else {
+            raw_md.push_str(&note);
         }
-        let mut val = json!({
-            "target_id": target_id_str,
-            "depth": chain.len(),
-            "chain": chain.clone(),
-            "lineage": chain,
-            "markdown": md,
-            "truncated": truncated,
-            "frontier": frontier,
-        });
-        if let Some(ref r) = empty_reason {
-            val["reason"] = json!(r);
-        }
-        Ok(val)
     }
+
+    let mut val = json!({
+        "target_id": target_id_str,
+        "direction": direction_str,
+        "depth": total_depth,
+        "chain": if is_impact { impact_list.clone() } else { chain.clone() },
+        "lineage": chain,
+        "impact": impact_list,
+        "markdown": raw_md,
+        "truncated": truncated,
+        "frontier": frontier,
+    });
+    if let Some(ref r) = empty_reason {
+        val["reason"] = json!(r);
+    }
+    if format_mode == "json" {
+        val.as_object_mut().map(|m| m.remove("markdown"));
+    }
+    Ok(val)
 }
 
 #[cfg(test)]

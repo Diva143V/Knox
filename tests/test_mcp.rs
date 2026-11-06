@@ -519,11 +519,12 @@ fn test_mcp_record_batch_and_graph_tools() {
         "chain should contain ancestors, got: {chain:?}"
     );
 
-    // 3. Test knox_trace from step 1 forward (impact)
+    // 3. Test knox_trace from step 1 forward (downstream impact / descendants)
     let impact_res = dispatch(
         "knox_trace",
         json!({
             "from": id1,
+            "direction": "descendants",
             "max_depth": 5
         }),
         &db,
@@ -534,8 +535,26 @@ fn test_mcp_record_batch_and_graph_tools() {
         impact_res.error
     );
     let impact_val = impact_res.result.unwrap();
-    let impacted = impact_val["chain"].as_array().unwrap();
-    assert!(!impacted.is_empty(), "impact should not be empty");
+    let impacted = impact_val["impact"].as_array().unwrap();
+    assert_eq!(impacted.len(), 2, "descendants of step1 must be step2 and step3");
+    assert_eq!(impact_val["direction"], "descendants");
+    assert!(impact_val["markdown"].as_str().unwrap().contains("Downstream Impact"));
+
+    // 4. Test knox_trace with direction: "both" from step 2
+    let both_res = dispatch(
+        "knox_trace",
+        json!({
+            "from": _id2,
+            "direction": "both",
+            "max_depth": 5
+        }),
+        &db,
+    );
+    assert!(both_res.error.is_none());
+    let both_val = both_res.result.unwrap();
+    assert_eq!(both_val["lineage"].as_array().unwrap().len(), 2); // step2, step1
+    assert_eq!(both_val["impact"].as_array().unwrap().len(), 1);  // step3
+    assert_eq!(both_val["direction"], "both");
 }
 
 #[test]

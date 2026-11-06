@@ -89,6 +89,14 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         "knox_handoff" => handle_handoff(db, params),
         "knox_check" => handle_check(db, params),
         "knox_trace" => handle_trace(db, params),
+        "knox_get_impact" => {
+            let mut p = params;
+            if let Value::Object(ref mut map) = p {
+                map.entry("direction".to_string())
+                    .or_insert_with(|| Value::String("impact".to_string()));
+            }
+            handle_trace(db, p)
+        }
         "knox_record" => handle_record(db, params),
         "knox_ask" => handle_ask(db, params),
         _ => Err(KnoxError::InvalidInput(format!("Unknown tool: {name}"))),

@@ -4,11 +4,11 @@ use anyhow::Context;
 
 use crate::cli::args::{
     AskArgs, CheckArgs, Commands, DoctorArgs, ExportArgs, HookAction, HookArgs, ImportArgs, IngestArgs, InitArgs, KnoxCli,
-    MetricsArgs, MigrationAction, MigrationArgs, ModelArgs, ModelSubcommand, QueryArgs, ScanArgs, StatusArgs,
+    MetricsArgs, MigrationAction, MigrationArgs, ModelArgs, ModelSubcommand, QueryArgs, ScanArgs, StatusArgs, TraceArgs,
 };
 use crate::commands::{
     cmd_ask, cmd_check, cmd_doctor, cmd_export, cmd_hook_install, cmd_hook_uninstall, cmd_ingest, cmd_init, cmd_metrics,
-    cmd_query, cmd_scan, cmd_status, export_to_file, format_ask_response, format_doctor_report, format_ingest_report,
+    cmd_query, cmd_scan, cmd_status, cmd_trace, export_to_file, format_ask_response, format_doctor_report, format_ingest_report,
     format_metrics_report, format_query_results_json, format_query_results_table,
     format_scan_report, format_status_json, format_status_report, import_from_file,
     migration_apply, migration_check, migration_restore, migration_split,
@@ -45,6 +45,7 @@ pub fn dispatch(cli: KnoxCli, config: &KnoxConfig) -> anyhow::Result<()> {
         Some(Commands::Model(args)) => handle_model(args, config),
         Some(Commands::Ask(args)) => handle_ask(args, &open_db(config)?),
         Some(Commands::Check(args)) => handle_check(args, &open_db(config)?),
+        Some(Commands::Trace(args)) => handle_trace(args, &open_db(config)?),
         Some(Commands::Serve(_args)) => handle_serve(config),
     }
 }
@@ -122,6 +123,31 @@ pub fn handle_check(args: CheckArgs, db: &KnoxDb) -> anyhow::Result<()> {
         params["project"] = serde_json::json!(project);
     }
     let res = cmd_check(db, params).context("Failed to execute knox check")?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&res)?);
+    } else if let Some(md) = res.get("markdown").and_then(serde_json::Value::as_str) {
+        println!("{md}");
+    } else {
+        println!("{}", serde_json::to_string_pretty(&res)?);
+    }
+    Ok(())
+}
+
+pub fn handle_trace(args: TraceArgs, db: &KnoxDb) -> anyhow::Result<()> {
+    let mut params = serde_json::json!({
+        "depth": args.depth,
+        "max_nodes": args.max_nodes,
+        "direction": args.direction,
+        "budget": args.budget,
+        "format": if args.json { "json" } else { "markdown" },
+    });
+    if let Some(from) = args.from {
+        params["from"] = serde_json::json!(from);
+    }
+    if let Some(file) = args.file {
+        params["file_path"] = serde_json::json!(file);
+    }
+    let res = cmd_trace(db, params).context("Failed to execute knox trace")?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&res)?);
     } else if let Some(md) = res.get("markdown").and_then(serde_json::Value::as_str) {

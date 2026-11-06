@@ -265,4 +265,43 @@ fn test_command_ask_and_check_cli_dispatch() {
     };
     let ask_res = handle_ask(ask_args, &db);
     assert!(ask_res.is_ok(), "handle_ask should succeed");
+
+    // 4. Test trace command dispatch (both ancestors and descendants)
+    let child_action = KnoxAction {
+        id: ActionId::new(),
+        project_id: Some(knox::core::ids::ProjectId::from("cli-test")),
+        actor: "human".to_string(),
+        action_type: "write".to_string(),
+        summary: "Initialize rusqlite schema".to_string(),
+        parent_action_id: Some(action.id.clone()),
+        files: vec!["src/schema.rs".to_string()],
+        timestamp: Utc::now(),
+        is_current: true,
+        ..Default::default()
+    };
+    insert_action(&db, &child_action).unwrap();
+
+    // Ancestor trace from child
+    let trace_anc_args = knox::cli::args::TraceArgs {
+        from: Some(child_action.id.to_string()),
+        file: None,
+        depth: 10,
+        max_nodes: 200,
+        direction: "ancestors".to_string(),
+        budget: 800,
+        json: true,
+    };
+    assert!(knox::cli::dispatch::handle_trace(trace_anc_args, &db).is_ok());
+
+    // Descendant (impact) trace from root
+    let trace_desc_args = knox::cli::args::TraceArgs {
+        from: Some(action.id.to_string()),
+        file: None,
+        depth: 10,
+        max_nodes: 200,
+        direction: "descendants".to_string(),
+        budget: 800,
+        json: false,
+    };
+    assert!(knox::cli::dispatch::handle_trace(trace_desc_args, &db).is_ok());
 }
