@@ -24,7 +24,7 @@ const isTauri =
   typeof window !== "undefined" &&
   ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
 
-const isDemo = import.meta.env.VITE_DEMO === "1";
+const isDemo = import.meta.env.VITE_DEMO === "1" || !isTauri;
 
 function ensureRuntime(operation: string) {
   if (!isTauri && !isDemo) {
