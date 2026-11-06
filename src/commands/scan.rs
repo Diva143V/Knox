@@ -7,14 +7,13 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::core::error::{KnoxError, KnoxResult};
-use crate::core::ids::{ActionId, ProjectId};
+use crate::core::ids::ActionId;
 use crate::core::types::{DeltaSummary, KnoxAction, QueryFilter, ScanReport};
 use crate::git::diff::capture_working_tree_diff;
 use crate::ingest::summary::normalize_file_path;
 use crate::storage::db::KnoxDb;
 use crate::storage::nodes::{insert_action, insert_deltas};
 use crate::storage::queries::query_actions;
-use crate::storage::sessions::resolve_project_identifier;
 
 /// Scans git staged changes, cross-references against recent AI actions,
 /// and records any untracked human edits.
@@ -41,11 +40,10 @@ pub fn cmd_scan(project_path: &Path, db: &KnoxDb) -> KnoxResult<ScanReport> {
     if !human_files.is_empty() {
         let action_id = ActionId::new();
         let summary = build_human_edit_summary(&human_files, &numstats);
-        let project_id = project_path
-            .canonicalize()
-            .unwrap_or_else(|_| project_path.to_path_buf());
-        let project_id =
-            resolve_project_identifier(db, &project_id.to_string_lossy())?.map(ProjectId::from);
+        let project_id = Some(crate::storage::sessions::resolve_or_create_project(
+            db,
+            project_path,
+        )?);
 
         // Capture bounded code deltas for staged human edits
         let deltas =
@@ -109,7 +107,7 @@ pub fn cmd_scan(project_path: &Path, db: &KnoxDb) -> KnoxResult<ScanReport> {
 
         insert_action(db, &action)?;
         if !deltas.is_empty() {
-            let _ = insert_deltas(db, &deltas);
+            insert_deltas(db, &deltas)?;
         }
         actions_recorded = 1;
     }
