@@ -22,6 +22,7 @@ import { useKnoxStore } from "@/store/useKnoxStore";
 import type { KnoxConfig } from "@/types/knox";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -207,7 +208,7 @@ export const WorkspaceView: React.FC = () => {
         icon={<FolderGit2 />}
       />
 
-      {config && (
+      {config ? (
         <Card>
           <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-3 text-xs">
             <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -274,6 +275,22 @@ export const WorkspaceView: React.FC = () => {
               </button>
             </div>
           </CardContent>
+        </Card>
+      ) : (
+        <Card className="p-4 animate-pulse">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Skeleton className="size-4 rounded-sm" />
+              <div className="space-y-1.5 min-w-0 flex-1">
+                <Skeleton className="h-3 w-28 rounded-sm" />
+                <Skeleton className="h-3 w-48 rounded-sm" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Skeleton className="h-6 w-24 rounded-full" />
+              <Skeleton className="h-6 w-24 rounded-full" />
+            </div>
+          </div>
         </Card>
       )}
 
@@ -396,21 +413,31 @@ export const WorkspaceView: React.FC = () => {
                 </p>
               </div>
 
-              <div className="p-3 rounded-md border border-border bg-background space-y-2 text-xs">
-                <div className="flex items-center justify-between gap-2 text-muted-foreground">
-                  <span>Target repository</span>
-                  <span
-                    className="font-mono text-foreground font-semibold truncate max-w-[60%]"
-                    title={workspacePath}
-                  >
-                    {workspacePath}
-                  </span>
+              {isInitializing ? (
+                <div className="p-4 rounded-md border border-border bg-background space-y-3 animate-pulse">
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-32 rounded-sm" />
+                    <Skeleton className="h-4 w-24 rounded-sm" />
+                  </div>
+                  <Skeleton className="h-16 w-full rounded-md" />
                 </div>
-                <div className="flex items-center justify-between text-muted-foreground">
-                  <span>Instruction file</span>
-                  <span className="font-mono text-foreground">knox.md</span>
+              ) : (
+                <div className="p-3 rounded-md border border-border bg-background space-y-2 text-xs">
+                  <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                    <span>Target repository</span>
+                    <span
+                      className="font-mono text-foreground font-semibold truncate max-w-[60%]"
+                      title={workspacePath}
+                    >
+                      {workspacePath}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-muted-foreground">
+                    <span>Instruction file</span>
+                    <span className="font-mono text-foreground">knox.md</span>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="flex items-center justify-between pt-1">
                 <Button

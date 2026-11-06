@@ -511,7 +511,7 @@ export const DashboardView: React.FC = () => {
                     <CircleHelp className="size-3 shrink-0" aria-hidden />
                     Open question
                   </span>
-                  <span className="mt-1 block line-clamp-2 text-[13px] leading-snug text-foreground">
+                  <span className="mt-1 block line-clamp-2 text-2xs leading-snug text-foreground">
                     {doubt.summary}
                   </span>
                   <span className="mt-1 block font-mono text-3xs text-muted-foreground">
@@ -526,7 +526,7 @@ export const DashboardView: React.FC = () => {
                   onClick={() => setActiveTab("query")}
                   className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus-ring"
                 >
-                  <span className="text-[13px] text-foreground">
+                  <span className="text-2xs text-foreground">
                     Outdated records
                   </span>
                   <span className="font-mono text-3xs tabular-nums text-muted-foreground">
@@ -537,7 +537,7 @@ export const DashboardView: React.FC = () => {
 
               {attentionCount === 0 && !isLoading && (
                 <div className="space-y-3">
-                  <p className="px-2 py-1.5 text-[13px] leading-relaxed text-muted-foreground">
+                  <p className="px-2 py-1.5 text-2xs leading-relaxed text-muted-foreground">
                     No open doubts, no outdated decisions.
                   </p>
 

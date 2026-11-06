@@ -16,6 +16,7 @@ import { useKnoxStore } from "@/store/useKnoxStore";
 import type { ScanReport } from "@/types/knox";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Skeleton, SkeletonRow } from "@/components/ui/Skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -218,7 +219,26 @@ export const ScanView: React.FC = () => {
         </CardContent>
       </Card>
 
-      {scanReport ? (
+      {isScanning ? (
+        <Card className="animate-pulse">
+          <CardHeader className="flex-row items-center justify-between space-y-0 pb-0">
+            <div className="flex items-center gap-2">
+              <Skeleton className="size-4 rounded-full" />
+              <Skeleton className="h-4 w-32 rounded-sm" />
+            </div>
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-5 w-24 rounded-full" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4 space-y-3">
+            <Skeleton className="h-16 w-full rounded-md" />
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </CardContent>
+        </Card>
+      ) : scanReport ? (
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-0">
             <CardTitle className="flex items-center gap-2">

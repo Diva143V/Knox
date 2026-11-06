@@ -16,6 +16,7 @@ import { KnoxAPI } from "@/services/api";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { ActionBadge } from "@/components/ui/ActionBadge";
 import { ActorBadge } from "@/components/ui/ActorBadge";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { FilterBar } from "@/components/ui/FilterBar";
@@ -204,6 +205,18 @@ export const QueryView: React.FC = () => {
       aria-label="Knowledge graph search"
     >
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="px-4 py-3 border-b border-border bg-card/40 shrink-0">
+          <PageHeader
+            title="Query Console"
+            description="Full-text keyword and code symbol search across recorded actions, architectural decisions, and doubts."
+            icon={<Search />}
+            status={
+              <span className="font-mono text-3xs text-muted-foreground tabular-nums px-2 py-0.5 rounded-full border border-border bg-background">
+                {results.length} result{results.length === 1 ? "" : "s"}
+              </span>
+            }
+          />
+        </div>
         <form onSubmit={handleSearch}>
           <FilterBar
             primary={
