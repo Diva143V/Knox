@@ -1,9 +1,128 @@
 //! Relevance ranking for compact engineering context.
 
 use chrono::Utc;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use crate::core::ids::ActionId;
 use crate::core::types::{KnoxAction, RelationType};
+use crate::models::router::ModelRouter;
+use crate::storage::db::KnoxDb;
+use crate::storage::embeddings::{cosine_similarity, get_embeddings_batch};
+
+/// Hybrid ranking combining lexical/graph signals with semantic embedding similarity (Workstream H2).
+///
+/// When `router` is None or models are Off, guarantees 100% byte-identical output to `rank_actions`.
+pub fn rank_actions_hybrid(
+    mut actions: Vec<KnoxAction>,
+    file_path: Option<&str>,
+    symbols: &[String],
+    query: Option<&str>,
+    router: Option<&ModelRouter>,
+    db: Option<&KnoxDb>,
+) -> Vec<KnoxAction> {
+    let query_str = match query {
+        Some(q) if !q.trim().is_empty() => q.trim(),
+        _ => return rank_actions(actions, file_path, symbols, query),
+    };
+
+    let router = match router {
+        Some(r) if r.is_enabled() => r,
+        _ => return rank_actions(actions, file_path, symbols, Some(query_str)),
+    };
+
+    let query_vector = match router.embed(query_str) {
+        Ok(v) => v,
+        Err(_) => return rank_actions(actions, file_path, symbols, Some(query_str)),
+    };
+
+    let query_terms = query_str
+        .to_ascii_lowercase()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    let anchor_ids = actions
+        .iter()
+        .filter(|action| {
+            file_path.is_some_and(|file| {
+                action.files.iter().any(|candidate| {
+                    candidate == file || candidate.starts_with(file)
+                })
+            })
+                || symbols.iter().any(|symbol| action.symbols.iter().any(|candidate| candidate == symbol))
+                || (!query_terms.is_empty() && query_terms.iter().any(|term| {
+                    action
+                        .summary
+                        .to_ascii_lowercase()
+                        .split_whitespace()
+                        .any(|word| word.contains(term))
+                }))
+        })
+        .map(|action| action.id.clone())
+        .collect::<HashSet<_>>();
+
+    let action_ids: Vec<_> = actions.iter().map(|a| a.id.clone()).collect();
+    let mut embeddings: HashMap<crate::core::ids::ActionId, Vec<f32>> = HashMap::new();
+
+    if let Some(db) = db {
+        if let Ok(batch) = get_embeddings_batch(db, &action_ids) {
+            embeddings = batch;
+        }
+    }
+
+    // Embed missing actions on the fly and cache if db is available
+    let mut missing_embeddings: Vec<(ActionId, Vec<f32>)> = Vec::new();
+    for action in &actions {
+        if !embeddings.contains_key(&action.id) {
+            if let Ok(vec) = router.embed(&action.summary) {
+                embeddings.insert(action.id.clone(), vec.clone());
+                missing_embeddings.push((action.id.clone(), vec));
+            }
+        }
+    }
+
+    if let Some(db) = db {
+        if !missing_embeddings.is_empty() {
+            let _ = db.with_tx(|conn| {
+                for (id, vec) in &missing_embeddings {
+                    crate::storage::embeddings::insert_embedding_conn(
+                        conn,
+                        id,
+                        vec,
+                        &router.profile.embedding_model,
+                    )?;
+                }
+                Ok(())
+            });
+        }
+    }
+
+    let ranking_actions = actions.clone();
+    actions.sort_by(|left, right| {
+        let left_base = score(left, file_path, symbols, &query_terms, &anchor_ids, &ranking_actions);
+        let right_base = score(right, file_path, symbols, &query_terms, &anchor_ids, &ranking_actions);
+
+        let left_sim = embeddings
+            .get(&left.id)
+            .map(|ev| cosine_similarity(&query_vector, ev) as f64)
+            .unwrap_or(0.0);
+
+        let right_sim = embeddings
+            .get(&right.id)
+            .map(|ev| cosine_similarity(&query_vector, ev) as f64)
+            .unwrap_or(0.0);
+
+        let left_total = left_base + (left_sim * 0.4);
+        let right_total = right_base + (right_sim * 0.4);
+
+        right_total
+            .total_cmp(&left_total)
+            .then_with(|| right.timestamp.cmp(&left.timestamp))
+            .then_with(|| right.id.cmp(&left.id))
+    });
+
+    actions
+}
 
 /// Ranks actions for a context request using stable, explainable signals.
 pub fn rank_actions(
@@ -42,7 +161,8 @@ pub fn rank_actions(
     actions.sort_by(|left, right| {
         score(right, file_path, symbols, &query_terms, &anchor_ids, &ranking_actions)
             .total_cmp(&score(left, file_path, symbols, &query_terms, &anchor_ids, &ranking_actions))
-            .then_with(|| left.id.cmp(&right.id))
+            .then_with(|| right.timestamp.cmp(&left.timestamp))
+            .then_with(|| right.id.cmp(&left.id))
     });
     actions
 }
