@@ -82,7 +82,7 @@ fn render_trace_budget(
     let reason = result.get("reason").and_then(Value::as_str);
 
     let latency_ms = start_instant.elapsed().as_millis() as u64;
-    let _ = crate::storage::record_query_log(
+    crate::storage::record_query_log_best_effort(
         db,
         &crate::core::types::QueryLogEntry {
             id: format!("ql_{}", uuid::Uuid::new_v4().simple()),

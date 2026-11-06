@@ -69,7 +69,7 @@ pub fn cmd_query(
     };
 
     let latency_ms = start_instant.elapsed().as_millis() as u64;
-    let _ = crate::storage::record_query_log(
+    crate::storage::record_query_log_best_effort(
         db,
         &crate::core::types::QueryLogEntry {
             id: format!("ql_{}", uuid::Uuid::new_v4().simple()),

@@ -28,6 +28,23 @@ pub fn record_query_log(db: &KnoxDb, entry: &QueryLogEntry) -> KnoxResult<()> {
     Ok(())
 }
 
+/// Records a query log entry with best-effort error handling, logging any SQLite issue without failing the calling tool.
+pub fn record_query_log_best_effort(db: &KnoxDb, entry: &QueryLogEntry) {
+    if let Err(e) = record_query_log(db, entry) {
+        tracing::debug!(error = %e, "Query telemetry log recorded with best-effort, ignored error");
+    }
+}
+
+/// Prunes query log entries older than `max_age_days` days to prevent unbounded database growth.
+pub fn prune_query_log(db: &KnoxDb, max_age_days: i64) -> KnoxResult<usize> {
+    let cutoff_ms = chrono::Utc::now().timestamp_millis() - (max_age_days * 86_400_000);
+    let deleted = db.conn().execute(
+        "DELETE FROM query_log WHERE ts_ms < ?1",
+        params![cutoff_ms],
+    )?;
+    Ok(deleted)
+}
+
 /// Aggregated query telemetry statistics.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct QueryTelemetryStats {
@@ -354,6 +371,49 @@ mod tests {
             determine_empty_reason(&db, Some("demo"), Some("src/missing.rs")),
             "no_match"
         );
+    }
+
+    #[test]
+    fn test_prune_query_log_retention_sweep() {
+        let db = KnoxDb::open_memory().unwrap();
+
+        // 1. Old entry (100 days old)
+        let old_ts = Utc::now().timestamp_millis() - (100 * 86_400_000);
+        let old_entry = QueryLogEntry {
+            id: "ql_old".to_string(),
+            ts_ms: old_ts,
+            tool: "knox_context".to_string(),
+            project_id: Some("demo".to_string()),
+            rows: 2,
+            tokens: 100,
+            latency_ms: 5,
+            reason: None,
+        };
+        record_query_log_best_effort(&db, &old_entry);
+
+        // 2. Fresh entry (1 day old)
+        let fresh_ts = Utc::now().timestamp_millis() - (1 * 86_400_000);
+        let fresh_entry = QueryLogEntry {
+            id: "ql_fresh".to_string(),
+            ts_ms: fresh_ts,
+            tool: "knox_context".to_string(),
+            project_id: Some("demo".to_string()),
+            rows: 5,
+            tokens: 300,
+            latency_ms: 10,
+            reason: None,
+        };
+        record_query_log_best_effort(&db, &fresh_entry);
+
+        let initial_stats = get_query_log_stats(&db, None).unwrap();
+        assert_eq!(initial_stats.total_queries, 2);
+
+        // Run 90-day retention sweep
+        let pruned = prune_query_log(&db, 90).unwrap();
+        assert_eq!(pruned, 1, "Must prune exactly the 100-day-old entry");
+
+        let after_stats = get_query_log_stats(&db, None).unwrap();
+        assert_eq!(after_stats.total_queries, 1);
     }
 }
 

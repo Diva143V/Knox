@@ -66,7 +66,7 @@ pub fn cmd_handoff(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .map(|a| a.len())
         .unwrap_or(0);
 
-    let _ = crate::storage::record_query_log(
+    crate::storage::record_query_log_best_effort(
         db,
         &crate::core::types::QueryLogEntry {
             id: format!("ql_{}", uuid::Uuid::new_v4().simple()),

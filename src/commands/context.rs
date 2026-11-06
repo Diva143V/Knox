@@ -156,7 +156,7 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         let structured_tokens = estimate_tokens(&serde_json::to_string(&structured)?);
         if structured_tokens <= budget {
             let latency_ms = start_instant.elapsed().as_millis() as u64;
-            let _ = crate::storage::record_query_log(
+            crate::storage::record_query_log_best_effort(
                 db,
                 &crate::core::types::QueryLogEntry {
                     id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
@@ -223,7 +223,7 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     }
 
     let latency_ms = start_instant.elapsed().as_millis() as u64;
-    let _ = crate::storage::record_query_log(
+    crate::storage::record_query_log_best_effort(
         db,
         &crate::core::types::QueryLogEntry {
             id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
