@@ -45,7 +45,7 @@ pub fn normalize_remote_url(raw: &str) -> Option<String> {
     // 2. Strip userinfo (e.g. git@ or token:password@) before host
     let after_user = if let Some(at_idx) = after_scheme.find('@') {
         let slash_idx = after_scheme.find('/');
-        if slash_idx.is_none() || at_idx < slash_idx.unwrap() {
+        if slash_idx.map_or(true, |s| at_idx < s) {
             &after_scheme[at_idx + 1..]
         } else {
             after_scheme
@@ -58,7 +58,7 @@ pub fn normalize_remote_url(raw: &str) -> Option<String> {
     // Or `host:port/path` -> `host/path`
     let with_slashes = if let Some(colon_idx) = after_user.find(':') {
         let slash_idx = after_user.find('/');
-        if slash_idx.is_none() || colon_idx < slash_idx.unwrap() {
+        if slash_idx.map_or(true, |s| colon_idx < s) {
             let host_part = &after_user[..colon_idx];
             let rest = &after_user[colon_idx + 1..];
             if let Some(port_slash) = rest.find('/') {

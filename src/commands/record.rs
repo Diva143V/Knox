@@ -97,11 +97,11 @@ pub struct RecordRelation {
 
 /// A prepared entry awaiting commit, with assigned IDs and dedupe key.
 #[derive(Debug, Clone)]
-struct PreparedEntry {
-    action: KnoxAction,
-    local_ref: Option<String>,
-    dedupe_key: String,
-    supersedes_hint: Option<String>,
+pub struct PreparedEntry {
+    pub action: KnoxAction,
+    pub local_ref: Option<String>,
+    pub dedupe_key: String,
+    pub supersedes_hint: Option<String>,
 }
 
 /// A recorded entry result, with dedupe tracking.
@@ -425,7 +425,21 @@ fn remap_action_refs(action: &mut KnoxAction, remap: &HashMap<ActionId, ActionId
 /// refs, dedupes against existing actions, inserts new actions, and builds
 /// the acknowledgment response. Supports idempotency keys, dry-run mode,
 /// oversize caps, cycle detection, and cross-project rejection.
-pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
+/// Parsed and prepared batch ready for transaction execution.
+pub struct PreparedRecordBatch {
+    pub session_id: crate::core::ids::SessionId,
+    pub is_implicit: bool,
+    pub prepared: Vec<PreparedEntry>,
+    pub warnings: Vec<Value>,
+    pub dry_run: bool,
+    pub idem: Option<String>,
+}
+
+/// 1. Validates the input payload, checks idempotency replay, and verifies mandatory fields.
+pub fn validate_record_input(
+    db: &KnoxDb,
+    params: &Value,
+) -> KnoxResult<(RecordParams, String, Option<Value>)> {
     let object = params
         .as_object()
         .ok_or_else(|| KnoxError::InvalidInput("record params must be an object".to_string()))?
@@ -460,12 +474,20 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     if let Some(key) = input.idem.as_deref() {
         if let Some((stored_hash, response)) = load_idempotent_response(db, key)? {
             if stored_hash == payload_hash {
-                return Ok(response);
+                return Ok((input, payload_hash, Some(response)));
             }
             return Err(KnoxError::IdemConflict(key.to_string()));
         }
     }
 
+    Ok((input, payload_hash, None))
+}
+
+/// 2. Resolves session, validates individual entries, checks cycles & directions, and prepares records.
+pub fn prepare_record_entries(
+    db: &KnoxDb,
+    input: &RecordParams,
+) -> KnoxResult<PreparedRecordBatch> {
     let project = input.project.as_deref();
     let (session_id, is_implicit) = resolve_session(
         db,
@@ -825,18 +847,33 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 
     warnings.truncate(MAX_WARNINGS);
 
-    let dry_run = input.dry_run;
-    let idem = input.idem.clone();
+    Ok(PreparedRecordBatch {
+        session_id,
+        is_implicit,
+        prepared,
+        warnings,
+        dry_run: input.dry_run,
+        idem: input.idem.clone(),
+    })
+}
+
+/// 3. Commits the prepared batch into the database inside a transaction.
+pub fn commit_record_batch(
+    db: &KnoxDb,
+    batch: &PreparedRecordBatch,
+    payload_hash: &str,
+) -> KnoxResult<Value> {
+    let dry_run = batch.dry_run;
     let config = crate::core::config::KnoxConfig::from_env();
     let router = crate::models::router::ModelRouter::from_config(&config);
 
-    let outcome = db.with_tx(|conn| {
-        let mut recorded = Vec::with_capacity(prepared.len());
+    db.with_tx(|conn| {
+        let mut recorded = Vec::with_capacity(batch.prepared.len());
         // A local ref that dedupes into an existing action must be remapped so
         // later entries in the same batch point at the committed row, not at
         // the generated id that was never inserted.
         let mut id_remap: HashMap<ActionId, ActionId> = HashMap::new();
-        for entry in &prepared {
+        for entry in &batch.prepared {
             let mut action = entry.action.clone();
             remap_action_refs(&mut action, &id_remap);
 
@@ -879,8 +916,8 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             });
         }
 
-        let response = build_ack(&session_id, &recorded, &warnings, dry_run, is_implicit);
-        if let Some(key) = idem.as_deref() {
+        let response = build_ack(&batch.session_id, &recorded, &batch.warnings, dry_run, batch.is_implicit);
+        if let Some(key) = batch.idem.as_deref() {
             if !dry_run {
                 conn.execute(
                     "INSERT INTO idempotency_keys (key, payload_hash, response_json, created_at)
@@ -895,9 +932,19 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             }
         }
         Ok(response)
-    })?;
+    })
+}
 
-    Ok(outcome)
+/// Records a batch of actions against an open or implicit session.
+/// Validates entries, resolves parent and supersedes references, dedupes against existing actions,
+/// inserts new actions, and builds the acknowledgment response.
+pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
+    let (input, payload_hash, cached) = validate_record_input(db, &params)?;
+    if let Some(resp) = cached {
+        return Ok(resp);
+    }
+    let prepared_batch = prepare_record_entries(db, &input)?;
+    commit_record_batch(db, &prepared_batch, &payload_hash)
 }
 
 fn build_ack(
