@@ -114,6 +114,10 @@
 
   --background: #171719;
   --sidebar: #131217;
+  /* Note on WCAG 1.4.11 boundary compliance:
+     --card (#1d1d21) on --background (#171719) is intentionally subtle (1.07:1) for aesthetic depth,
+     while --border (#666670) provides 3.15:1 contrast against --background, carrying the full
+     WCAG 2.1 AA Non-Text Contrast (3:1 minimum) boundary requirement for low-vision perception. */
   --card: #1d1d21;
   --popover: #1c1c1f;
   --border: #666670;

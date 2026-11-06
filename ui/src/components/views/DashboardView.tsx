@@ -7,6 +7,9 @@ import {
   Network,
   Search,
   ShieldCheck,
+  ChevronRight,
+  PlugZap,
+  UploadCloud,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { ActionRow, ACTION_ROW_GRID } from "@/components/ui/ActionRow";
@@ -178,7 +181,10 @@ const Metric: React.FC<{
       "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus-ring"
     )}
   >
-    <span className="truncate text-xs text-muted-foreground">{label}</span>
+    <span className="flex items-center justify-between gap-1">
+      <span className="truncate text-xs text-muted-foreground">{label}</span>
+      <ChevronRight className="size-3 text-muted-foreground/60 shrink-0" aria-hidden />
+    </span>
     <span className="mt-2 flex items-baseline gap-1.5">
       <span className="font-mono text-2xl leading-none tabular-nums tracking-tight text-foreground">
         {typeof value === "number" ? numberFormat.format(value) : value}
@@ -377,6 +383,28 @@ export const DashboardView: React.FC = () => {
                   <p className="mt-1 text-xs text-muted-foreground">
                     Connect an agent over MCP or ingest a transcript to start the graph.
                   </p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      onClick={() => setActiveTab("mcp")}
+                      className="gap-1.5 text-xs font-semibold"
+                    >
+                      <PlugZap className="size-3.5" />
+                      <span>Connect an agent</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setActiveTab("ingest")}
+                      className="gap-1.5 text-xs"
+                    >
+                      <UploadCloud className="size-3.5" />
+                      <span>Ingest transcript</span>
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -419,7 +447,7 @@ export const DashboardView: React.FC = () => {
             note={
               weekCount > 0
                 ? `+${numberFormat.format(weekCount)} in the last 7 days`
-                : "No activity this week"
+                : "No activity this week · Click to query past records"
             }
             onClick={() => setActiveTab("query")}
           />

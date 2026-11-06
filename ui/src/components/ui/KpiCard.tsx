@@ -1,4 +1,5 @@
 import React from "react";
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 interface KpiCardProps {
@@ -28,7 +29,12 @@ export const KpiCard: React.FC<KpiCardProps> = ({
   const inner = (
     <>
       <span className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-xs text-muted-foreground">{title}</span>
+        <span className="flex items-center gap-1 min-w-0">
+          <span className="truncate text-xs text-muted-foreground">{title}</span>
+          {onClick && (
+            <ChevronRight className="size-3 text-muted-foreground/60 shrink-0" aria-hidden />
+          )}
+        </span>
         {badge && (
           <span className="shrink-0 rounded-[3px] bg-muted px-1 py-0.5 font-mono text-3xs text-muted-foreground">
             {badge}
