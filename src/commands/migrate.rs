@@ -331,7 +331,7 @@ mod tests {
         drop(db);
 
         let before = migration_check(&path).unwrap();
-        assert_eq!(before.schema_version, 8);
+        assert_eq!(before.schema_version, 10);
         let (after, backup) = migration_apply(&path).unwrap();
         assert_eq!(after.integrity, "ok");
         assert!(backup.exists());
@@ -351,6 +351,7 @@ mod tests {
                     id: ProjectId::new(),
                     name: name.to_string(),
                     path: dir.path().join(name).display().to_string(),
+                    remote: None,
                     created_at: Utc::now(),
                 },
             )
@@ -380,6 +381,7 @@ mod tests {
                     id,
                     name: name.to_string(),
                     path: dir.path().join(name).display().to_string(),
+                    remote: None,
                     created_at: Utc::now(),
                 },
             )
@@ -422,6 +424,7 @@ mod tests {
                     id,
                     name: name.to_string(),
                     path: dir.path().join(name).display().to_string(),
+                    remote: None,
                     created_at: Utc::now(),
                 },
             )

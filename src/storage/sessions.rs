@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, params};
+use std::path::Path;
 use std::time::Duration;
 
 use super::db::KnoxDb;
@@ -42,7 +43,27 @@ fn resolve_project_identifier_conn(
         return Ok(by_id);
     }
 
-    // 2. Exact canonical path (with or without the Windows verbatim prefix).
+    // 2. Remote URL (normalized): matches when clean_path is a remote URL or a repo path with a remote.
+    let maybe_remote = crate::git::normalize_remote_url(clean_path).or_else(|| {
+        let p = std::path::Path::new(clean_path);
+        if p.exists() {
+            crate::git::detect_remote(p)
+        } else {
+            None
+        }
+    });
+
+    if let Some(ref remote) = maybe_remote {
+        let mut stmt = conn.prepare("SELECT id FROM projects WHERE remote = ?1 ORDER BY created_at ASC")?;
+        let matches = stmt
+            .query_map(params![remote], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if let Some(first) = matches.into_iter().next() {
+            return Ok(Some(first));
+        }
+    }
+
+    // 3. Exact canonical path (with or without the Windows verbatim prefix).
     let by_path: Option<String> = conn
         .query_row(
             "SELECT id FROM projects WHERE path = ?1 OR path = ?2",
@@ -54,7 +75,7 @@ fn resolve_project_identifier_conn(
         return Ok(by_path);
     }
 
-    // 3. Display name, but only when it identifies exactly one project.
+    // 4. Display name, but only when it identifies exactly one project.
     let mut stmt = conn.prepare("SELECT id FROM projects WHERE name = ?1")?;
     let matches = stmt
         .query_map(params![clean_path], |r| r.get::<_, String>(0))?
@@ -81,6 +102,35 @@ fn resolve_project_id(
         .unwrap_or(proj_identifier)
         .trim_end_matches(['\\', '/']);
 
+    let proj_dir = std::path::Path::new(clean_path);
+    let knox_md_id = if proj_dir.is_dir() {
+        let knox_md = proj_dir.join("knox.md");
+        if knox_md.exists() {
+            std::fs::read_to_string(&knox_md).ok().and_then(|content| {
+                content.lines().find_map(|line| {
+                    let trimmed = line.trim();
+                    trimmed
+                        .strip_prefix("project_id: \"")
+                        .and_then(|r| r.strip_suffix('"'))
+                        .map(|id| id.to_string())
+                })
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let remote = crate::git::normalize_remote_url(clean_path).or_else(|| {
+        let p = std::path::Path::new(clean_path);
+        if p.exists() {
+            crate::git::detect_remote(p)
+        } else {
+            None
+        }
+    });
+
     let name = std::path::Path::new(clean_path)
         .file_name()
         .and_then(|s| s.to_str())
@@ -88,23 +138,42 @@ fn resolve_project_id(
         .unwrap_or(clean_path)
         .to_string();
 
+    let id = knox_md_id.map(ProjectId::from).unwrap_or_else(ProjectId::new);
+
     let new_proj = Project {
-        id: ProjectId::new(),
+        id,
         name,
         path: clean_path.to_string(),
+        remote,
         created_at: started_at,
     };
     conn.execute(
-        "INSERT INTO projects (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT(path) DO UPDATE SET name = excluded.name",
+        "INSERT INTO projects (id, name, path, remote, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(path) DO UPDATE SET
+             name = excluded.name,
+             remote = COALESCE(excluded.remote, projects.remote)",
         params![
             new_proj.id.as_str(),
             new_proj.name.as_str(),
             new_proj.path.as_str(),
+            new_proj.remote.as_deref(),
             new_proj.created_at.to_rfc3339()
         ],
     )?;
     Ok(new_proj.id.to_string())
+}
+
+/// Resolves the project identifier for the given project path, creating and persisting
+/// a new project record in the database if one does not already exist.
+pub fn resolve_or_create_project(
+    db: &KnoxDb,
+    project_path: &Path,
+) -> KnoxResult<ProjectId> {
+    let canonical = project_path
+        .canonicalize()
+        .unwrap_or_else(|_| project_path.to_path_buf());
+    let id_str = resolve_project_id(db.conn(), &canonical.to_string_lossy(), Utc::now())?;
+    Ok(ProjectId::from(id_str))
 }
 
 /// Starts a new work session in Knox, optionally associated with a project.

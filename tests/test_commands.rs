@@ -19,6 +19,8 @@ fn test_command_init_flow_and_idempotency() {
         kg_path: db_path,
         session_timeout: std::time::Duration::from_secs(1800),
         global_mode: true,
+        transcript_path: None,
+        ..Default::default()
     };
 
     // 1. First init creates knox.md

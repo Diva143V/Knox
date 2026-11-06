@@ -104,6 +104,7 @@ mod tests {
             id: crate::core::ids::ProjectId("demo".to_string()),
             name: "demo".to_string(),
             path: "demo".to_string(),
+            remote: None,
             created_at: chrono::Utc::now(),
         }).unwrap();
         for index in 0..10 {

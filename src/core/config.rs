@@ -29,6 +29,28 @@ pub struct KnoxConfig {
     pub session_timeout: Duration,
     /// If true, uses a global shared database across projects by default.
     pub global_mode: bool,
+    /// Optional default transcript path for auto-capture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_path: Option<PathBuf>,
+    /// Active model profile: "off" (default), "mock", "local", "cloud".
+    #[serde(default = "default_model_profile")]
+    pub model_profile: String,
+    /// Base URL endpoint for local or cloud model provider (e.g. http://localhost:11434).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_endpoint: Option<String>,
+    /// Optional API key for cloud model provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_api_key: Option<String>,
+    /// Model identifier for embeddings (e.g. "nomic-embed-text", "text-embedding-3-small").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_model: Option<String>,
+    /// Model identifier for text chat and synthesis (e.g. "llama3.2", "gpt-4o-mini").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_model: Option<String>,
+}
+
+fn default_model_profile() -> String {
+    "off".to_string()
 }
 
 impl KnoxConfig {
@@ -59,6 +81,47 @@ impl KnoxConfig {
         if let Ok(global_str) = env::var("KNOX_GLOBAL_MODE") {
             let lower = global_str.trim().to_lowercase();
             config.global_mode = matches!(lower.as_str(), "1" | "true" | "yes");
+        }
+
+        if let Ok(transcript_str) = env::var("KNOX_TRANSCRIPT_PATH") {
+            if !transcript_str.trim().is_empty() {
+                config.transcript_path = Some(expand_tilde(transcript_str.trim()));
+            }
+        }
+
+        if let Ok(profile_str) = env::var("KNOX_MODEL_PROFILE") {
+            let trimmed = profile_str.trim();
+            if !trimmed.is_empty() {
+                config.model_profile = trimmed.to_lowercase();
+            }
+        }
+
+        if let Ok(endpoint) = env::var("KNOX_MODEL_ENDPOINT") {
+            let trimmed = endpoint.trim();
+            if !trimmed.is_empty() {
+                config.model_endpoint = Some(trimmed.to_string());
+            }
+        }
+
+        if let Ok(key) = env::var("KNOX_MODEL_API_KEY") {
+            let trimmed = key.trim();
+            if !trimmed.is_empty() {
+                config.model_api_key = Some(trimmed.to_string());
+            }
+        }
+
+        if let Ok(m) = env::var("KNOX_EMBEDDING_MODEL") {
+            let trimmed = m.trim();
+            if !trimmed.is_empty() {
+                config.embedding_model = Some(trimmed.to_string());
+            }
+        }
+
+        if let Ok(m) = env::var("KNOX_CHAT_MODEL") {
+            let trimmed = m.trim();
+            if !trimmed.is_empty() {
+                config.chat_model = Some(trimmed.to_string());
+            }
         }
 
         config
@@ -143,6 +206,12 @@ impl Default for KnoxConfig {
             kg_path: default_global_db_path(),
             session_timeout: DEFAULT_SESSION_TIMEOUT,
             global_mode: false,
+            transcript_path: None,
+            model_profile: "off".to_string(),
+            model_endpoint: None,
+            model_api_key: None,
+            embedding_model: None,
+            chat_model: None,
         }
     }
 }
@@ -239,6 +308,12 @@ mod tests {
             kg_path: PathBuf::from("/custom/knox.db"),
             session_timeout: Duration::from_secs(7200),
             global_mode: false,
+            transcript_path: None,
+            model_profile: "mock".to_string(),
+            model_endpoint: Some("http://localhost:11434".to_string()),
+            model_api_key: None,
+            embedding_model: Some("nomic-embed-text".to_string()),
+            chat_model: Some("llama3.2".to_string()),
         };
 
         config.save_to_file(&file_path).unwrap();

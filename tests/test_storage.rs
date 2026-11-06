@@ -280,6 +280,7 @@ fn test_storage_project_crud_and_idempotency() {
         id: ProjectId::new(),
         name: "Knox".to_string(),
         path: r"\\?\D:\Knox".to_string(),
+        remote: None,
         created_at: Utc::now(),
     };
     insert_project(&db, &p1).unwrap();
@@ -289,6 +290,7 @@ fn test_storage_project_crud_and_idempotency() {
         id: ProjectId::new(),
         name: "Knox Refined".to_string(),
         path: r"D:\Knox".to_string(),
+        remote: None,
         created_at: Utc::now(),
     };
     insert_project(&db, &p1_updated).unwrap();

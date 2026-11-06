@@ -302,6 +302,7 @@ mod tests {
                     id: ProjectId::new(),
                     name: name.to_string(),
                     path: path.to_string(),
+                    remote: None,
                     created_at: chrono::Utc::now(),
                 },
             )

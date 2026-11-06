@@ -16,6 +16,7 @@ use crate::storage::db::KnoxDb;
 /// normalizes parameters for the lineage handler, renders the causal chain
 /// as Markdown, and truncates it to the caller's token budget (default 800).
 pub fn cmd_trace(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
+    let start_instant = std::time::Instant::now();
     let object = params
         .as_object()
         .ok_or_else(|| KnoxError::InvalidInput("trace params must be an object".to_string()))?;
@@ -24,6 +25,11 @@ pub fn cmd_trace(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .get("budget")
         .and_then(Value::as_u64)
         .unwrap_or(DEFAULT_TRACE_BUDGET as u64) as usize;
+
+    let project = object
+        .get("project")
+        .and_then(Value::as_str)
+        .map(String::from);
 
     if let Some(from) = object.get("from").and_then(Value::as_str) {
         let mut lineage = params.clone();
@@ -39,34 +45,62 @@ pub fn cmd_trace(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
                 .or_insert_with(|| Value::String("markdown".to_string()));
         }
         let result = crate::mcp::handlers::get_lineage::handle_get_lineage(db, lineage)?;
-        return render_trace_budget(result, budget);
+        return render_trace_budget(db, result, budget, project, start_instant);
     }
     if let Some(file_path) = object.get("file_path").and_then(Value::as_str) {
-        let result = crate::mcp::handlers::get_lineage::handle_get_lineage(
-            db,
-            json!({
-                "file_path": file_path,
-                "max_depth": object.get("depth").and_then(Value::as_u64).unwrap_or(10),
-                // Default format is markdown so the response can be truncated to budget.
-                "format": "markdown"
-            }),
-        )?;
-        return render_trace_budget(result, budget);
+        let max_nodes = object.get("max_nodes").and_then(Value::as_u64);
+        let mut lineage_params = json!({
+            "file_path": file_path,
+            "max_depth": object.get("depth").and_then(Value::as_u64).unwrap_or(10),
+            // Default format is markdown so the response can be truncated to budget.
+            "format": object.get("format").and_then(Value::as_str).unwrap_or("markdown")
+        });
+        if let Some(mn) = max_nodes {
+            lineage_params["max_nodes"] = json!(mn);
+        }
+        let result = crate::mcp::handlers::get_lineage::handle_get_lineage(db, lineage_params)?;
+        return render_trace_budget(db, result, budget, project, start_instant);
     }
     Err(KnoxError::InvalidInput(
         "trace requires 'from' or 'file_path'".to_string(),
     ))
 }
 
-/// Renders a lineage handler result as budgeted Markdown.
-fn render_trace_budget(result: Value, budget: usize) -> KnoxResult<Value> {
+/// Renders a lineage handler result as budgeted Markdown and records telemetry.
+fn render_trace_budget(
+    db: &KnoxDb,
+    result: Value,
+    budget: usize,
+    project: Option<String>,
+    start_instant: std::time::Instant,
+) -> KnoxResult<Value> {
     let markdown = result
         .get("markdown")
         .and_then(Value::as_str)
         .unwrap_or("");
     let (md, budget_used, truncated) = truncate_to_budget(markdown, budget);
+    let reason = result.get("reason").and_then(Value::as_str);
 
-    Ok(json!({
+    let latency_ms = start_instant.elapsed().as_millis() as u64;
+    let _ = crate::storage::record_query_log(
+        db,
+        &crate::core::types::QueryLogEntry {
+            id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
+            ts_ms: chrono::Utc::now().timestamp_millis(),
+            tool: "knox_trace".to_string(),
+            project_id: project,
+            rows: result.get("depth").and_then(Value::as_u64).unwrap_or(0) as usize,
+            tokens: budget_used,
+            latency_ms,
+            reason: reason.map(String::from),
+        },
+    );
+
+    let budget_truncated = truncated;
+    let component_truncated = result.get("truncated").and_then(Value::as_bool).unwrap_or(false);
+    let is_truncated = budget_truncated || component_truncated;
+
+    let mut response = json!({
         "target_id": result.get("target_id"),
         "depth": result.get("depth"),
         "chain": result.get("chain"),
@@ -74,9 +108,17 @@ fn render_trace_budget(result: Value, budget: usize) -> KnoxResult<Value> {
         "markdown": md,
         "budget": budget,
         "budget_used": budget_used,
-        "truncated": truncated,
+        "truncated": is_truncated,
         "estimate_tokens": estimate_tokens(markdown),
-    }))
+    });
+    if let Some(frontier) = result.get("frontier") {
+        response["frontier"] = frontier.clone();
+    }
+    if let Some(r) = reason {
+        response["reason"] = json!(r);
+    }
+
+    Ok(response)
 }
 
 #[cfg(test)]

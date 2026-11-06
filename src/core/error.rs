@@ -49,6 +49,10 @@ pub enum KnoxError {
     #[error("INVALID_REF: {0}")]
     InvalidRef(String),
 
+    /// A semantic relation failed direction validation or used an unknown type.
+    #[error("INVALID_RELATION: {0}")]
+    InvalidRelation(String),
+
     /// An edge pointed at an action in another project.
     #[error("CROSS_PROJECT: {0}")]
     CrossProject(String),
@@ -72,6 +76,10 @@ pub enum KnoxError {
     /// Git command or repository inspection failure.
     #[error("Git error: {0}")]
     Git(String),
+
+    /// Execution or inference failure from an integrated model or provider.
+    #[error("Model error: {0}")]
+    Model(String),
 }
 
 impl From<rusqlite::Error> for KnoxError {

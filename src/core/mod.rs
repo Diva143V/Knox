@@ -13,6 +13,7 @@ pub use config::{
 pub use error::{KnoxError, KnoxResult};
 pub use ids::{ActionId, ProjectId, SessionId};
 pub use types::{
-    ActionDelta, ActionDeltaInput, DeltaChangeType, DeltaSummary, IngestReport, KnoxAction,
-    KnoxEdge, Project, QueryFilter, QueryResult, ScanReport, Session, StatusReport,
+    ActionDelta, ActionDeltaInput, DeltaChangeType, DeltaSummary, Edge, EdgeRejection, EdgeType,
+    IngestReport, KnoxAction, KnoxEdge, Project, QueryFilter, QueryLogEntry, QueryResult, Ref,
+    ScanReport, Session, StatusReport,
 };

@@ -3,14 +3,15 @@
 use anyhow::Context;
 
 use crate::cli::args::{
-    Commands, ExportArgs, HookAction, HookArgs, ImportArgs, IngestArgs, InitArgs, KnoxCli,
-    MigrationAction, MigrationArgs, QueryArgs, ScanArgs, StatusArgs,
+    Commands, DoctorArgs, ExportArgs, HookAction, HookArgs, ImportArgs, IngestArgs, InitArgs, KnoxCli,
+    MetricsArgs, MigrationAction, MigrationArgs, ModelArgs, ModelSubcommand, QueryArgs, ScanArgs, StatusArgs,
 };
 use crate::commands::{
-    cmd_export, cmd_hook_install, cmd_hook_uninstall, cmd_ingest, cmd_init, cmd_query, cmd_scan,
-    cmd_status, export_to_file, format_ingest_report, format_query_results_json,
-    format_query_results_table, format_scan_report, format_status_json, format_status_report,
-    import_from_file, migration_apply, migration_check, migration_restore, migration_split,
+    cmd_doctor, cmd_export, cmd_hook_install, cmd_hook_uninstall, cmd_ingest, cmd_init, cmd_metrics,
+    cmd_query, cmd_scan, cmd_status, export_to_file, format_doctor_report, format_ingest_report,
+    format_metrics_report, format_query_results_json, format_query_results_table,
+    format_scan_report, format_status_json, format_status_report, import_from_file,
+    migration_apply, migration_check, migration_restore, migration_split,
 };
 use crate::core::config::KnoxConfig;
 use crate::storage::db::KnoxDb;
@@ -35,12 +36,47 @@ pub fn dispatch(cli: KnoxCli, config: &KnoxConfig) -> anyhow::Result<()> {
         Some(Commands::Query(args)) => handle_query(args, &open_db(config)?),
         Some(Commands::Status(args)) => handle_status(args, &open_db(config)?),
         Some(Commands::Scan(args)) => handle_scan(args, &open_db(config)?),
-        Some(Commands::Hook(args)) => handle_hook(args),
+        Some(Commands::Hook(args)) => handle_hook(args, config),
         Some(Commands::Migrate(args)) => handle_migrate(args, config),
         Some(Commands::Export(args)) => handle_export(args, &open_db(config)?),
         Some(Commands::Import(args)) => handle_import(args, &open_db(config)?),
+        Some(Commands::Doctor(args)) => handle_doctor(args, &open_db(config)?),
+        Some(Commands::Metrics(args)) => handle_metrics(args, &open_db(config)?),
+        Some(Commands::Model(args)) => handle_model(args, config),
         Some(Commands::Serve(_args)) => handle_serve(config),
     }
+}
+
+pub fn handle_doctor(args: DoctorArgs, db: &KnoxDb) -> anyhow::Result<()> {
+    let report = cmd_doctor(db, args.project.as_deref())?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("{}", format_doctor_report(&report));
+    }
+    Ok(())
+}
+
+pub fn handle_metrics(args: MetricsArgs, db: &KnoxDb) -> anyhow::Result<()> {
+    let report = cmd_metrics(db, args.project.as_deref(), args.calibration)?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("{}", format_metrics_report(&report));
+    }
+    Ok(())
+}
+
+pub fn handle_model(args: ModelArgs, config: &KnoxConfig) -> anyhow::Result<()> {
+    match args.action {
+        Some(ModelSubcommand::Test { query }) => {
+            crate::commands::cmd_model_test(config, &query)?;
+        }
+        Some(ModelSubcommand::Status) | None => {
+            crate::commands::cmd_model_status(config)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn handle_migrate(args: MigrationArgs, config: &KnoxConfig) -> anyhow::Result<()> {
@@ -171,28 +207,41 @@ pub fn handle_status(args: StatusArgs, db: &KnoxDb) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn handle_hook(args: HookArgs) -> anyhow::Result<()> {
+pub fn handle_hook(args: HookArgs, config: &KnoxConfig) -> anyhow::Result<()> {
     match args.action {
         HookAction::Install => {
             cmd_hook_install(&args.project).with_context(|| {
-                format!("Failed to install git hook in {}", args.project.display())
+                format!("Failed to install git hooks in {}", args.project.display())
             })?;
             println!(
-                "Installed Knox pre-commit hook in {}",
+                "Installed Knox git hooks in {}",
                 args.project.display()
             );
         }
         HookAction::Uninstall => {
             cmd_hook_uninstall(&args.project).with_context(|| {
                 format!(
-                    "Failed to uninstall git hook from {}",
+                    "Failed to uninstall git hooks from {}",
                     args.project.display()
                 )
             })?;
             println!(
-                "Uninstalled Knox pre-commit hook from {}",
+                "Uninstalled Knox git hooks from {}",
                 args.project.display()
             );
+        }
+        HookAction::RecordCommit => {
+            let db = open_db(config)?;
+            if let Some(id) = crate::commands::hook::cmd_hook_record_commit(
+                &args.project,
+                &db,
+                args.message_file.as_deref(),
+                args.message.as_deref(),
+            ).with_context(|| {
+                format!("Failed to record commit in {}", args.project.display())
+            })? {
+                println!("Recorded commit into action {}", id);
+            }
         }
     }
     Ok(())

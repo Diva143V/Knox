@@ -56,6 +56,8 @@ fn test_e2e_init_ingest_query_status_walkthrough() {
         kg_path: db_path.clone(),
         session_timeout: Duration::from_secs(1800),
         global_mode: true,
+        transcript_path: None,
+        ..Default::default()
     };
 
     // 1. Initialize project
@@ -134,6 +136,7 @@ fn test_e2e_mcp_context_and_human_scan_flow() {
         id: knox::core::ids::ProjectId("demo".to_string()),
         name: "demo".to_string(),
         path: "demo".to_string(),
+        remote: None,
         created_at: Utc::now(),
     }).unwrap();
 

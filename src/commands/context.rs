@@ -15,10 +15,12 @@ use crate::core::ids::SessionId;
 use crate::core::error::KnoxResult;
 use crate::core::types::QueryFilter;
 use crate::ingest::summary::normalize_query_file_path;
-use crate::mcp::format::format_compact_digest;
-use crate::mcp::format::format_markdown_digest;
+use crate::mcp::format::{
+    format_compact_digest_with_reason, format_markdown_digest_with_reason,
+};
+use crate::models::router::ModelRouter;
 use crate::retrieval::pack::pack_actions;
-use crate::retrieval::rank::rank_actions;
+use crate::retrieval::rank::rank_actions_hybrid;
 use crate::storage::db::KnoxDb;
 use crate::storage::queries::query_actions;
 
@@ -59,6 +61,9 @@ pub struct ContextParams {
     pub synthesis: Option<bool>,
     /// Optional maximum response size in estimated tokens.
     pub budget: Option<usize>,
+    /// Optional pagination cursor from a previous page's `next` field.
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
 /// Runs the context query for `knox_context`.
@@ -66,6 +71,7 @@ pub struct ContextParams {
 /// Builds a `QueryFilter` from params, executes the search, ranks results,
 /// packs within the token budget, and renders in the requested format.
 pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
+    let start_instant = std::time::Instant::now();
     let input: ContextParams = serde_json::from_value(params)
         .map_err(|e| crate::core::error::KnoxError::InvalidInput(format!(
             "Invalid context params: {e}"
@@ -108,14 +114,19 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         action_type: input.action_type,
         symbols: input.symbols,
         query: input.query,
+        cursor: input.cursor,
     };
 
     let mut result = query_actions(db, &filter)?;
-    result.results = rank_actions(
+    let config = crate::core::config::KnoxConfig::from_env();
+    let router = ModelRouter::from_config(&config);
+    result.results = rank_actions_hybrid(
         result.results,
         ranking_file.as_deref(),
         &ranking_symbols,
         ranking_query.as_deref(),
+        Some(&router),
+        Some(db),
     );
     let budget = input.budget.unwrap_or(DEFAULT_CONTEXT_BUDGET);
     if budget == 0 || budget > MAX_CONTEXT_BUDGET {
@@ -138,43 +149,95 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     } else {
         "Active Knox Context".to_string()
     };
-    let compact = format_compact_digest(&packed_results);
+    let compact = format_compact_digest_with_reason(&packed_results, result.reason.as_deref());
 
     if format_mode == "json" {
         let structured = serde_json::to_value(&result)?;
         let structured_tokens = estimate_tokens(&serde_json::to_string(&structured)?);
         if structured_tokens <= budget {
-            return Ok(serde_json::json!({
-            "results": structured,
-            "total_count": result.total_count,
-            "has_more": result.has_more,
-            "budget": budget,
-            "budget_used": structured_tokens,
-            "truncated": false
-            }));
+            let latency_ms = start_instant.elapsed().as_millis() as u64;
+            let _ = crate::storage::record_query_log(
+                db,
+                &crate::core::types::QueryLogEntry {
+                    id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
+                    ts_ms: Utc::now().timestamp_millis(),
+                    tool: "knox_context".to_string(),
+                    project_id: input.project.clone(),
+                    rows: result.results.len(),
+                    tokens: structured_tokens,
+                    latency_ms,
+                    reason: result.reason.clone(),
+                },
+            );
+            let mut val = serde_json::json!({
+                "results": structured,
+                "total_count": result.total_count,
+                "has_more": result.has_more,
+                "next": result.next,
+                "budget": budget,
+                "budget_used": structured_tokens,
+                "truncated": false
+            });
+            if let Some(ref r) = result.reason {
+                val["reason"] = serde_json::Value::String(r.clone());
+            }
+            return Ok(val);
         }
     }
 
+    let is_grouped = input.synthesis.unwrap_or(false) || format_mode == "grouped";
     let rendered = if format_mode == "compact" || format_mode == "json" {
         compact
     } else {
-        format_markdown_digest(
+        format_markdown_digest_with_reason(
             &title,
             &packed_results,
-            input.synthesis.unwrap_or(false),
+            is_grouped,
+            result.reason.as_deref(),
         )
     };
     let (md, budget_used, truncated) = truncate_to_budget(&rendered, budget);
     let truncated = truncated || packed_truncated;
-    Ok(serde_json::json!({
+    let next_cursor = if packed_truncated && !packed_results.is_empty() {
+        packed_results
+            .last()
+            .map(|a| crate::storage::queries::encode_cursor(a.timestamp.timestamp_millis(), a.id.as_str()))
+    } else {
+        result.next.clone()
+    };
+    let mut response = serde_json::json!({
         "results": if truncated { serde_json::Value::Null } else { serde_json::to_value(&result.results)? },
         "total_count": result.total_count,
         "has_more": result.has_more || packed_truncated || truncated,
+        "next": next_cursor,
         "markdown": md,
         "budget": budget,
         "budget_used": budget_used,
         "truncated": truncated
-    }))
+    });
+    if let Some(ref r) = result.reason {
+        response["reason"] = serde_json::Value::String(r.clone());
+    }
+    if is_grouped {
+        response["mode"] = serde_json::Value::String("grouped".to_string());
+    }
+
+    let latency_ms = start_instant.elapsed().as_millis() as u64;
+    let _ = crate::storage::record_query_log(
+        db,
+        &crate::core::types::QueryLogEntry {
+            id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
+            ts_ms: Utc::now().timestamp_millis(),
+            tool: "knox_context".to_string(),
+            project_id: input.project.clone(),
+            rows: packed_results.len(),
+            tokens: budget_used,
+            latency_ms,
+            reason: result.reason.clone(),
+        },
+    );
+
+    Ok(response)
 }
 
 /// Compact context surface with default format and budget.
@@ -282,6 +345,7 @@ mod tests {
             id: crate::core::ids::ProjectId("demo".to_string()),
             name: "demo".to_string(),
             path: "demo".to_string(),
+            remote: None,
             created_at: Utc::now(),
         }).unwrap();
         for index in 0..10 {

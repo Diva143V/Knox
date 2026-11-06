@@ -17,7 +17,7 @@ pub struct CheckGuardrailsParams {
     pub files: Vec<String>,
     /// Optional proposed action description to test against rejected alternatives.
     pub proposed_action: Option<String>,
-    /// Whether to fail on any violation rather than only high-confidence ones.
+    /// Whether to fail on any violation rather than only high-overlap ones.
     pub strict: Option<bool>,
     /// Optional project scope.
     #[serde(default)]
@@ -37,7 +37,7 @@ struct Violation {
     alternative: String,
     decision_id: String,
     decision_summary: String,
-    confidence: f64,
+    overlap: f64,
     matched_span: String,
 }
 
@@ -55,13 +55,17 @@ fn content_tokens(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Returns `(confidence, evidence)` when `proposal` meaningfully restates a
-/// rejected alternative.
+/// Returns `(overlap, evidence)` when `proposal` meaningfully restates a
+/// rejected alternative at or above the given `threshold`.
 ///
 /// Replaces bidirectional substring containment, where an alternative such as
 /// "React" matched nearly every proposal. Requires a threshold of the
 /// alternative's content tokens and ignores explicitly negated proposals.
-fn match_rejected_alternative(proposal: &str, alternative: &str) -> Option<(f64, String)> {
+pub fn match_rejected_alternative_threshold(
+    proposal: &str,
+    alternative: &str,
+    threshold: f64,
+) -> Option<(f64, String)> {
     let alt_tokens = content_tokens(alternative);
     if alt_tokens.is_empty() {
         return None;
@@ -87,7 +91,11 @@ fn match_rejected_alternative(proposal: &str, alternative: &str) -> Option<(f64,
     }
 
     let coverage = matched.len() as f64 / alt_tokens.len() as f64;
-    let required = if alt_tokens.len() == 1 { 1.0 } else { 0.6 };
+    let required = if alt_tokens.len() == 1 {
+        1.0
+    } else {
+        threshold
+    };
     if coverage < required {
         return None;
     }
@@ -115,6 +123,10 @@ fn match_rejected_alternative(proposal: &str, alternative: &str) -> Option<(f64,
         .collect::<Vec<_>>()
         .join(" ");
     Some((coverage, evidence))
+}
+
+pub fn match_rejected_alternative(proposal: &str, alternative: &str) -> Option<(f64, String)> {
+    match_rejected_alternative_threshold(proposal, alternative, 0.6)
 }
 
 fn guardrail_patterns(db: &KnoxDb, action: &KnoxAction) -> KnoxResult<Vec<String>> {
@@ -273,7 +285,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
     if let Some(ref prop) = input.proposed_action {
         for d in &active_decisions {
             for alt in guardrail_patterns(db, d)? {
-                if let Some((confidence, matched_span)) =
+                if let Some((overlap, matched_span)) =
                     match_rejected_alternative(prop, &alt)
                 {
                     let message = format!(
@@ -286,7 +298,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
                         alternative: alt,
                         decision_id: d.id.to_string(),
                         decision_summary: d.summary.clone(),
-                        confidence,
+                        overlap,
                         matched_span,
                     });
                 }
@@ -294,18 +306,38 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
         }
     }
 
-    // Non-strict mode only fails on high-confidence matches; strict mode fails
+    // Non-strict mode only fails on high-overlap matches; strict mode fails
     // on any match. Superseded decisions never affect the outcome.
-    const HIGH_CONFIDENCE: f64 = 0.8;
+    const HIGH_OVERLAP: f64 = 0.8;
     let strict = input.strict.unwrap_or(false);
     let pass = if strict {
         violations.is_empty()
     } else {
         !violation_details
             .iter()
-            .any(|v| v.confidence >= HIGH_CONFIDENCE)
+            .any(|v| v.overlap >= HIGH_OVERLAP)
     };
     let decision_count = active_decisions.len();
+    let empty_reason = if decision_count == 0 {
+        let any_out_of_scope = input.files.iter().any(|f| {
+            let t = f.trim();
+            t.starts_with("..") || t.contains("/../") || t.contains("\\..\\")
+        });
+        if any_out_of_scope {
+            Some("out_of_scope".to_string())
+        } else {
+            Some(
+                crate::storage::telemetry::determine_empty_reason(
+                    db,
+                    input.project.as_deref(),
+                    norm_files.first().map(String::as_str),
+                )
+                .to_string(),
+            )
+        }
+    } else {
+        None
+    };
 
     let format_mode = input
         .format
@@ -314,7 +346,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
         .to_ascii_lowercase();
 
     if format_mode == "json" {
-        Ok(json!({
+        let mut val = json!({
             "pass": pass,
             "violations_count": violations.len(),
             "violations": violations,
@@ -326,16 +358,21 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
             "active_constraints_count": active_decisions.len(),
             "active_constraints": active_decisions,
             "superseded_patterns": stale_decisions
-        }))
+        });
+        if let Some(ref r) = empty_reason {
+            val["reason"] = json!(r);
+        }
+        Ok(val)
     } else {
-        let md = crate::mcp::format::format_guardrails_markdown(
+        let md = crate::mcp::format::format_guardrails_markdown_with_reason(
             &norm_files,
             &active_decisions,
             &stale_decisions,
             &violations,
             &open_doubts,
+            empty_reason.as_deref(),
         );
-        Ok(json!({
+        let mut val = json!({
             "pass": pass,
             "violations_count": violations.len(),
             "violations": violations,
@@ -348,7 +385,11 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
             "active_constraints": active_decisions,
             "superseded_patterns": stale_decisions,
             "markdown": md
-        }))
+        });
+        if let Some(ref r) = empty_reason {
+            val["reason"] = json!(r);
+        }
+        Ok(val)
     }
 }
 

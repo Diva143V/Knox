@@ -12,6 +12,80 @@ use crate::core::types::{
     ActionRelation, DeltaSummary, KnoxAction, QueryFilter, QueryResult, RelationType, StatusReport,
 };
 
+/// Encodes pagination cursor `(timestamp_ms, id)` into a URL-safe base64 string.
+pub fn encode_cursor(timestamp_ms: i64, id: &str) -> String {
+    let raw = format!("{timestamp_ms}:{id}");
+    const B64: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let bytes = raw.as_bytes();
+    let mut out = String::with_capacity((bytes.len() * 4 / 3) + 4);
+    let mut i = 0;
+    while i < bytes.len() {
+        let b0 = bytes[i];
+        let b1 = if i + 1 < bytes.len() { bytes[i + 1] } else { 0 };
+        let b2 = if i + 2 < bytes.len() { bytes[i + 2] } else { 0 };
+
+        let n0 = b0 >> 2;
+        let n1 = ((b0 & 3) << 4) | (b1 >> 4);
+        let n2 = ((b1 & 15) << 2) | (b2 >> 6);
+        let n3 = b2 & 63;
+
+        out.push(B64[n0 as usize] as char);
+        out.push(B64[n1 as usize] as char);
+        if i + 1 < bytes.len() {
+            out.push(B64[n2 as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if i + 2 < bytes.len() {
+            out.push(B64[n3 as usize] as char);
+        } else {
+            out.push('=');
+        }
+        i += 3;
+    }
+    out
+}
+
+/// Decodes a URL-safe base64 pagination cursor into `(timestamp_ms, id)`.
+pub fn decode_cursor(cursor: &str) -> Option<(i64, String)> {
+    let clean = cursor.trim().trim_end_matches('=');
+    if clean.is_empty() {
+        return None;
+    }
+    fn val(c: u8) -> Option<u8> {
+        match c {
+            b'A'..=b'Z' => Some(c - b'A'),
+            b'a'..=b'z' => Some(c - b'a' + 26),
+            b'0'..=b'9' => Some(c - b'0' + 52),
+            b'-' | b'+' => Some(62),
+            b'_' | b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let chars = clean.as_bytes();
+    let mut bytes = Vec::with_capacity(chars.len() * 3 / 4);
+    let mut i = 0;
+    while i < chars.len() {
+        let c0 = val(chars[i])?;
+        let c1 = if i + 1 < chars.len() { val(chars[i + 1])? } else { 0 };
+        let c2 = if i + 2 < chars.len() { val(chars[i + 2])? } else { 0 };
+        let c3 = if i + 3 < chars.len() { val(chars[i + 3])? } else { 0 };
+
+        bytes.push((c0 << 2) | (c1 >> 4));
+        if i + 2 < chars.len() {
+            bytes.push(((c1 & 15) << 4) | (c2 >> 2));
+        }
+        if i + 3 < chars.len() {
+            bytes.push(((c2 & 3) << 6) | c3);
+        }
+        i += 4;
+    }
+    let s = String::from_utf8(bytes).ok()?;
+    let (ts_str, id_str) = s.split_once(':')?;
+    let ts = ts_str.parse::<i64>().ok()?;
+    Some((ts, id_str.to_string()))
+}
+
 /// Executes a flexible filtered query against the actions stored in Knox.
 pub fn query_actions(db: &KnoxDb, filter: &QueryFilter) -> KnoxResult<QueryResult> {
     let start_instant = std::time::Instant::now();
@@ -22,9 +96,26 @@ pub fn query_actions(db: &KnoxDb, filter: &QueryFilter) -> KnoxResult<QueryResul
     // very large result sets. The token budget still constrains the response.
     let limit = filter.limit.min(200);
 
-    let total_count = fetch_query_count(conn, &where_clause, &params)?;
-    let results = fetch_query_actions(conn, &where_clause, &params, limit)?;
-    let has_more = total_count > results.len();
+    let fetched = fetch_query_actions(conn, &where_clause, &params, limit + 1)?;
+    let has_more = fetched.len() > limit;
+    let results: Vec<KnoxAction> = fetched.into_iter().take(limit).collect();
+    let total_count = if !has_more && filter.cursor.is_none() {
+        results.len()
+    } else {
+        fetch_query_count(conn, &where_clause, &params)?
+    };
+    let reason = if results.is_empty() {
+        Some(
+            crate::storage::telemetry::determine_empty_reason(
+                db,
+                filter.project.as_deref(),
+                filter.file_path.as_deref(),
+            )
+            .to_string(),
+        )
+    } else {
+        None
+    };
 
     tracing::debug!(
         elapsed_ms = start_instant.elapsed().as_millis(),
@@ -33,10 +124,23 @@ pub fn query_actions(db: &KnoxDb, filter: &QueryFilter) -> KnoxResult<QueryResul
         "query_actions completed"
     );
 
+    let next = if has_more && !results.is_empty() {
+        results.last().map(|last| {
+            encode_cursor(
+                last.timestamp.timestamp_millis(),
+                last.id.as_str(),
+            )
+        })
+    } else {
+        None
+    };
+
     Ok(QueryResult {
         results,
         total_count,
         has_more,
+        next,
+        reason,
     })
 }
 
@@ -46,7 +150,7 @@ fn fetch_query_count(
     where_clause: &str,
     params: &[SqlParam],
 ) -> KnoxResult<usize> {
-    let count_sql = format!("SELECT COUNT(DISTINCT a.id) FROM actions a WHERE {where_clause}");
+    let count_sql = format!("SELECT COUNT(*) FROM actions a WHERE {where_clause}");
     let mut stmt = conn.prepare(&count_sql)?;
     let count: i64 = stmt.query_row(params_from_iter(params.iter()), |r| r.get(0))?;
     Ok(count as usize)
@@ -101,6 +205,120 @@ fn map_action_db_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ActionDbRow> {
     ))
 }
 
+/// Hydrates a vector of `ActionDbRow`s into complete `KnoxAction`s
+/// by executing 5 batched child queries (one per child table) using SQL `IN (...)`.
+fn hydrate_action_rows(
+    conn: &rusqlite::Connection,
+    rows: Vec<ActionDbRow>,
+) -> KnoxResult<Vec<KnoxAction>> {
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let id_params: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+    let mut files: HashMap<String, Vec<String>> = HashMap::new();
+    let mut tags: HashMap<String, Vec<String>> = HashMap::new();
+    let mut relations: HashMap<String, Vec<ActionRelation>> = HashMap::new();
+    let mut symbols: HashMap<String, Vec<String>> = HashMap::new();
+    let mut deltas: HashMap<String, DeltaSummary> = HashMap::new();
+
+    for chunk in id_params.chunks(500) {
+        let placeholders = vec!["?"; chunk.len()].join(",");
+
+        let mut file_stmt = conn.prepare(&format!(
+            "SELECT action_id, file_path FROM action_files WHERE action_id IN ({placeholders}) ORDER BY file_path"
+        ))?;
+        for row in file_stmt.query_map(params_from_iter(chunk.iter()), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })? {
+            let (action_id, value) = row?;
+            files.entry(action_id).or_default().push(value);
+        }
+
+        let mut tag_stmt = conn.prepare(&format!(
+            "SELECT action_id, tag FROM action_tags WHERE action_id IN ({placeholders}) ORDER BY tag"
+        ))?;
+        for row in tag_stmt.query_map(params_from_iter(chunk.iter()), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })? {
+            let (action_id, value) = row?;
+            tags.entry(action_id).or_default().push(value);
+        }
+
+        let mut rel_stmt = conn.prepare(&format!(
+            "SELECT from_action_id, to_action_id, relation_type FROM action_relations
+             WHERE from_action_id IN ({placeholders}) ORDER BY to_action_id"
+        ))?;
+        for row in rel_stmt.query_map(params_from_iter(chunk.iter()), |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })? {
+            let (action_id, target, rel_type) = row?;
+            relations
+                .entry(action_id)
+                .or_default()
+                .push(ActionRelation {
+                    target_id: ActionId::from(target),
+                    relation_type: rel_type
+                        .parse::<RelationType>()
+                        .unwrap_or(RelationType::RelatesTo),
+                });
+        }
+
+        let mut sym_stmt = conn.prepare(&format!(
+            "SELECT action_id, symbol FROM action_symbols WHERE action_id IN ({placeholders}) ORDER BY symbol"
+        ))?;
+        for row in sym_stmt.query_map(params_from_iter(chunk.iter()), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })? {
+            let (action_id, value) = row?;
+            symbols.entry(action_id).or_default().push(value);
+        }
+
+        let mut delta_stmt = conn.prepare(&format!(
+            "SELECT action_id, COUNT(DISTINCT file_path), COALESCE(SUM(lines_added), 0), COALESCE(SUM(lines_deleted), 0)
+             FROM action_deltas WHERE action_id IN ({placeholders}) GROUP BY action_id"
+        ))?;
+        for row in delta_stmt.query_map(params_from_iter(chunk.iter()), |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })? {
+            let (action_id, files_changed, added, deleted) = row?;
+            if files_changed > 0 || added > 0 || deleted > 0 {
+                deltas.insert(
+                    action_id,
+                    DeltaSummary {
+                        total_files: files_changed as usize,
+                        lines_added: added.max(0) as u32,
+                        lines_deleted: deleted.max(0) as u32,
+                    },
+                );
+            }
+        }
+    }
+
+    let mut actions = Vec::with_capacity(rows.len());
+    for row in rows {
+        let key = &row.0;
+        actions.push(build_action_from_row(
+            &row,
+            files.remove(key).unwrap_or_default(),
+            tags.remove(key).unwrap_or_default(),
+            relations.remove(key).unwrap_or_default(),
+            symbols.remove(key).unwrap_or_default(),
+            deltas.remove(key),
+        ));
+    }
+    Ok(actions)
+}
+
 /// Fetches and populates actions along with their associated files, tags, relations, and symbols.
 fn fetch_query_actions(
     conn: &rusqlite::Connection,
@@ -115,7 +333,7 @@ fn fetch_query_actions(
                 a.significance, a.is_resolved, a.resolution_note, a.commit_sha, a.project_id,
                 a.dedupe_key, a.seen_count
          FROM actions a WHERE {where_clause}
-         ORDER BY COALESCE(a.timestamp_ms, 0) DESC, a.timestamp DESC LIMIT {limit}"
+         ORDER BY a.timestamp_ms DESC, a.id DESC LIMIT {limit}"
     );
 
     let mut stmt = conn.prepare(&select_sql)?;
@@ -123,144 +341,7 @@ fn fetch_query_actions(
         .query_map(params_from_iter(params.iter()), map_action_db_row)?
         .collect::<Result<Vec<ActionDbRow>, _>>()?;
 
-    let mut file_stmt = conn.prepare_cached(
-        "SELECT file_path FROM action_files WHERE action_id = ?1 ORDER BY file_path",
-    )?;
-    let mut tag_stmt =
-        conn.prepare_cached("SELECT tag FROM action_tags WHERE action_id = ?1 ORDER BY tag")?;
-    let mut rel_stmt = conn.prepare_cached(
-        "SELECT to_action_id, relation_type FROM action_relations WHERE from_action_id = ?1 ORDER BY to_action_id",
-    )?;
-    let mut sym_stmt = conn
-        .prepare_cached("SELECT symbol FROM action_symbols WHERE action_id = ?1 ORDER BY symbol")?;
-    let mut delta_stmt = conn.prepare_cached(
-        "SELECT COUNT(DISTINCT file_path), COALESCE(SUM(lines_added), 0), COALESCE(SUM(lines_deleted), 0)
-         FROM action_deltas WHERE action_id = ?1",
-    )?;
-
-    map_action_rows(
-        action_rows,
-        &mut file_stmt,
-        &mut tag_stmt,
-        &mut rel_stmt,
-        &mut sym_stmt,
-        &mut delta_stmt,
-    )
-}
-
-/// Maps raw database rows into complete KnoxAction structures.
-fn map_action_rows(
-    rows: Vec<ActionDbRow>,
-    file_stmt: &mut rusqlite::CachedStatement,
-    tag_stmt: &mut rusqlite::CachedStatement,
-    rel_stmt: &mut rusqlite::CachedStatement,
-    sym_stmt: &mut rusqlite::CachedStatement,
-    delta_stmt: &mut rusqlite::CachedStatement,
-) -> KnoxResult<Vec<KnoxAction>> {
-    let mut results = Vec::with_capacity(rows.len());
-    for (
-        id,
-        actor,
-        action_type,
-        summary,
-        confidence,
-        ts_str,
-        s_id,
-        p_id,
-        sup_by,
-        is_curr,
-        rationale,
-        context_summary,
-        rejected_str,
-        significance,
-        is_resolved,
-        resolution_note,
-        commit_sha,
-        project_id,
-        dedupe_key,
-        seen_count,
-    ) in rows
-    {
-        let timestamp = DateTime::parse_from_rfc3339(&ts_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
-
-        let files = file_stmt
-            .query_map(params_from_iter([&id]), |r| r.get::<_, String>(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-
-        let tags = tag_stmt
-            .query_map(params_from_iter([&id]), |r| r.get::<_, String>(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-
-        let relations = rel_stmt
-            .query_map(params_from_iter([&id]), |r| {
-                let target_str: String = r.get(0)?;
-                let rel_type_str: String = r.get(1)?;
-                let rel_type = rel_type_str
-                    .parse::<RelationType>()
-                    .unwrap_or(RelationType::RelatesTo);
-                Ok(ActionRelation {
-                    target_id: ActionId::from(target_str),
-                    relation_type: rel_type,
-                })
-            })?
-            .collect::<Result<Vec<ActionRelation>, _>>()?;
-
-        let symbols = sym_stmt
-            .query_map(params_from_iter([&id]), |r| r.get::<_, String>(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-
-        let delta_summary = delta_stmt
-            .query_row(params_from_iter([&id]), |r| {
-                let files_changed: i64 = r.get(0)?;
-                let added: i64 = r.get(1)?;
-                let deleted: i64 = r.get(2)?;
-                if files_changed > 0 || added > 0 || deleted > 0 {
-                    Ok(Some(DeltaSummary {
-                        total_files: files_changed as usize,
-                        lines_added: added.max(0) as u32,
-                        lines_deleted: deleted.max(0) as u32,
-                    }))
-                } else {
-                    Ok(None)
-                }
-            })
-            .unwrap_or(None);
-
-        let rejected_alternatives = rejected_str
-            .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
-            .unwrap_or_default();
-
-        results.push(KnoxAction {
-            id: ActionId::from(id),
-            actor,
-            action_type,
-            summary,
-            files,
-            tags,
-            confidence,
-            timestamp,
-            session_id: s_id.map(SessionId::from),
-            project_id: project_id.map(crate::core::ids::ProjectId::from),
-            parent_action_id: p_id.map(ActionId::from),
-            supersedes: None,
-            is_current: is_curr == 1 && sup_by.is_none(),
-            relations,
-            symbols,
-            rationale,
-            rejected_alternatives,
-            context_summary,
-            significance: significance.or_else(|| Some("major".to_string())),
-            is_resolved: is_resolved.map(|v| v == 1),
-            resolution_note,
-            commit_sha,
-            delta_summary,
-            dedupe_key,
-            seen_count: seen_count.max(1) as u32,
-        });
-    }
-    Ok(results)
+    hydrate_action_rows(conn, action_rows)
 }
 
 /// Executes full-text search against action summaries using the SQLite FTS5 table.
@@ -297,120 +378,35 @@ pub fn get_actions_by_ids(db: &KnoxDb, ids: &[ActionId]) -> KnoxResult<Vec<KnoxA
     }
 
     let conn = db.conn();
-    let placeholders = vec!["?"; ids.len()].join(",");
-    let id_params: Vec<&str> = ids.iter().map(|id| id.as_str()).collect();
+    let mut rows = Vec::with_capacity(ids.len());
 
-    let select_sql = format!(
-        "SELECT a.id, a.actor, a.action_type, a.summary, a.confidence,
-                a.timestamp, a.session_id, a.parent_action_id, a.superseded_by, a.is_current,
-                a.rationale, a.context_summary, a.rejected_alternatives,
-                a.significance, a.is_resolved, a.resolution_note, a.commit_sha, a.project_id,
-                a.dedupe_key, a.seen_count
-         FROM actions a WHERE a.id IN ({placeholders})"
-    );
-    let mut stmt = conn.prepare(&select_sql)?;
-    let rows = stmt
-        .query_map(params_from_iter(id_params.iter()), map_action_db_row)?
-        .collect::<Result<Vec<ActionDbRow>, _>>()?;
+    for chunk in ids.chunks(500) {
+        let placeholders = vec!["?"; chunk.len()].join(",");
+        let chunk_params: Vec<&str> = chunk.iter().map(|id| id.as_str()).collect();
 
-    let mut files: HashMap<String, Vec<String>> = HashMap::new();
-    let mut file_stmt = conn.prepare(&format!(
-        "SELECT action_id, file_path FROM action_files WHERE action_id IN ({placeholders}) ORDER BY file_path"
-    ))?;
-    for row in file_stmt.query_map(params_from_iter(id_params.iter()), |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-    })? {
-        let (action_id, value) = row?;
-        files.entry(action_id).or_default().push(value);
+        let select_sql = format!(
+            "SELECT a.id, a.actor, a.action_type, a.summary, a.confidence,
+                    a.timestamp, a.session_id, a.parent_action_id, a.superseded_by, a.is_current,
+                    a.rationale, a.context_summary, a.rejected_alternatives,
+                    a.significance, a.is_resolved, a.resolution_note, a.commit_sha, a.project_id,
+                    a.dedupe_key, a.seen_count
+             FROM actions a WHERE a.id IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&select_sql)?;
+        let chunk_rows = stmt
+            .query_map(params_from_iter(chunk_params.iter()), map_action_db_row)?
+            .collect::<Result<Vec<ActionDbRow>, _>>()?;
+        rows.extend(chunk_rows);
     }
 
-    let mut tags: HashMap<String, Vec<String>> = HashMap::new();
-    let mut tag_stmt = conn.prepare(&format!(
-        "SELECT action_id, tag FROM action_tags WHERE action_id IN ({placeholders}) ORDER BY tag"
-    ))?;
-    for row in tag_stmt.query_map(params_from_iter(id_params.iter()), |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-    })? {
-        let (action_id, value) = row?;
-        tags.entry(action_id).or_default().push(value);
-    }
-
-    let mut relations: HashMap<String, Vec<ActionRelation>> = HashMap::new();
-    let mut rel_stmt = conn.prepare(&format!(
-        "SELECT from_action_id, to_action_id, relation_type FROM action_relations
-         WHERE from_action_id IN ({placeholders}) ORDER BY to_action_id"
-    ))?;
-    for row in rel_stmt.query_map(params_from_iter(id_params.iter()), |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-        ))
-    })? {
-        let (action_id, target, rel_type) = row?;
-        relations
-            .entry(action_id)
-            .or_default()
-            .push(ActionRelation {
-                target_id: ActionId::from(target),
-                relation_type: rel_type
-                    .parse::<RelationType>()
-                    .unwrap_or(RelationType::RelatesTo),
-            });
-    }
-
-    let mut symbols: HashMap<String, Vec<String>> = HashMap::new();
-    let mut sym_stmt = conn.prepare(&format!(
-        "SELECT action_id, symbol FROM action_symbols WHERE action_id IN ({placeholders}) ORDER BY symbol"
-    ))?;
-    for row in sym_stmt.query_map(params_from_iter(id_params.iter()), |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-    })? {
-        let (action_id, value) = row?;
-        symbols.entry(action_id).or_default().push(value);
-    }
-
-    let mut deltas: HashMap<String, DeltaSummary> = HashMap::new();
-    let mut delta_stmt = conn.prepare(&format!(
-        "SELECT action_id, COUNT(DISTINCT file_path), COALESCE(SUM(lines_added), 0), COALESCE(SUM(lines_deleted), 0)
-         FROM action_deltas WHERE action_id IN ({placeholders}) GROUP BY action_id"
-    ))?;
-    for row in delta_stmt.query_map(params_from_iter(id_params.iter()), |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, i64>(1)?,
-            r.get::<_, i64>(2)?,
-            r.get::<_, i64>(3)?,
-        ))
-    })? {
-        let (action_id, files_changed, added, deleted) = row?;
-        if files_changed > 0 || added > 0 || deleted > 0 {
-            deltas.insert(
-                action_id,
-                DeltaSummary {
-                    total_files: files_changed as usize,
-                    lines_added: added.max(0) as u32,
-                    lines_deleted: deleted.max(0) as u32,
-                },
-            );
-        }
-    }
-
-    let by_id: HashMap<String, ActionDbRow> =
-        rows.into_iter().map(|row| (row.0.clone(), row)).collect();
+    let actions = hydrate_action_rows(conn, rows)?;
+    let mut by_id: HashMap<String, KnoxAction> =
+        actions.into_iter().map(|a| (a.id.to_string(), a)).collect();
 
     let mut ordered = Vec::with_capacity(ids.len());
     for id in ids {
-        let key = id.as_str().to_string();
-        if let Some(row) = by_id.get(&key) {
-            ordered.push(build_action_from_row(
-                row,
-                files.get(&key).cloned().unwrap_or_default(),
-                tags.get(&key).cloned().unwrap_or_default(),
-                relations.get(&key).cloned().unwrap_or_default(),
-                symbols.get(&key).cloned().unwrap_or_default(),
-                deltas.get(&key).cloned(),
-            ));
+        if let Some(act) = by_id.remove(id.as_str()) {
+            ordered.push(act);
         }
     }
     Ok(ordered)
@@ -533,12 +529,14 @@ pub fn get_status_report(db: &KnoxDb) -> KnoxResult<StatusReport> {
 /// Dynamic SQL parameter wrapper.
 enum SqlParam {
     Text(String),
+    Int(i64),
 }
 
 impl ToSql for SqlParam {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         match self {
             SqlParam::Text(s) => Ok(ToSqlOutput::from(s.as_str())),
+            SqlParam::Int(i) => Ok(ToSqlOutput::from(*i)),
         }
     }
 }
@@ -557,32 +555,25 @@ fn append_file_filter(
 ) {
     if exact {
         clauses.push(
-            "EXISTS (SELECT 1 FROM action_files af WHERE af.action_id = a.id AND af.file_path = ?)"
+            "a.id IN (SELECT af.action_id FROM action_files af WHERE af.file_path = ?)"
                 .to_string(),
         );
         params.push(SqlParam::Text(file_path.to_string()));
         return;
     }
 
+    let trimmed = file_path.trim_end_matches('/');
+    let escaped = trimmed
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+
     clauses.push(
-        "EXISTS (SELECT 1 FROM action_files af WHERE af.action_id = a.id AND (
-            af.file_path = ?
-            OR af.file_path LIKE ?
-            OR af.file_path LIKE ?
-            OR ? LIKE '%/' || af.file_path
-        ))"
-        .to_string(),
+        "a.id IN (SELECT af.action_id FROM action_files af WHERE af.file_path = ? OR af.file_path LIKE ? ESCAPE '\\')"
+            .to_string(),
     );
     params.push(SqlParam::Text(file_path.to_string()));
-    params.push(SqlParam::Text(format!(
-        "{}/%",
-        file_path.trim_end_matches('/')
-    )));
-    params.push(SqlParam::Text(format!(
-        "%/{}",
-        file_path.trim_start_matches('/')
-    )));
-    params.push(SqlParam::Text(file_path.to_string()));
+    params.push(SqlParam::Text(format!("{escaped}/%")));
 }
 
 /// Appends project matching clauses to the dynamic query.
@@ -643,7 +634,7 @@ fn build_where_clause(db: &KnoxDb, filter: &QueryFilter) -> KnoxResult<(String, 
     }
     for tag in &filter.tags {
         clauses.push(
-            "EXISTS (SELECT 1 FROM action_tags at WHERE at.action_id = a.id AND at.tag = ?)"
+            "a.id IN (SELECT at.action_id FROM action_tags at WHERE at.tag = ?)"
                 .to_string(),
         );
         params.push(SqlParam::Text(tag.clone()));
@@ -660,7 +651,7 @@ fn build_where_clause(db: &KnoxDb, filter: &QueryFilter) -> KnoxResult<(String, 
     }
     for sym in &filter.symbols {
         clauses.push(
-            "EXISTS (SELECT 1 FROM action_symbols asy WHERE asy.action_id = a.id AND asy.symbol = ?)"
+            "a.id IN (SELECT asy.action_id FROM action_symbols asy WHERE asy.symbol = ?)"
                 .to_string(),
         );
         params.push(SqlParam::Text(sym.clone()));
@@ -671,6 +662,18 @@ fn build_where_clause(db: &KnoxDb, filter: &QueryFilter) -> KnoxResult<(String, 
                 .to_string(),
         );
         params.push(SqlParam::Text(sanitize_fts_query(q)));
+    }
+    if let Some(ref cur) = filter.cursor {
+        let (ts, id) = decode_cursor(cur).ok_or_else(|| {
+            crate::core::error::KnoxError::InvalidInput(format!("Invalid pagination cursor: '{cur}'"))
+        })?;
+        clauses.push(
+            "(a.timestamp_ms < ? OR (a.timestamp_ms = ? AND a.id < ?))"
+                .to_string(),
+        );
+        params.push(SqlParam::Int(ts));
+        params.push(SqlParam::Int(ts));
+        params.push(SqlParam::Text(id));
     }
 
     let where_clause = if clauses.is_empty() {

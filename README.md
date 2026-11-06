@@ -17,9 +17,9 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 - **Unified Hybrid Binary (`knox.exe`):** Single binary running under the Windows GUI subsystem (`windows_subsystem = "windows"`). Opens the desktop application with zero console flash when double-clicked, launched from shortcuts, or run without arguments; dynamically attaches to the parent console (`AttachConsole`) for CLI subcommands (`knox query`, `knox status`, `knox scan`); and preserves clean stdio pipes (`FILE_TYPE_PIPE`) when spawned by AI agents (`knox serve --stdio`).
 - **Native Desktop GUI (Tauri v2 + React 19):** Modern, dark-first desktop experience featuring an interactive Knowledge Graph canvas, telemetry dashboard, FTS5 query console, live transcript ingestion studio, and Git human-edit scanner.
 - **Cosmos Orb Mode & Dynamic D3 Physics Simulation:** Dual-mode graph canvas allowing developers to switch between structured rectangular cards and luminous Cosmos circular nodes (`CircleNode.tsx`) with role-based glowing radial auras. Integrated continuous live D3 force physics simulation (`useLivePhysics.ts`) provides interactive node grabbing, spring-link constraints, and fluid reheat motion.
-- **Interactive Getting Started Tour with Peek Window Mode:** 9-step guided walkthrough modal (`OnboardingTourModal.tsx`) with live background tab synchronization, keyboard shortcuts, and instant "Peek Window" toggle (<kbd>P</kbd> or Eye icon) that docks into a floating bottom pill so developers can view 100% of the live application screen in motion without obstruction.
+- **Interactive Getting Started Tour with Peek Window Mode:** 9-step guided walkthrough modal (`OnboardingTourModal.tsx`) with live background tab synchronization, keyboard shortcuts, and instant "Peek Window" toggle (<kbd>P</kbd> or Eye icon) that docks into a floating bottom pill so developers can view the entire live application screen in motion without obstruction.
 - **Focused Model Context Protocol (MCP) Server (6 Tools):** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing six high-level workflow tools — begin, context, check, trace, record, and handoff. Legacy tool names are no longer routed.
-- **Token-Compact Markdown Digest Engine:** Automatically formats query and context outputs into dense, high-signal Markdown digests, reducing context window token consumption by over 70% compared to raw JSON envelopes.
+- **Token-Compact Markdown Digest Engine:** Automatically formats query and context outputs into dense, high-signal Markdown digests, reducing context window token consumption compared to raw JSON envelopes (measured via knox metrics).
 - **Token-Efficiency Measurements:** The public `knox::metrics::measure_token_efficiency` helper reports estimated tool-definition and context-format tokens, plus compact/Markdown savings against serialized action JSON.
 - **Native MCP Resources & Prompts:** Exposes live architectural resources (`knox://project/overview`, `knox://decisions/active`, `knox://context/{file}`) and guided handover prompts (`/architectural-audit`, `/session-handover`).
 - **V2 Schema & Semantic Relations:** First-class directional relationship graph (`depends_on`, `implements`, `verifies`, `relates_to`, `reverts`), code symbol indexing, and Architectural Decision Records (ADRs) with rationale and prohibited rejected alternatives.
@@ -254,11 +254,48 @@ Knox ships with a unified binary `knox.exe`. For Windows Command Prompt and Powe
 | `knox ingest <PATH>` | Imports a conversation transcript into the knowledge graph. | `knox ingest transcript.jsonl` |
 | `knox query <PATTERN>` | Queries context by file, keyword, tag, or actor prefix. | `knox query "src/lib.rs"` |
 | `knox status` | Displays aggregate status report and actor/action breakdowns. | `knox status --json` |
+| `knox doctor [PROJECT]` | Evaluates database integrity, schema version, zombie sessions, and edge promotion candidates. | `knox doctor` |
+| `knox metrics [PROJECT]` | Computes empirical retrieval hit rate, empty rate, tokens per retrieval, and latency percentiles. | `knox metrics` |
 | `knox scan [PROJECT]` | Scans Git staged changes for unrecorded human modifications. | `knox scan` |
 | `knox hook <ACTION>` | Installs or uninstalls the Git pre-commit hook (`install` \| `uninstall`). | `knox hook install` |
 | `knox serve` | Launches the MCP stdio JSON-RPC server (`--stdio`). | `knox serve --stdio` |
-| `knox --version` | Displays current version (`knox 1.2.1`). | `knox --version` |
+| `knox --version` | Displays current version (`knox 2.0.0`). | `knox --version` |
 | `knox --help` | Displays command-line help and usage documentation. | `knox --help` |
+
+---
+
+## Empirical Metrics & Verification
+
+Knox provides built-in empirical evaluation tools to measure retrieval quality, token efficiency, operational latency, and guardrail precision. Every metric published by Knox is defined with an explicit mathematical formula and denominator, and can be reproduced with a single command.
+
+### Reproducibility Commands
+
+```bash
+# 1. Inspect real-time operational retrieval telemetry and database health
+knox metrics
+
+# 2. Run operational diagnostics, integrity check, and edge promotion analysis
+knox doctor
+
+# 3. Reproduce the benchmark recall, latency, and token efficiency suite
+cargo test --test test_bench -- --nocapture
+
+# 4. Reproduce the 50-pair token-overlap calibration report
+cargo test --test test_calibration -- --nocapture
+```
+
+### Metrics Definitions & Denominators
+
+| Metric | Formula | Denominator | Purpose |
+|---|---|---|---|
+| **Hit Rate** | `hits / total_queries` | Total read queries in `query_log` | Measures proportion of retrieval requests returning at least one relevant record (`rows > 0`). |
+| **Empty Rate** | `empty_queries / total_queries` | Total read queries in `query_log` | Measures proportion of retrieval requests returning zero records or an explicit empty reason. |
+| **Empty Classification** | `count(reason) / total_queries` | Total read queries in `query_log` | Categorizes empty results into `no_records` (database empty), `no_match` (query didn't match), or `out_of_scope` (path outside workspace). |
+| **Tokens / Retrieval** | `successful_tokens / hits` | Total successful retrieval queries (`hits`) | Measures average token payload emitted per successful context query. |
+| **Latency (p50 / p95)** | Percentiles of query `latency_ms` | Total queries recorded in `query_log` | Quantifies median and tail response latency in milliseconds under real workloads. |
+| **Duplicate Rate** | `duplicate_actions / total_actions` | Total recorded actions in project | Tracks cohesion and deduplication across multiple sessions and transcript ingests. |
+| **Tool Definition Footprint** | `estimate_tokens(all_tools())` | Registered MCP tools (`TOOL_COUNT = 6`) | Enforces protocol lightness (budgeted target: <= 850 tokens). |
+| **Guardrail Overlap Score** | `matched_tokens / alt_tokens` | Total content tokens in rejected alternative | Evaluates semantic overlap against prohibited ADR alternatives. Calibrated across 50 labeled pairs to empirically justify the 0.60 threshold. |
 
 ---
 

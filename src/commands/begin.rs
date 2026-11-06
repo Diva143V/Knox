@@ -19,6 +19,8 @@ pub struct BeginParams {
     pub actor: String,
     pub task: Option<String>,
     pub budget: Option<usize>,
+    /// Optional transcript path to auto-capture memory from since last offset.
+    pub transcript_path: Option<String>,
 }
 
 /// Runs the session begin workflow for `knox_begin`.
@@ -27,6 +29,7 @@ pub struct BeginParams {
 /// new one linked to the previous session for the same actor/project.
 /// Returns `scope` (session metadata) and `context` (budgeted task context).
 pub fn cmd_begin(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
+    let start_instant = std::time::Instant::now();
     let input: BeginParams = serde_json::from_value(params)
         .map_err(|e| KnoxError::InvalidInput(format!("Invalid begin params: {e}")))?;
     let actor = input.actor.trim();
@@ -61,6 +64,49 @@ pub fn cmd_begin(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         }
     };
 
+    // Auto-capture: ingest transcript lines since the last offset on begin,
+    // when a path is configured via params, environment, or KnoxConfig.
+    let configured_transcript = input
+        .transcript_path
+        .as_deref()
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var("KNOX_TRANSCRIPT_PATH")
+                .ok()
+                .map(|p| crate::core::config::expand_tilde(p.trim()))
+        })
+        .or_else(|| {
+            let cfg = crate::core::config::KnoxConfig::from_env();
+            cfg.transcript_path
+        })
+        .map(|p| {
+            if p.is_relative() {
+                let ws_path = std::path::Path::new(&input.workspace);
+                let combined = ws_path.join(&p);
+                if combined.exists() {
+                    combined
+                } else {
+                    p
+                }
+            } else {
+                p
+            }
+        });
+
+    let mut actions_captured = 0;
+    if let Some(ref path) = configured_transcript {
+        if path.exists() {
+            if let Ok(report) = crate::commands::ingest::cmd_ingest_incremental(
+                path,
+                db,
+                Some(&session.id),
+                Some(&input.workspace),
+            ) {
+                actions_captured = report.actions_imported;
+            }
+        }
+    }
+
     let mut context = json!({
         "session_id": session.id.to_string(),
         "project": input.workspace,
@@ -75,16 +121,49 @@ pub fn cmd_begin(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     }
 
     let context = crate::commands::context::cmd_context(db, context)?;
-    Ok(json!({
+    let reason = context.get("reason").and_then(Value::as_str);
+
+    let latency_ms = start_instant.elapsed().as_millis() as u64;
+    let budget_used = context
+        .get("budget_used")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let rows = context
+        .get("results")
+        .and_then(Value::as_array)
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    let _ = crate::storage::record_query_log(
+        db,
+        &crate::core::types::QueryLogEntry {
+            id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
+            ts_ms: chrono::Utc::now().timestamp_millis(),
+            tool: "knox_begin".to_string(),
+            project_id: Some(input.workspace.clone()),
+            rows,
+            tokens: budget_used,
+            latency_ms,
+            reason: reason.map(String::from),
+        },
+    );
+
+    let mut response = json!({
         "scope": {
             "session_id": session.id.to_string(),
             "project": session.project,
             "actor": actor,
             "resumed": resumed,
-            "parent_session_id": parent_session.map(|id| id.to_string())
+            "parent_session_id": parent_session.map(|id| id.to_string()),
+            "actions_captured": actions_captured
         },
         "context": context
-    }))
+    });
+    if let Some(r) = reason {
+        response["reason"] = json!(r);
+    }
+
+    Ok(response)
 }
 
 #[cfg(test)]

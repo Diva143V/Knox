@@ -42,6 +42,12 @@ pub enum Commands {
     Export(ExportArgs),
     /// Import project memory from a JSONL export.
     Import(ImportArgs),
+    /// Check operational health, query telemetry, and database integrity.
+    Doctor(DoctorArgs),
+    /// Display retrieval performance, token efficiency, and empirical metrics.
+    Metrics(MetricsArgs),
+    /// Inspect model profiles, test embedding and answering connectivity.
+    Model(ModelArgs),
 }
 
 /// Arguments for `knox init`.
@@ -112,22 +118,60 @@ pub struct ScanArgs {
 /// Action to perform for git hook management.
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HookAction {
-    /// Install git pre-commit hook.
+    /// Install git pre-commit and post-commit hooks.
     Install,
-    /// Uninstall git pre-commit hook.
+    /// Uninstall git hooks.
     Uninstall,
+    /// Record a git commit message into project memory.
+    RecordCommit,
 }
 
 /// Arguments for `knox hook`.
 #[derive(Args, Clone, Debug, PartialEq, Eq)]
 pub struct HookArgs {
-    /// Hook operation to execute (install or uninstall).
+    /// Hook operation to execute.
     #[arg(value_enum)]
     pub action: HookAction,
 
     /// Path to project repository (defaults to current directory).
     #[arg(short, long, default_value = ".")]
     pub project: PathBuf,
+
+    /// Path to file containing commit message (optional).
+    #[arg(long)]
+    pub message_file: Option<PathBuf>,
+
+    /// Raw commit message string (optional).
+    #[arg(long)]
+    pub message: Option<String>,
+}
+
+/// Arguments for `knox doctor`.
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+pub struct DoctorArgs {
+    /// Filter health diagnostics by project identifier.
+    #[arg(short, long)]
+    pub project: Option<String>,
+
+    /// Format output as JSON instead of human-readable report.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `knox metrics`.
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+pub struct MetricsArgs {
+    /// Filter metrics by project identifier.
+    #[arg(short, long)]
+    pub project: Option<String>,
+
+    /// Include empirical guardrail threshold calibration report (50 labeled pairs).
+    #[arg(long)]
+    pub calibration: bool,
+
+    /// Format output as JSON instead of human-readable report.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Clone, Debug, PartialEq, Eq)]
@@ -170,6 +214,25 @@ pub struct ExportArgs {
 pub struct ImportArgs {
     /// JSONL file produced by `knox export`.
     pub input: PathBuf,
+}
+
+/// Arguments for `knox model`.
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+pub struct ModelArgs {
+    #[command(subcommand)]
+    pub action: Option<ModelSubcommand>,
+}
+
+#[derive(Subcommand, Clone, Debug, PartialEq, Eq)]
+pub enum ModelSubcommand {
+    /// Display active model profile, endpoints, and configured models.
+    Status,
+    /// Test model connectivity, embedding generation, and answering against active profile.
+    Test {
+        /// Optional prompt or query to test.
+        #[arg(default_value = "What architectural decisions have been made in Knox?")]
+        query: String,
+    },
 }
 
 #[cfg(test)]

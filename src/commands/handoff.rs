@@ -23,6 +23,7 @@ pub struct HandoffParams {
 /// Produces a context digest for the session, ends the session if it is
 /// still open, and returns the digest along with close metadata.
 pub fn cmd_handoff(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
+    let start_instant = std::time::Instant::now();
     let input: HandoffParams = serde_json::from_value(params)
         .map_err(|e| KnoxError::InvalidInput(format!("Invalid handoff params: {e}")))?;
     let session_id = input.session_id.trim();
@@ -33,11 +34,9 @@ pub fn cmd_handoff(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let id = SessionId::from(session_id);
     let session = crate::storage::sessions::get_session(db, &id)?
         .ok_or_else(|| KnoxError::SessionNotFound(session_id.to_string()))?;
+    let project_id_str = session.project_id.as_ref().map(|p| p.to_string());
     let digest = {
-        let project_param = session
-            .project_id
-            .as_ref()
-            .map(|pid| pid.to_string());
+        let project_param = project_id_str.clone();
         crate::mcp::handlers::get_context::handle_context(
             db,
             json!({
@@ -54,12 +53,44 @@ pub fn cmd_handoff(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     } else {
         session
     };
-    Ok(json!({
+
+    let reason = digest.get("reason").and_then(Value::as_str);
+    let latency_ms = start_instant.elapsed().as_millis() as u64;
+    let budget_used = digest
+        .get("budget_used")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let rows = digest
+        .get("results")
+        .and_then(Value::as_array)
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    let _ = crate::storage::record_query_log(
+        db,
+        &crate::core::types::QueryLogEntry {
+            id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
+            ts_ms: chrono::Utc::now().timestamp_millis(),
+            tool: "knox_handoff".to_string(),
+            project_id: project_id_str,
+            rows,
+            tokens: budget_used,
+            latency_ms,
+            reason: reason.map(String::from),
+        },
+    );
+
+    let mut response = json!({
         "status": "closed",
         "session_id": session_id,
         "ended_at": closed.ended_at.map(|time| time.to_rfc3339()),
         "digest": digest
-    }))
+    });
+    if let Some(r) = reason {
+        response["reason"] = json!(r);
+    }
+
+    Ok(response)
 }
 
 #[cfg(test)]

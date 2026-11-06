@@ -52,6 +52,14 @@ pub fn run_migrations(conn: &Connection) -> KnoxResult<()> {
         apply_v8(conn)?;
     }
 
+    if current_version < 9 {
+        apply_v9(conn)?;
+    }
+
+    if current_version < 10 {
+        apply_v10(conn)?;
+    }
+
     Ok(())
 }
 
@@ -456,6 +464,251 @@ fn apply_v8(conn: &Connection) -> KnoxResult<()> {
     Ok(())
 }
 
+const V9_SCHEMA_SQL: &str = "BEGIN TRANSACTION;
+
+-- Refs table: polymorphic external and non-action reference entities (files, symbols).
+CREATE TABLE IF NOT EXISTS refs (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    project_id TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_refs_kind_val ON refs(kind, value);
+CREATE INDEX IF NOT EXISTS idx_refs_project ON refs(project_id);
+
+-- Edge rejections table: logs unknown edge types and rejected reversed relations.
+CREATE TABLE IF NOT EXISTS edge_rejections (
+    id TEXT PRIMARY KEY,
+    ts TEXT NOT NULL,
+    project_id TEXT,
+    from_id TEXT,
+    to_id TEXT,
+    attempted_type TEXT NOT NULL,
+    reason TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_edge_rejections_project ON edge_rejections(project_id);
+CREATE INDEX IF NOT EXISTS idx_edge_rejections_type ON edge_rejections(attempted_type);
+
+-- Query log table: operational query performance telemetry.
+CREATE TABLE IF NOT EXISTS query_log (
+    id TEXT PRIMARY KEY,
+    ts_ms INTEGER NOT NULL,
+    tool TEXT NOT NULL,
+    project_id TEXT,
+    rows INTEGER NOT NULL,
+    tokens INTEGER NOT NULL,
+    latency_ms INTEGER NOT NULL,
+    reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_query_log_tool ON query_log(tool);
+CREATE INDEX IF NOT EXISTS idx_query_log_project ON query_log(project_id);
+CREATE INDEX IF NOT EXISTS idx_actions_project_ts ON actions(project_id, timestamp_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
+
+-- Drop legacy triggers on edges
+DROP TRIGGER IF EXISTS edges_ai_follows;
+DROP TRIGGER IF EXISTS edges_au_supersedes;
+
+-- Recreate edges table with polymorphic to_id, label, provenance, note, and caused_by CHECK
+CREATE TABLE IF NOT EXISTS edges_v9 (
+    id TEXT PRIMARY KEY,
+    from_action_id TEXT NOT NULL,
+    to_id TEXT NOT NULL,
+    edge_type TEXT NOT NULL
+        CHECK (edge_type IN ('caused_by', 'contradicts', 'implements', 'depends_on',
+                             'verifies', 'relates_to', 'reverts', 'supersedes', 'resolves')),
+    created_at TEXT NOT NULL,
+    label TEXT,
+    provenance TEXT,
+    note TEXT,
+    FOREIGN KEY (from_action_id) REFERENCES actions(id) ON DELETE CASCADE
+);
+
+-- Copy existing rows from edges, migrating 'follows' -> 'caused_by'
+INSERT OR IGNORE INTO edges_v9 (id, from_action_id, to_id, edge_type, created_at, label, provenance, note)
+SELECT
+    id,
+    from_action_id,
+    to_action_id,
+    CASE WHEN edge_type = 'follows' THEN 'caused_by' ELSE edge_type END,
+    created_at,
+    NULL,
+    NULL,
+    NULL
+FROM edges;
+
+DROP TABLE edges;
+ALTER TABLE edges_v9 RENAME TO edges;
+
+CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_action_id);
+CREATE INDEX IF NOT EXISTS idx_edges_to   ON edges(to_id);
+CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
+
+-- Trigger: keep edges in sync with actions.parent_action_id (caused_by edges)
+CREATE TRIGGER IF NOT EXISTS edges_ai_caused_by AFTER INSERT ON actions BEGIN
+    INSERT OR REPLACE INTO edges(id, from_action_id, to_id, edge_type, created_at, provenance, note)
+    SELECT
+        new.id || ':caused_by:' || new.parent_action_id,
+        new.id,
+        new.parent_action_id,
+        'caused_by',
+        new.timestamp,
+        new.commit_sha,
+        NULL
+    WHERE new.parent_action_id IS NOT NULL;
+END;
+
+CREATE TRIGGER IF NOT EXISTS edges_au_caused_by AFTER UPDATE OF parent_action_id ON actions BEGIN
+    INSERT OR REPLACE INTO edges(id, from_action_id, to_id, edge_type, created_at, provenance, note)
+    SELECT
+        new.id || ':caused_by:' || new.parent_action_id,
+        new.id,
+        new.parent_action_id,
+        'caused_by',
+        new.timestamp,
+        new.commit_sha,
+        NULL
+    WHERE new.parent_action_id IS NOT NULL;
+END;
+
+-- Trigger: keep edges in sync with actions.superseded_by (supersedes edges)
+CREATE TRIGGER IF NOT EXISTS edges_au_supersedes AFTER UPDATE OF superseded_by ON actions BEGIN
+    INSERT OR REPLACE INTO edges(id, from_action_id, to_id, edge_type, created_at, provenance, note)
+    SELECT
+        new.superseded_by || ':supersedes:' || old.id,
+        new.superseded_by,
+        old.id,
+        'supersedes',
+        COALESCE(
+            (SELECT timestamp FROM actions WHERE id = new.superseded_by),
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        ),
+        (SELECT commit_sha FROM actions WHERE id = new.superseded_by),
+        NULL
+    WHERE new.superseded_by IS NOT NULL;
+END;
+
+-- Trigger: keep edges in sync with action_relations inserts
+CREATE TRIGGER IF NOT EXISTS edges_ai_action_relations AFTER INSERT ON action_relations BEGIN
+    INSERT OR REPLACE INTO edges(id, from_action_id, to_id, edge_type, created_at, provenance, note)
+    SELECT
+        new.from_action_id || ':' || new.to_action_id || ':' || new.relation_type,
+        new.from_action_id,
+        new.to_action_id,
+        new.relation_type,
+        COALESCE((SELECT timestamp FROM actions WHERE id = new.from_action_id), datetime('now')),
+        (SELECT commit_sha FROM actions WHERE id = new.from_action_id),
+        NULL;
+END;
+
+-- Trigger: keep edges in sync with action_relations deletes
+CREATE TRIGGER IF NOT EXISTS edges_ad_action_relations AFTER DELETE ON action_relations BEGIN
+    DELETE FROM edges WHERE id = old.from_action_id || ':' || old.to_action_id || ':' || old.relation_type;
+END;
+
+-- Trigger: integrity check for polymorphic to_id (must exist in actions or refs)
+CREATE TRIGGER IF NOT EXISTS edges_bi_check_to_id BEFORE INSERT ON edges BEGIN
+    SELECT CASE
+        WHEN (SELECT 1 FROM actions WHERE id = new.to_id) IS NULL
+         AND (SELECT 1 FROM refs WHERE id = new.to_id) IS NULL
+        THEN RAISE(ABORT, 'Foreign key integrity violation: to_id must exist in actions or refs')
+    END;
+END;
+
+-- Trigger: clean up edges when target action is deleted
+CREATE TRIGGER IF NOT EXISTS edges_ad_to_action AFTER DELETE ON actions BEGIN
+    DELETE FROM edges WHERE to_id = old.id;
+END;
+
+-- Trigger: clean up edges when target ref is deleted
+CREATE TRIGGER IF NOT EXISTS edges_ad_to_ref AFTER DELETE ON refs BEGIN
+    DELETE FROM edges WHERE to_id = old.id;
+END;
+
+-- Migrate existing action_relations into edges
+INSERT OR IGNORE INTO edges(id, from_action_id, to_id, edge_type, created_at, provenance, note)
+SELECT
+    from_action_id || ':' || to_action_id || ':' || relation_type,
+    from_action_id,
+    to_action_id,
+    relation_type,
+    COALESCE((SELECT timestamp FROM actions WHERE id = from_action_id), datetime('now')),
+    (SELECT commit_sha FROM actions WHERE id = from_action_id),
+    NULL
+FROM action_relations;
+
+UPDATE knox_meta SET value = '9' WHERE key = 'schema_version';
+
+COMMIT;";
+
+/// Applies the v9 schema update: edge table unification, polymorphic refs, edge rejections, query log, projects remote.
+fn apply_v9(conn: &Connection) -> KnoxResult<()> {
+    // Add projects.remote if missing
+    let mut stmt = conn.prepare("PRAGMA table_info(projects)")?;
+    let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let mut has_remote = false;
+    for col in cols {
+        if col.as_deref() == Ok("remote") {
+            has_remote = true;
+            break;
+        }
+    }
+    if !has_remote {
+        conn.execute_batch("ALTER TABLE projects ADD COLUMN remote TEXT;")?;
+    }
+
+    conn.execute_batch(V9_SCHEMA_SQL)?;
+
+    // Backfill projects.remote from .git/config for existing projects with NULL remote
+    let mut stmt = conn.prepare("SELECT id, path FROM projects WHERE remote IS NULL")?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for (proj_id, proj_path) in rows {
+        let clean_path = proj_path
+            .strip_prefix(r"\\?\")
+            .unwrap_or(&proj_path)
+            .trim_end_matches(['\\', '/']);
+        let p = std::path::Path::new(clean_path);
+        if p.exists() {
+            if let Some(normalized_remote) = crate::git::detect_remote(p) {
+                conn.execute(
+                    "UPDATE projects SET remote = ?1 WHERE id = ?2",
+                    rusqlite::params![normalized_remote, proj_id],
+                )?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+const V10_SCHEMA_SQL: &str = "BEGIN TRANSACTION;
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    action_id   TEXT PRIMARY KEY,
+    vector      BLOB NOT NULL,
+    dimension   INTEGER NOT NULL,
+    model       TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY (action_id) REFERENCES actions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
+
+UPDATE knox_meta SET value = '10' WHERE key = 'schema_version';
+
+COMMIT;";
+
+/// Applies the v10 schema update: adds vector embeddings table.
+fn apply_v10(conn: &Connection) -> KnoxResult<()> {
+    conn.execute_batch(V10_SCHEMA_SQL)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,11 +718,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         let version = get_schema_version(&conn).unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 10);
 
         // Re-running migrations should be idempotent
         run_migrations(&conn).unwrap();
         let version2 = get_schema_version(&conn).unwrap();
-        assert_eq!(version2, 8);
+        assert_eq!(version2, 10);
     }
 }

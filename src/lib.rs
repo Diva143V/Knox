@@ -8,5 +8,6 @@ pub mod graph;
 pub mod ingest;
 pub mod mcp;
 pub mod metrics;
+pub mod models;
 pub mod retrieval;
 pub mod storage;

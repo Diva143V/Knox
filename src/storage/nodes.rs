@@ -78,6 +78,20 @@ pub(crate) fn insert_action_conn(
 
     insert_action_files_and_tags(conn, &action.id, &action.files, &action.tags)?;
     insert_action_relations_and_symbols(conn, &action.id, &action.relations, &action.symbols)?;
+    if let Some(note) = action.resolution_note.as_deref() {
+        let now = chrono::Utc::now().to_rfc3339();
+        for rel in &action.relations {
+            if rel.relation_type == RelationType::Resolves {
+                let edge_id = format!("{}:{}:resolves", action.id, rel.target_id);
+                conn.execute(
+                    "INSERT INTO edges (id, from_action_id, to_id, edge_type, created_at, note)
+                     VALUES (?1, ?2, ?3, 'resolves', ?4, ?5)
+                     ON CONFLICT(id) DO UPDATE SET note = excluded.note",
+                    params![edge_id, action.id.as_str(), rel.target_id.as_str(), now, note],
+                )?;
+            }
+        }
+    }
     insert_action_state(conn, action)?;
     insert_guardrail_rules(conn, action)?;
 
@@ -171,25 +185,30 @@ fn insert_action_relations_and_symbols(
     let mut stmt_rel = conn.prepare_cached(
         "INSERT OR IGNORE INTO action_relations (from_action_id, to_action_id, relation_type) VALUES (?1, ?2, ?3)",
     )?;
-    let mut stmt_edge = conn.prepare_cached(
-        "INSERT OR IGNORE INTO edges (id, from_action_id, to_action_id, edge_type, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+    let mut stmt_is_action = conn.prepare_cached("SELECT 1 FROM actions WHERE id = ?1")?;
+    let mut stmt_ref_edge = conn.prepare_cached(
+        "INSERT OR IGNORE INTO edges (id, from_action_id, to_id, edge_type, created_at, provenance)
+         VALUES (?1, ?2, ?3, ?4, ?5, (SELECT commit_sha FROM actions WHERE id = ?2))",
     )?;
-    let now = Utc::now().to_rfc3339();
+    let now = chrono::Utc::now().to_rfc3339();
     for rel in relations {
-        stmt_rel.execute(params![
-            id.as_str(),
-            rel.target_id.as_str(),
-            rel.relation_type.to_string(),
-        ])?;
-        let edge_id = format!("{}:{}:{}", id, rel.target_id, rel.relation_type);
-        stmt_edge.execute(params![
-            edge_id,
-            id.as_str(),
-            rel.target_id.as_str(),
-            rel.relation_type.to_string(),
-            now,
-        ])?;
+        let is_action = stmt_is_action.exists(params![rel.target_id.as_str()])?;
+        if is_action {
+            stmt_rel.execute(params![
+                id.as_str(),
+                rel.target_id.as_str(),
+                rel.relation_type.to_string(),
+            ])?;
+        } else {
+            let edge_id = format!("{}:{}:{}", id, rel.target_id, rel.relation_type);
+            stmt_ref_edge.execute(params![
+                edge_id,
+                id.as_str(),
+                rel.target_id.as_str(),
+                rel.relation_type.to_string(),
+                now,
+            ])?;
+        }
     }
 
     let mut stmt_sym = conn.prepare_cached(
@@ -367,12 +386,15 @@ pub fn insert_project(db: &KnoxDb, project: &Project) -> KnoxResult<ProjectId> {
         .trim_end_matches(['\\', '/']);
 
     db.conn().execute(
-        "INSERT INTO projects (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT(path) DO UPDATE SET name = excluded.name",
+        "INSERT INTO projects (id, name, path, remote, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(path) DO UPDATE SET
+             name = excluded.name,
+             remote = COALESCE(excluded.remote, projects.remote)",
         params![
             project.id.as_str(),
             project.name.as_str(),
             clean_path,
+            project.remote.as_deref(),
             project.created_at.to_rfc3339()
         ],
     )?;
@@ -382,14 +404,15 @@ pub fn insert_project(db: &KnoxDb, project: &Project) -> KnoxResult<ProjectId> {
 /// Retrieves a project record by its unique identifier.
 pub fn get_project(db: &KnoxDb, id: &ProjectId) -> KnoxResult<Option<Project>> {
     let conn = db.conn();
-    let mut stmt = conn.prepare("SELECT id, name, path, created_at FROM projects WHERE id = ?1")?;
+    let mut stmt = conn.prepare("SELECT id, name, path, remote, created_at FROM projects WHERE id = ?1")?;
     let mut rows = stmt.query(params![id.as_str()])?;
 
     if let Some(row) = rows.next()? {
         let proj_id = ProjectId::from(row.get::<_, String>(0)?);
         let name: String = row.get(1)?;
         let path: String = row.get(2)?;
-        let created_at_str: String = row.get(3)?;
+        let remote: Option<String> = row.get(3)?;
+        let created_at_str: String = row.get(4)?;
         let created_at = DateTime::parse_from_rfc3339(&created_at_str)
             .map(|dt| dt.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now());
@@ -398,6 +421,7 @@ pub fn get_project(db: &KnoxDb, id: &ProjectId) -> KnoxResult<Option<Project>> {
             id: proj_id,
             name,
             path,
+            remote,
             created_at,
         }))
     } else {
@@ -415,7 +439,7 @@ pub fn get_project_by_path(db: &KnoxDb, path: &str) -> KnoxResult<Option<Project
 
     let conn = db.conn();
     let mut stmt = conn
-        .prepare("SELECT id, name, path, created_at FROM projects WHERE path = ?1 OR path = ?2")?;
+        .prepare("SELECT id, name, path, remote, created_at FROM projects WHERE path = ?1 OR path = ?2")?;
     let mut rows = stmt.query(params![clean, verbatim])?;
 
     if let Some(row) = rows.next()? {
@@ -425,7 +449,8 @@ pub fn get_project_by_path(db: &KnoxDb, path: &str) -> KnoxResult<Option<Project
         if let Some(stripped) = p.strip_prefix(r"\\?\") {
             p = stripped.to_string();
         }
-        let created_at_str: String = row.get(3)?;
+        let remote: Option<String> = row.get(3)?;
+        let created_at_str: String = row.get(4)?;
         let created_at = DateTime::parse_from_rfc3339(&created_at_str)
             .map(|dt| dt.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now());
@@ -434,6 +459,40 @@ pub fn get_project_by_path(db: &KnoxDb, path: &str) -> KnoxResult<Option<Project
             id: proj_id,
             name,
             path: p,
+            remote,
+            created_at,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Retrieves a project record by its normalized Git remote URL.
+pub fn get_project_by_remote(db: &KnoxDb, remote: &str) -> KnoxResult<Option<Project>> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, path, remote, created_at FROM projects WHERE remote = ?1 ORDER BY created_at ASC LIMIT 1",
+    )?;
+    let mut rows = stmt.query(params![remote])?;
+
+    if let Some(row) = rows.next()? {
+        let proj_id = ProjectId::from(row.get::<_, String>(0)?);
+        let name: String = row.get(1)?;
+        let mut p: String = row.get(2)?;
+        if let Some(stripped) = p.strip_prefix(r"\\?\") {
+            p = stripped.to_string();
+        }
+        let remote_val: Option<String> = row.get(3)?;
+        let created_at_str: String = row.get(4)?;
+        let created_at = DateTime::parse_from_rfc3339(&created_at_str)
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(|_| Utc::now());
+
+        Ok(Some(Project {
+            id: proj_id,
+            name,
+            path: p,
+            remote: remote_val,
             created_at,
         }))
     } else {
@@ -446,7 +505,7 @@ pub fn get_project_by_path(db: &KnoxDb, path: &str) -> KnoxResult<Option<Project
 pub fn list_projects(db: &KnoxDb) -> KnoxResult<Vec<Project>> {
     let conn = db.conn();
     let mut stmt =
-        conn.prepare("SELECT id, name, path, created_at FROM projects ORDER BY created_at ASC")?;
+        conn.prepare("SELECT id, name, path, remote, created_at FROM projects ORDER BY created_at ASC")?;
     let mut rows = stmt.query([])?;
     let mut projects = Vec::new();
 
@@ -457,7 +516,8 @@ pub fn list_projects(db: &KnoxDb) -> KnoxResult<Vec<Project>> {
         if let Some(stripped) = path.strip_prefix(r"\\?\") {
             path = stripped.to_string();
         }
-        let created_at_str: String = row.get(3)?;
+        let remote: Option<String> = row.get(3)?;
+        let created_at_str: String = row.get(4)?;
         let created_at = DateTime::parse_from_rfc3339(&created_at_str)
             .map(|dt| dt.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now());
@@ -466,6 +526,7 @@ pub fn list_projects(db: &KnoxDb) -> KnoxResult<Vec<Project>> {
             id: proj_id,
             name,
             path,
+            remote,
             created_at,
         });
     }
@@ -497,6 +558,14 @@ pub fn resolve_doubt(
             "INSERT OR IGNORE INTO action_relations (from_action_id, to_action_id, relation_type)
              VALUES (?1, ?2, ?3)",
             params![resolver_id.as_str(), doubt_id.as_str(), "resolves"],
+        )?;
+        let edge_id = format!("{}:{}:resolves", resolver_id, doubt_id);
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO edges (id, from_action_id, to_id, edge_type, created_at, note)
+             VALUES (?1, ?2, ?3, 'resolves', ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET note = excluded.note",
+            params![edge_id, resolver_id.as_str(), doubt_id.as_str(), now, resolution_note],
         )?;
     }
 
@@ -1033,12 +1102,14 @@ mod tests {
             id: ProjectId::new(),
             name: "Knox".to_string(),
             path: r"\\?\D:\Knox".to_string(),
+            remote: None,
             created_at: Utc::now(),
         };
         let proj2 = Project {
             id: ProjectId::new(),
             name: "hongli".to_string(),
             path: r"D:\hongli".to_string(),
+            remote: None,
             created_at: Utc::now(),
         };
 

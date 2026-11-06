@@ -26,7 +26,7 @@ pub fn cmd_init(project_path: &Path, config: &KnoxConfig) -> KnoxResult<()> {
     let db_path = determine_db_path(&resolved_path, config)?;
     let db = KnoxDb::open(&db_path)?;
 
-    let project = ensure_project_record(&db, &project_name, &canonical_str)?;
+    let project = ensure_project_record(&db, &project_name, &canonical_str, &resolved_path)?;
     let knox_md_path = resolved_path.join("knox.md");
     write_knox_md(&knox_md_path, &project, &db_path)?;
     ensure_gitignore(&resolved_path)?;
@@ -65,27 +65,8 @@ pub fn register_workspace(project_path: &Path) -> KnoxResult<()> {
     let resolved_path = resolve_project_path(project_path);
     let name = extract_project_name(&resolved_path);
     let root = resolved_path.to_string_lossy().to_string();
-    let remote = git_remote(&resolved_path);
+    let remote = crate::git::detect_remote(&resolved_path);
     crate::storage::registry::register_project(&root, &name, remote.as_deref())
-}
-
-/// Reads `remote.origin.url` for the project, when it is a git repository.
-fn git_remote(project_path: &Path) -> Option<String> {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(project_path)
-        .args(["config", "--get", "remote.origin.url"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let remote = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if remote.is_empty() {
-        None
-    } else {
-        Some(remote)
-    }
 }
 
 /// Resolves path to canonical form if it exists, or normalized absolute path.
@@ -124,15 +105,32 @@ fn ensure_project_record(
     db: &KnoxDb,
     project_name: &str,
     canonical_path: &str,
+    project_path: &Path,
 ) -> KnoxResult<Project> {
-    if let Some(existing) = get_project_by_path(db, canonical_path)? {
+    let remote = crate::git::detect_remote(project_path);
+
+    // 1. If project has a remote, check if another clone of this repository already exists
+    if let Some(ref rem) = remote {
+        if let Some(existing) = crate::storage::nodes::get_project_by_remote(db, rem)? {
+            return Ok(existing);
+        }
+    }
+
+    // 2. Check if a project record already exists for this exact path
+    if let Some(mut existing) = get_project_by_path(db, canonical_path)? {
+        if existing.remote.is_none() && remote.is_some() {
+            existing.remote = remote;
+            insert_project(db, &existing)?;
+        }
         return Ok(existing);
     }
 
+    // 3. Create a new project record with normalized remote
     let project = Project {
         id: ProjectId::new(),
         name: project_name.to_string(),
         path: canonical_path.to_string(),
+        remote,
         created_at: Utc::now(),
     };
 
@@ -149,6 +147,10 @@ pub fn render_knox_md(project_id: &str, kg_path: &str, created_at: &str) -> Stri
 
 /// Renders the YAML configuration frontmatter block for `knox.md`.
 fn render_knox_config_header(project_id: &str, kg_path: &str, created_at: &str) -> String {
+    let tools_yaml = crate::mcp::tools::LISTED_TOOL_NAMES
+        .iter()
+        .map(|name| format!("  - {name}\n"))
+        .collect::<String>();
     format!(
         "<!-- knox:config\n\
 project_id: \"{project_id}\"\n\
@@ -156,27 +158,7 @@ kg_path: \"{kg_path}\"\n\
 mcp_server: \"knox serve --stdio\"\n\
 mcp_transport: \"stdio\"\n\
 tools_registered:\n\
-  - knox_start_session\n\
-  - knox_end_session\n\
-  - knox_record_action\n\
-  - knox_record_decision\n\
-  - knox_record_doubt\n\
-  - knox_resolve_doubt\n\
-  - knox_record_batch\n\
-  - knox_update_action\n\
-  - knox_get_context\n\
-  - knox_get_history\n\
-  - knox_get_lineage\n\
-  - knox_get_impact\n\
-  - knox_get_path\n\
-  - knox_check_guardrails\n\
-  - knox_search\n\
-  - knox_list_stale\n\
-  - knox_scan_staged\n\
-  - knox_ingest\n\
-  - knox_diff_inspect\n\
-  - knox_blame_causal\n\
-  - knox_verify_drift\n\
+{tools_yaml}\
 resources_available:\n\
   - knox://project/overview\n\
   - knox://decisions/active\n\
@@ -185,7 +167,7 @@ prompts_available:\n\
   - architectural-audit\n\
   - session-handover\n\
 created_at: \"{created_at}\"\n\
-knox_version: \"1.2.1\"\n\
+knox_version: \"2.0.0\"\n\
 -->\n\n"
     )
 }
@@ -205,8 +187,8 @@ fn render_knox_protocol_body() -> &'static str {
 2. **Append-Only Immutability**: Historical records are never deleted. When an approach or architecture changes, supersede the previous decision (`supersedes: "<old_action_id>"`).
 3. **Causal Lineage & Semantic Graph**: Connect actions into directed graphs using `parent_action_id` and first-class `relations` (`depends_on`, `implements`, `verifies`, `relates_to`, `reverts`).
 4. **Explicit Edge Attribution**: Identify your agent in `actor` (e.g., `gemini`, `cursor`, `claude`, `codex`, `human`).
-5. **Decisions are First-Class Citizens**: Architectural decisions (`knox_record_decision`) carry the highest weight in the graph. Always document rationale, symbols touched, and rejected alternatives.
-6. **Continuous Cognitive Memory & Doubts**: Record user conversations, uncertainties, and questions as `doubt` actions (`knox_record_doubt`). Capture micro-decisions and implementation assumptions with `significance: "minor"`. When a doubt is verified or resolved, close the cognitive loop using `knox_resolve_doubt` linking the answering decision or commit.
+5. **Decisions are First-Class Citizens**: Architectural decisions (recorded via `knox_record` with kind `decide`) carry the highest weight in the graph. Always document rationale, symbols touched, and rejected alternatives.
+6. **Continuous Cognitive Memory & Doubts**: Record user conversations, uncertainties, and questions as `doubt` entries via `knox_record`. Capture micro-decisions and implementation assumptions with `significance: "minor"`. When a doubt is verified or resolved, close the cognitive loop using `knox_record` with resolving links.
 
 ---
 
@@ -360,14 +342,24 @@ mod tests {
         let rendered = render_knox_md("test-proj-id", "~/.knox/knox.db", "2026-10-29T18:00:00Z");
         assert!(rendered.contains("project_id: \"test-proj-id\""));
         assert!(rendered.contains("kg_path: \"~/.knox/knox.db\""));
-        assert!(rendered.contains("knox_start_session"));
-        assert!(rendered.contains("knox_end_session"));
-        assert!(rendered.contains("knox_scan_staged"));
         assert!(rendered.contains("MANDATORY PROTOCOL"));
-        assert!(rendered.contains("knox_record_decision"));
-        assert!(rendered.contains("knox_record_doubt"));
-        assert!(rendered.contains("knox_resolve_doubt"));
-        assert!(rendered.contains("knox_ingest"));
+        assert!(rendered.contains("knox_version: \"2.0.0\""));
+
+        // All six advertised tools must be present
+        for tool_name in crate::mcp::tools::LISTED_TOOL_NAMES {
+            assert!(
+                rendered.contains(tool_name),
+                "knox.md missing listed tool: {tool_name}"
+            );
+        }
+
+        // Retired tools must not be registered
+        assert!(!rendered.contains("knox_start_session"));
+        assert!(!rendered.contains("knox_end_session"));
+        assert!(!rendered.contains("knox_scan_staged"));
+        assert!(!rendered.contains("knox_check_guardrails"));
+        assert!(!rendered.contains("knox_diff_inspect"));
+        assert!(!rendered.contains("knox_verify_drift"));
     }
 
     #[test]
@@ -381,6 +373,8 @@ mod tests {
             kg_path: db_file,
             session_timeout: std::time::Duration::from_secs(1800),
             global_mode: true,
+            transcript_path: None,
+            ..Default::default()
         };
 
         cmd_init(&project_dir, &config).unwrap();

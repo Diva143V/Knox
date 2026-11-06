@@ -16,11 +16,17 @@ use crate::storage::db::KnoxDb;
 /// `proposed_action`, renders the guardrail report as Markdown, and truncates
 /// it to the caller's token budget (default 600).
 pub fn cmd_check(db: &KnoxDb, mut params: Value) -> KnoxResult<Value> {
+    let start_instant = std::time::Instant::now();
     let budget = params
         .as_object()
         .and_then(|o| o.get("budget"))
         .and_then(Value::as_u64)
         .unwrap_or(DEFAULT_CHECK_BUDGET as u64) as usize;
+
+    let project = params
+        .get("project")
+        .and_then(Value::as_str)
+        .map(String::from);
 
     if let Value::Object(ref mut object) = params {
         let files = object
@@ -59,7 +65,24 @@ pub fn cmd_check(db: &KnoxDb, mut params: Value) -> KnoxResult<Value> {
         .unwrap_or("");
     let (md, budget_used, truncated) = truncate_to_budget(markdown, budget);
 
-    Ok(json!({
+    let reason = result.get("reason").and_then(Value::as_str);
+
+    let latency_ms = start_instant.elapsed().as_millis() as u64;
+    let _ = crate::storage::record_query_log(
+        db,
+        &crate::core::types::QueryLogEntry {
+            id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
+            ts_ms: chrono::Utc::now().timestamp_millis(),
+            tool: "knox_check".to_string(),
+            project_id: project,
+            rows: result.get("decision_count").and_then(Value::as_u64).unwrap_or(0) as usize,
+            tokens: budget_used,
+            latency_ms,
+            reason: reason.map(String::from),
+        },
+    );
+
+    let mut response = json!({
         "pass": result.get("pass"),
         "violations_count": result.get("violations_count"),
         "violations": result.get("violations"),
@@ -75,7 +98,12 @@ pub fn cmd_check(db: &KnoxDb, mut params: Value) -> KnoxResult<Value> {
         "budget": budget,
         "budget_used": budget_used,
         "truncated": truncated,
-    }))
+    });
+    if let Some(r) = reason {
+        response["reason"] = json!(r);
+    }
+
+    Ok(response)
 }
 
 #[cfg(test)]

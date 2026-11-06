@@ -4,8 +4,18 @@ use crate::core::types::KnoxAction;
 
 /// Formats one compact, information-dense line per action.
 pub fn format_compact_digest(actions: &[KnoxAction]) -> String {
+    format_compact_digest_with_reason(actions, None)
+}
+
+/// Formats one compact, information-dense line per action with an honest empty reason.
+pub fn format_compact_digest_with_reason(actions: &[KnoxAction], reason: Option<&str>) -> String {
     if actions.is_empty() {
-        return "No matching Knox context.".to_string();
+        return match reason {
+            Some("no_records") => "No actions recorded in Knox yet (reason: no_records).".to_string(),
+            Some("out_of_scope") => "Target is out of project scope (reason: out_of_scope).".to_string(),
+            Some("no_match") | None => "No matching Knox context (reason: no_match).".to_string(),
+            Some(other) => format!("No matching Knox context (reason: {other})."),
+        };
     }
 
     actions
@@ -29,15 +39,36 @@ pub fn format_compact_digest(actions: &[KnoxAction]) -> String {
 
 /// Formats a list of `KnoxAction` records into a token-dense, agent-readable Markdown digest.
 ///
-/// Reduces token usage by ~70-80% compared to verbose pretty-printed JSON while highlighting
+/// Reduces token usage compared to verbose pretty-printed JSON while highlighting
 /// architectural decisions, constraints, and causal relationships.
 pub fn format_markdown_digest(title: &str, actions: &[KnoxAction], synthesis: bool) -> String {
+    format_markdown_digest_with_reason(title, actions, synthesis, None)
+}
+
+/// Formats a list of `KnoxAction` records into a Markdown digest with honest empty reason feedback.
+pub fn format_markdown_digest_with_reason(
+    title: &str,
+    actions: &[KnoxAction],
+    synthesis: bool,
+    reason: Option<&str>,
+) -> String {
     if actions.is_empty() {
-        return format!("### {title}\n*No matching actions recorded in Knox.*");
+        return match reason {
+            Some("no_records") => format!(
+                "### {title}\n*No actions recorded in Knox for this project yet (reason: no_records). Proceed with your task and record significant actions.*"
+            ),
+            Some("out_of_scope") => format!(
+                "### {title}\n*Requested target is out of project scope (reason: out_of_scope). Check your workspace or file parameters.*"
+            ),
+            Some("no_match") | None => format!(
+                "### {title}\n*No matching actions recorded in Knox (reason: no_match). Consider broadening your search or scope.*"
+            ),
+            Some(other) => format!("### {title}\n*No matching actions recorded in Knox (reason: {other}).*"),
+        };
     }
 
     if synthesis {
-        format_synthesized_digest(title, actions)
+        format_grouped_digest(title, actions)
     } else {
         format_linear_digest(title, actions)
     }
@@ -143,10 +174,11 @@ fn format_linear_digest(title: &str, actions: &[KnoxAction]) -> String {
     out
 }
 
-/// Formats actions grouped into semantic categories: Active Decisions, Touched Symbols, and Recent Actions.
-fn format_synthesized_digest(title: &str, actions: &[KnoxAction]) -> String {
+/// Formats actions grouped into four semantic categories: Open Doubts & Unresolved Questions,
+/// Architectural Decisions & Constraints, Touched Symbols & Deltas, and Recent Engineering Actions.
+fn format_grouped_digest(title: &str, actions: &[KnoxAction]) -> String {
     let mut out = String::with_capacity(1500);
-    out.push_str(&format!("### {title} — Synthesized Context\n\n"));
+    out.push_str(&format!("### {title} — Grouped Context\n\n"));
 
     let open_doubts: Vec<&KnoxAction> = actions
         .iter()
@@ -251,7 +283,26 @@ fn format_synthesized_digest(title: &str, actions: &[KnoxAction]) -> String {
         out.push('\n');
     }
 
-    // 4. Other actions summary
+    // 4. Semantic Relations & Lineage
+    let mut related_items = Vec::new();
+    for a in actions {
+        for rel in &a.relations {
+            related_items.push(format!("- [{}] {} [{}]", a.id, rel.relation_type, rel.target_id));
+        }
+        if let Some(ref parent) = a.parent_action_id {
+            related_items.push(format!("- [{}] caused_by [{parent}]", a.id));
+        }
+    }
+    if !related_items.is_empty() {
+        out.push_str("#### 4. Related Actions & Graph Lineage\n");
+        for item in &related_items {
+            out.push_str(item);
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
+    // 5. Other actions summary
     if !other.is_empty() {
         out.push_str(&format!(
             "*+ {} other actions (debug/plan/read)*\n",
@@ -264,8 +315,21 @@ fn format_synthesized_digest(title: &str, actions: &[KnoxAction]) -> String {
 
 /// Formats a causal chain into an indented tree showing root plan down to leaf execution.
 pub fn format_lineage_markdown(target_label: &str, chain: &[KnoxAction]) -> String {
+    format_lineage_markdown_with_reason(target_label, chain, None)
+}
+
+/// Formats a causal chain with explicit empty reason feedback when no lineage exists.
+pub fn format_lineage_markdown_with_reason(
+    target_label: &str,
+    chain: &[KnoxAction],
+    reason: Option<&str>,
+) -> String {
     if chain.is_empty() {
-        return format!("### Causal Lineage for `{target_label}`\n*No causal parent chain found.*");
+        if let Some(r) = reason {
+            return format!("### Causal Lineage for `{target_label}`\n*No causal parent chain found (reason: {r}).*");
+        } else {
+            return format!("### Causal Lineage for `{target_label}`\n*No causal parent chain found.*");
+        }
     }
 
     let mut out = String::with_capacity(1024);
@@ -308,6 +372,25 @@ pub fn format_guardrails_markdown(
     violations: &[String],
     open_doubts: &[KnoxAction],
 ) -> String {
+    format_guardrails_markdown_with_reason(
+        files,
+        active_decisions,
+        stale_decisions,
+        violations,
+        open_doubts,
+        None,
+    )
+}
+
+/// Formats guardrails with explicit empty reason feedback when no constraints are matched.
+pub fn format_guardrails_markdown_with_reason(
+    files: &[String],
+    active_decisions: &[KnoxAction],
+    stale_decisions: &[KnoxAction],
+    violations: &[String],
+    open_doubts: &[KnoxAction],
+    reason: Option<&str>,
+) -> String {
     let mut out = String::with_capacity(1024);
     out.push_str(&format!(
         "### Knox Pre-Flight Guardrails ({} target files)\n\n",
@@ -347,7 +430,11 @@ pub fn format_guardrails_markdown(
         && violations.is_empty()
         && open_doubts.is_empty()
     {
-        out.push_str("✅ *No restrictive architectural constraints or warnings found for these files. Proceed with standard implementation.*\n");
+        if let Some(r) = reason {
+            out.push_str(&format!("✅ *No restrictive architectural constraints or warnings found for these files (reason: {r}). Proceed with standard implementation.*\n"));
+        } else {
+            out.push_str("✅ *No restrictive architectural constraints or warnings found for these files. Proceed with standard implementation.*\n");
+        }
         return out;
     }
 

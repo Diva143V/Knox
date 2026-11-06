@@ -2,6 +2,7 @@
 //!
 //! Only the six high-level workflow handlers are exposed.
 
+pub mod ask;
 pub mod begin;
 pub mod check;
 pub mod check_guardrails;
@@ -13,8 +14,10 @@ pub mod trace;
 pub mod prompts;
 pub mod resources;
 
+pub use ask::handle_ask;
 pub use begin::handle_begin;
 pub use check::handle_check;
+pub use check_guardrails::match_rejected_alternative_threshold;
 pub use get_context::handle_context;
 pub use handoff::handle_handoff;
 pub use record::handle_record;
@@ -87,6 +90,7 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         "knox_check" => handle_check(db, params),
         "knox_trace" => handle_trace(db, params),
         "knox_record" => handle_record(db, params),
+        "knox_ask" => handle_ask(db, params),
         _ => Err(KnoxError::InvalidInput(format!("Unknown tool: {name}"))),
     }?;
     Ok(result)
@@ -105,11 +109,13 @@ Knox is an external long-term memory graph for AI coding agents. Use it instead 
 Mandatory protocol:
 1. Start every turn with knox_begin to resume the session and receive budgeted context.
 2. Pre-flight: call knox_check with the files you are about to touch (and any symbols) to read active decisions, open doubts and superseded anti-patterns before editing.
-3. During work: call knox_record once per turn with every decision, doubt and code change. Include files, symbols, why, and relations; give each entry a ref when another entry in the same call points at it.
-4. Navigation: use knox_trace to trace why code exists before refactoring.
-5. End the turn with knox_handoff to close the session and produce the digest the next session resumes from.
+3. Context retrieval: call knox_context to retrieve token-budgeted engineering context for specific files, symbols, queries, or views.
+4. During work: call knox_record once per turn with every decision, doubt and code change. Include files, symbols, why, and relations; give each entry a ref when another entry in the same call points at it.
+5. Navigation: use knox_trace to trace why code exists before refactoring.
+6. End the turn with knox_handoff to close the session and produce the digest the next session resumes from.
+7. Grounded Q&A: call knox_ask to answer architectural questions using grounded project memory with verified citations.
 
-Never delete history; append and supersede. Identify yourself in actor (for example gemini, cursor, claude, codex, human). Use only the six tools above.";
+Never delete history; append and supersede. Identify yourself in actor (for example gemini, cursor, claude, codex, human). Use only the canonical tools above.";
 
 /// Negotiates the protocol revision, echoing a supported client request.
 fn negotiate_protocol_version(params: &Value) -> String {

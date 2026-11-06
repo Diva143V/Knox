@@ -141,20 +141,7 @@ pub fn cmd_export<W: Write>(
 }
 
 /// Reads a JSONL export and writes it into `db`.
-pub fn cmd_import<R: Read>(db: &KnoxDb, reader: R) -> KnoxResult<TransferReport> {
-    let lines = BufReader::new(reader).lines();
-    let mut records: Vec<Value> = Vec::new();
-    for line in lines {
-        let line = line?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let value: Value = serde_json::from_str(trimmed)
-            .map_err(|e| KnoxError::InvalidInput(format!("invalid JSONL record at import: {e}")))?;
-        records.push(value);
-    }
-
+pub fn cmd_import<R: Read>(db: &KnoxDb, mut reader: R) -> KnoxResult<TransferReport> {
     db.with_tx(|conn| {
         // Actions can reference parents and relation targets that appear later
         // in the file; defer foreign-key checks until the whole file is in.
@@ -163,16 +150,25 @@ pub fn cmd_import<R: Read>(db: &KnoxDb, reader: R) -> KnoxResult<TransferReport>
         let mut report = TransferReport::default();
         let mut seen_actions: HashSet<String> = HashSet::new();
 
-        for record in &records {
+        let lines = BufReader::new(&mut reader).lines();
+        for line in lines {
+            let line = line?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let record: Value = serde_json::from_str(trimmed)
+                .map_err(|e| KnoxError::InvalidInput(format!("invalid JSONL record at import: {e}")))?;
+
             match record
                 .get("type")
                 .and_then(Value::as_str)
                 .unwrap_or("action")
             {
                 "project" => {
-                    let id = required_str(record, "id")?;
-                    let name = required_str(record, "name")?;
-                    let path = required_str(record, "path")?;
+                    let id = required_str(&record, "id")?;
+                    let name = required_str(&record, "name")?;
+                    let path = required_str(&record, "path")?;
                     let created_at = record
                         .get("created_at")
                         .and_then(Value::as_str)
@@ -189,9 +185,9 @@ pub fn cmd_import<R: Read>(db: &KnoxDb, reader: R) -> KnoxResult<TransferReport>
                     }
                 }
                 "session" => {
-                    let id = required_str(record, "id")?;
-                    let actor = required_str(record, "actor")?;
-                    let started_at = required_str(record, "started_at")?;
+                    let id = required_str(&record, "id")?;
+                    let actor = required_str(&record, "actor")?;
+                    let started_at = required_str(&record, "started_at")?;
                     let project_id = record.get("project_id").and_then(Value::as_str);
                     let ended_at = record.get("ended_at").and_then(Value::as_str);
                     let is_open = record
@@ -221,7 +217,7 @@ pub fn cmd_import<R: Read>(db: &KnoxDb, reader: R) -> KnoxResult<TransferReport>
                     let action_value = record
                         .get("action")
                         .cloned()
-                        .unwrap_or_else(|| record.clone());
+                        .unwrap_or(record);
                     let action: KnoxAction =
                         serde_json::from_value(action_value).map_err(KnoxError::Json)?;
                     let id = action.id.to_string();
@@ -288,6 +284,7 @@ mod tests {
             id: ProjectId::new(),
             name: "demo".to_string(),
             path: "/work/demo".to_string(),
+            remote: None,
             created_at: Utc::now(),
         };
         insert_project(db, &project).unwrap();

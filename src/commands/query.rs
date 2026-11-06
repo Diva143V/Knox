@@ -37,35 +37,53 @@ pub fn cmd_query(
     db: &KnoxDb,
     _graph: Option<&KnoxGraph>,
 ) -> KnoxResult<QueryResult> {
+    let start_instant = std::time::Instant::now();
     let trimmed = pattern.trim();
 
-    if let Some(filter) = parse_prefix_filter(trimmed) {
-        return query_actions(db, &filter);
-    }
-
-    if is_file_pattern(trimmed) {
+    let res = if let Some(filter) = parse_prefix_filter(trimmed) {
+        query_actions(db, &filter)?
+    } else if is_file_pattern(trimmed) {
         let filter = QueryFilter {
             file_path: Some(trimmed.to_string()),
             ..Default::default()
         };
-        return query_actions(db, &filter);
-    }
-
-    let fts_results = search_actions(db, trimmed, 20)?;
-    if !fts_results.is_empty() {
-        let count = fts_results.len();
-        return Ok(QueryResult {
-            results: fts_results,
-            total_count: count,
-            has_more: false,
-        });
-    }
-
-    let filter = QueryFilter {
-        file_path: Some(trimmed.to_string()),
-        ..Default::default()
+        query_actions(db, &filter)?
+    } else {
+        let fts_results = search_actions(db, trimmed, 20)?;
+        if !fts_results.is_empty() {
+            let count = fts_results.len();
+            QueryResult {
+                results: fts_results,
+                total_count: count,
+                has_more: false,
+                reason: None,
+                next: None,
+            }
+        } else {
+            let filter = QueryFilter {
+                file_path: Some(trimmed.to_string()),
+                ..Default::default()
+            };
+            query_actions(db, &filter)?
+        }
     };
-    query_actions(db, &filter)
+
+    let latency_ms = start_instant.elapsed().as_millis() as u64;
+    let _ = crate::storage::record_query_log(
+        db,
+        &crate::core::types::QueryLogEntry {
+            id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
+            ts_ms: chrono::Utc::now().timestamp_millis(),
+            tool: "knox_query".to_string(),
+            project_id: None,
+            rows: res.results.len(),
+            tokens: 0,
+            latency_ms,
+            reason: res.reason.clone(),
+        },
+    );
+
+    Ok(res)
 }
 
 /// Determines whether a search string resembles a file path.

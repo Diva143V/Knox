@@ -29,6 +29,7 @@ const MAX_WARNINGS: usize = 5;
 pub struct RecordParams {
     pub actor: String,
     /// Project scope (required — cross-project writes are rejected).
+    #[serde(default, alias = "workspace")]
     pub project: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
@@ -42,7 +43,7 @@ pub struct RecordParams {
 /// A single action entry within a `knox_record` request.
 #[derive(Debug, Deserialize)]
 pub struct RecordEntry {
-    #[serde(default)]
+    #[serde(default, alias = "type")]
     pub kind: Option<String>,
     #[serde(default)]
     pub action_type: Option<String>,
@@ -69,7 +70,7 @@ pub struct RecordEntry {
     pub supersedes: Option<String>,
     #[serde(default)]
     pub relations: Vec<RecordRelation>,
-    #[serde(default)]
+    #[serde(default, alias = "alternatives")]
     pub rejected_alternatives: Vec<String>,
     #[serde(default)]
     pub context_summary: Option<String>,
@@ -234,6 +235,7 @@ fn find_dedupe_candidate(
     conn: &rusqlite::Connection,
     action: &KnoxAction,
     dedupe_key: &str,
+    router: Option<&crate::models::router::ModelRouter>,
 ) -> KnoxResult<Option<ActionId>> {
     let cutoff = (Utc::now() - DEDUPE_WINDOW).timestamp_millis();
 
@@ -281,6 +283,8 @@ fn find_dedupe_candidate(
         .collect::<Result<Vec<_>, _>>()?;
 
     let candidate_tokens = dedupe_tokens(action);
+    let candidate_vec = router.and_then(|r| if r.is_enabled() { r.embed(&action.summary).ok() } else { None });
+
     for (id, summary, existing_key, existing_alternatives) in candidates {
         // Decisions are only duplicates when they reject the same alternatives;
         // otherwise the new entry may be adding a guardrail rule.
@@ -303,6 +307,20 @@ fn find_dedupe_candidate(
         };
         if jaccard(&candidate_tokens, &dedupe_tokens(&other)) >= NEAR_DUPLICATE_JACCARD {
             return Ok(Some(ActionId::from(id)));
+        }
+
+        // Semantic embedding similarity check when models are enabled
+        if let Some(ref cand_vec) = candidate_vec {
+            let mut emb_stmt = conn.prepare("SELECT vector FROM embeddings WHERE action_id = ?1")?;
+            let mut emb_rows = emb_stmt.query(params![id.as_str()])?;
+            if let Some(row) = emb_rows.next()? {
+                let blob: Vec<u8> = row.get(0)?;
+                let existing_vec = crate::storage::embeddings::blob_to_vector(&blob);
+                let sim = crate::storage::embeddings::cosine_similarity(cand_vec, &existing_vec);
+                if sim >= 0.88 {
+                    return Ok(Some(ActionId::from(id)));
+                }
+            }
         }
     }
     Ok(None)
@@ -339,6 +357,7 @@ fn would_cycle(
 fn resolve_target_project(
     conn: &rusqlite::Connection,
     target: &ActionId,
+    current_project: Option<&ProjectId>,
 ) -> KnoxResult<Option<Option<String>>> {
     let project: Option<Option<String>> = conn
         .query_row(
@@ -347,7 +366,38 @@ fn resolve_target_project(
             |row| row.get(0),
         )
         .optional()?;
-    Ok(project)
+    if let Some(p) = project {
+        return Ok(Some(p));
+    }
+
+    // Check refs table
+    let ref_project: Option<Option<String>> = conn
+        .query_row(
+            "SELECT project_id FROM refs WHERE id = ?1",
+            params![target.as_str()],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(p) = ref_project {
+        return Ok(Some(p));
+    }
+
+    // If target has a ref prefix (e.g. "file:src/db.rs"), auto-register in refs
+    let target_str = target.as_str();
+    if let Some((kind, val)) = target_str.split_once(':') {
+        if matches!(kind, "file" | "symbol" | "commit" | "doc" | "url" | "ref") && !val.is_empty() {
+            let now = Utc::now().to_rfc3339();
+            let proj_str = current_project.map(|p| p.as_str());
+            conn.execute(
+                "INSERT OR IGNORE INTO refs (id, kind, value, project_id, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![target_str, kind, val, proj_str, now],
+            )?;
+            return Ok(Some(proj_str.map(|s| s.to_string())));
+        }
+    }
+
+    Ok(None)
 }
 
 /// Rewrites parent, supersession and relation targets through a dedupe map.
@@ -617,6 +667,12 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         previous_id = Some(id);
     }
 
+    // Precompute local action types for direction validation without re-borrowing `prepared`.
+    let local_types: HashMap<ActionId, String> = prepared
+        .iter()
+        .map(|p| (p.action.id.clone(), p.action.action_type.clone()))
+        .collect();
+
     // Second pass: resolve semantic relations and supersession now that every
     // local ref exists.
     for (entry_index, prepared_entry) in prepared.iter_mut().enumerate() {
@@ -640,7 +696,7 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
                 .unwrap_or_else(|| ActionId::from(record_ref_key(raw_target)));
             let is_local = local_ids.values().any(|candidate| candidate == &target);
             if !is_local {
-                match resolve_target_project(db.conn(), &target)? {
+                match resolve_target_project(db.conn(), &target, project_id.as_ref())? {
                     Some(target_project) => {
                         if let (Some(current_project), Some(target_project)) =
                             (project_id.as_ref(), target_project.as_ref())
@@ -659,12 +715,106 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
                     }
                 }
             }
-            let relation_type = relation
-                .relation_type
-                .as_deref()
-                .unwrap_or("relates_to")
-                .parse::<RelationType>()
-                .unwrap_or(RelationType::RelatesTo);
+
+            let raw_type = relation.relation_type.as_deref().unwrap_or("relates_to");
+            let relation_type = match raw_type.parse::<RelationType>() {
+                Ok(rt) => rt,
+                Err(_) => {
+                    let reason = format!(
+                        "Unknown relation type '{raw_type}'. Allowed types: 'caused_by', 'implements', 'resolves', 'verifies', 'depends_on', 'relates_to', 'contradicts', 'supersedes', 'reverts'."
+                    );
+                    let _ = crate::storage::edges::record_edge_rejection(
+                        db,
+                        project_id.as_ref().map(|p| p.as_str()),
+                        Some(prepared_entry.action.id.as_str()),
+                        Some(target.as_str()),
+                        raw_type,
+                        &reason,
+                    );
+                    return Err(KnoxError::InvalidRelation(reason));
+                }
+            };
+
+            // Direction validator per type (Task B6)
+            let source_type = prepared_entry.action.action_type.as_str();
+            let target_type_opt: Option<String> = if is_local {
+                local_types.get(&target).cloned()
+            } else {
+                db.conn()
+                    .query_row(
+                        "SELECT action_type FROM actions WHERE id = ?1",
+                        params![target.as_str()],
+                        |r| r.get(0),
+                    )
+                    .optional()?
+            };
+
+            match relation_type {
+                RelationType::Implements => {
+                    if matches!(source_type, "decide" | "plan") {
+                        let reason = format!(
+                            "Invalid relation direction for 'implements': a {source_type} cannot implement another action. Code actions ('write', 'debug') implement decisions ('decide'). Reverse the relation or use 'caused_by'."
+                        );
+                        let _ = crate::storage::edges::record_edge_rejection(
+                            db,
+                            project_id.as_ref().map(|p| p.as_str()),
+                            Some(prepared_entry.action.id.as_str()),
+                            Some(target.as_str()),
+                            "implements",
+                            &reason,
+                        );
+                        return Err(KnoxError::InvalidRelation(reason));
+                    }
+                }
+                RelationType::Resolves => {
+                    if source_type == "doubt" {
+                        let reason = "Invalid relation direction for 'resolves': a doubt cannot resolve an action. Actions ('write', 'decide') resolve doubts ('doubt'). Reverse the relation.".to_string();
+                        let _ = crate::storage::edges::record_edge_rejection(
+                            db,
+                            project_id.as_ref().map(|p| p.as_str()),
+                            Some(prepared_entry.action.id.as_str()),
+                            Some(target.as_str()),
+                            "resolves",
+                            &reason,
+                        );
+                        return Err(KnoxError::InvalidRelation(reason));
+                    }
+                    if let Some(ref target_type) = target_type_opt {
+                        if target_type != "doubt" {
+                            let reason = format!(
+                                "Invalid relation target for 'resolves': 'resolves' must target a doubt, but target '{target}' has kind '{target_type}'."
+                            );
+                            let _ = crate::storage::edges::record_edge_rejection(
+                                db,
+                                project_id.as_ref().map(|p| p.as_str()),
+                                Some(prepared_entry.action.id.as_str()),
+                                Some(target.as_str()),
+                                "resolves",
+                                &reason,
+                            );
+                            return Err(KnoxError::InvalidRelation(reason));
+                        }
+                    }
+                }
+                RelationType::Verifies => {
+                    if matches!(source_type, "decide" | "plan") {
+                        let reason = format!(
+                            "Invalid relation direction for 'verifies': a {source_type} cannot verify an implementation action. Testing or verification actions verify plans or decisions."
+                        );
+                        let _ = crate::storage::edges::record_edge_rejection(
+                            db,
+                            project_id.as_ref().map(|p| p.as_str()),
+                            Some(prepared_entry.action.id.as_str()),
+                            Some(target.as_str()),
+                            "verifies",
+                            &reason,
+                        );
+                        return Err(KnoxError::InvalidRelation(reason));
+                    }
+                }
+                _ => {}
+            }
+
             relations.push(ActionRelation {
                 target_id: target,
                 relation_type,
@@ -677,6 +827,8 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 
     let dry_run = input.dry_run;
     let idem = input.idem.clone();
+    let config = crate::core::config::KnoxConfig::from_env();
+    let router = crate::models::router::ModelRouter::from_config(&config);
 
     let outcome = db.with_tx(|conn| {
         let mut recorded = Vec::with_capacity(prepared.len());
@@ -688,7 +840,7 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             let mut action = entry.action.clone();
             remap_action_refs(&mut action, &id_remap);
 
-            if let Some(existing) = find_dedupe_candidate(conn, &action, &entry.dedupe_key)? {
+            if let Some(existing) = find_dedupe_candidate(conn, &action, &entry.dedupe_key, Some(&router))? {
                 if !dry_run {
                     conn.execute(
                         "UPDATE actions
@@ -709,6 +861,16 @@ pub fn cmd_record(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 
             if !dry_run {
                 crate::storage::nodes::insert_action_conn(conn, &action)?;
+                if router.is_enabled() {
+                    if let Ok(vec) = router.embed(&action.summary) {
+                        let _ = crate::storage::embeddings::insert_embedding_conn(
+                            conn,
+                            &action.id,
+                            &vec,
+                            &router.profile.embedding_model,
+                        );
+                    }
+                }
             }
             recorded.push(RecordedEntry {
                 id: entry.action.id.clone(),
@@ -1081,6 +1243,7 @@ mod tests {
                     id: ProjectId::new(),
                     name: name.to_string(),
                     path: path.to_string(),
+                    remote: None,
                     created_at: Utc::now(),
                 },
             )
@@ -1118,5 +1281,113 @@ mod tests {
             }),
         );
         assert!(matches!(result, Err(KnoxError::CrossProject(_))));
+    }
+
+    #[test]
+    fn test_reversed_implements_is_rejected_and_logged() {
+        let db = KnoxDb::open_memory().unwrap();
+        let res = record(
+            &db,
+            json!([
+                {"ref": "code", "kind": "write", "summary": "Wrote backend database module"},
+                {
+                    "ref": "dec",
+                    "kind": "decide",
+                    "summary": "Decided on SQLite",
+                    "relations": [{"to": "code", "relation_type": "implements"}]
+                }
+            ]),
+        );
+        assert!(matches!(res, Err(KnoxError::InvalidRelation(_))));
+        if let Err(KnoxError::InvalidRelation(msg)) = res {
+            assert!(msg.contains("cannot implement another action"));
+        }
+
+        let rejections = crate::storage::edges::get_edge_rejections(&db, 10).unwrap();
+        assert_eq!(rejections.len(), 1);
+        assert_eq!(rejections[0].attempted_type, "implements");
+        assert!(rejections[0].reason.contains("cannot implement another action"));
+    }
+
+    #[test]
+    fn test_reversed_resolves_is_rejected_and_logged() {
+        let db = KnoxDb::open_memory().unwrap();
+        let res = record(
+            &db,
+            json!([
+                {"ref": "code", "kind": "write", "summary": "Wrote backend database module"},
+                {
+                    "ref": "d",
+                    "kind": "doubt",
+                    "summary": "Is SQLite fast enough?",
+                    "relations": [{"to": "code", "relation_type": "resolves"}]
+                }
+            ]),
+        );
+        assert!(matches!(res, Err(KnoxError::InvalidRelation(_))));
+        if let Err(KnoxError::InvalidRelation(msg)) = res {
+            assert!(msg.contains("a doubt cannot resolve an action"));
+        }
+
+        let rejections = crate::storage::edges::get_edge_rejections(&db, 10).unwrap();
+        assert_eq!(rejections.len(), 1);
+        assert_eq!(rejections[0].attempted_type, "resolves");
+    }
+
+    #[test]
+    fn test_unknown_relation_type_is_rejected_and_logged() {
+        let db = KnoxDb::open_memory().unwrap();
+        let res = record(
+            &db,
+            json!([
+                {"ref": "a1", "kind": "write", "summary": "Wrote first module"},
+                {
+                    "ref": "a2",
+                    "kind": "write",
+                    "summary": "Wrote second module",
+                    "relations": [{"to": "a1", "relation_type": "bogus_link"}]
+                }
+            ]),
+        );
+        assert!(matches!(res, Err(KnoxError::InvalidRelation(_))));
+        if let Err(KnoxError::InvalidRelation(msg)) = res {
+            assert!(msg.contains("Unknown relation type 'bogus_link'"));
+        }
+
+        let rejections = crate::storage::edges::get_edge_rejections(&db, 10).unwrap();
+        assert_eq!(rejections.len(), 1);
+        assert_eq!(rejections[0].attempted_type, "bogus_link");
+    }
+
+    #[test]
+    fn test_edge_to_file_ref_resolves_and_persists() {
+        let db = KnoxDb::open_memory().unwrap();
+        let res = record(
+            &db,
+            json!([
+                {
+                    "ref": "w",
+                    "kind": "write",
+                    "summary": "Implemented SQLite backend",
+                    "relations": [{"to": "file:src/db.rs", "relation_type": "implements"}]
+                }
+            ]),
+        )
+        .unwrap();
+
+        let action_id = res["ids"][0].as_str().unwrap();
+        let ref_entry = crate::storage::edges::get_ref(&db, "file:src/db.rs").unwrap().unwrap();
+        assert_eq!(ref_entry.id, "file:src/db.rs");
+        assert_eq!(ref_entry.kind, "file");
+        assert_eq!(ref_entry.value, "src/db.rs");
+
+        let edges = crate::storage::edges::get_edges_for_action(
+            &db,
+            &ActionId::from(action_id.to_string()),
+        )
+        .unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].to_id, "file:src/db.rs");
+        assert_eq!(edges[0].edge_type, "implements");
     }
 }

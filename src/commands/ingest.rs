@@ -192,20 +192,105 @@ pub fn cmd_preview(
     })
 }
 
-/// Common helper to persist actions, link follows edges, and record session metrics.
-fn persist_actions_with_session(
+/// Helper to compute deterministic hash for ingest logging.
+pub fn ingest_source_hash(
+    tool_detected: &str,
+    project_scope: Option<&str>,
+    offset: usize,
+    summary: &str,
+) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    tool_detected.hash(&mut hasher);
+    project_scope.unwrap_or_default().hash(&mut hasher);
+    offset.hash(&mut hasher);
+    summary.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// Ensures the `ingest_offsets` table exists.
+pub fn ensure_ingest_offsets_table(db: &KnoxDb) -> KnoxResult<()> {
+    db.conn().execute(
+        "CREATE TABLE IF NOT EXISTS ingest_offsets (
+            transcript_path TEXT PRIMARY KEY,
+            last_line_offset INTEGER NOT NULL DEFAULT 0,
+            last_byte_offset INTEGER NOT NULL DEFAULT 0,
+            last_ingested_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+    Ok(())
+}
+
+/// Retrieves the last recorded (line_offset, byte_offset) for a transcript path.
+pub fn get_ingest_offset(db: &KnoxDb, path_key: &str) -> KnoxResult<Option<(usize, usize)>> {
+    ensure_ingest_offsets_table(db)?;
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT last_line_offset, last_byte_offset FROM ingest_offsets WHERE transcript_path = ?1",
+    )?;
+    let mut rows = stmt.query(params![path_key])?;
+    if let Some(row) = rows.next()? {
+        let line: i64 = row.get(0)?;
+        let byte: i64 = row.get(1)?;
+        Ok(Some((line as usize, byte as usize)))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Sets the recorded (line_offset, byte_offset) for a transcript path.
+pub fn set_ingest_offset(
+    db: &KnoxDb,
+    path_key: &str,
+    line_offset: usize,
+    byte_offset: usize,
+) -> KnoxResult<()> {
+    ensure_ingest_offsets_table(db)?;
+    let now = chrono::Utc::now().to_rfc3339();
+    db.conn().execute(
+        "INSERT INTO ingest_offsets (transcript_path, last_line_offset, last_byte_offset, last_ingested_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(transcript_path) DO UPDATE SET
+            last_line_offset = excluded.last_line_offset,
+            last_byte_offset = excluded.last_byte_offset,
+            last_ingested_at = excluded.last_ingested_at",
+        params![path_key, line_offset as i64, byte_offset as i64, now],
+    )?;
+    Ok(())
+}
+
+/// Core helper to persist parsed actions, link follows edges, and record session metrics.
+/// If `active_session_id` is provided, actions are associated with it; otherwise an ingestion
+/// session is created and ended.
+pub fn persist_actions_to_db(
     mut actions: Vec<KnoxAction>,
     tool_detected: String,
     project_scope: Option<&str>,
+    active_session_id: Option<&crate::core::ids::SessionId>,
     db: &KnoxDb,
 ) -> KnoxResult<IngestReport> {
-    let session = start_session(db, &tool_detected, project_scope)?;
+    let (session_id, was_created) = match active_session_id {
+        Some(id) => (id.clone(), false),
+        None => {
+            let session = start_session(db, &tool_detected, project_scope)?;
+            (session.id, true)
+        }
+    };
+
     let mut files_touched = HashSet::new();
     let mut previous_action_id = None;
     let mut actions_imported = 0;
     let mut duplicates_skipped = 0;
 
     let conn = db.conn();
+
+    // Resolve project ID if provided
+    let project_id = if let Some(scope) = project_scope {
+        crate::storage::sessions::resolve_project_identifier(db, scope)?
+            .map(crate::core::ids::ProjectId::from)
+    } else {
+        None
+    };
 
     for (offset, action) in actions.iter_mut().enumerate() {
         let source_hash = ingest_source_hash(
@@ -214,21 +299,26 @@ fn persist_actions_with_session(
             offset,
             action.summary.as_str(),
         );
+
         // Smart deduplication check
-        let is_duplicate = conn
+        let existing_match = conn
             .query_row(
-                "SELECT 1 FROM actions WHERE actor = ?1 AND action_type = ?2 AND summary = ?3 LIMIT 1",
+                "SELECT id, seen_count FROM actions WHERE actor = ?1 AND action_type = ?2 AND summary = ?3 LIMIT 1",
                 params![action.actor.as_str(), action.action_type.as_str(), action.summary.as_str()],
-                |_| Ok(true),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )
-            .unwrap_or(false);
+            .ok();
 
         // Classify the action against the R01–R10 rule table.
         let classification = classify_action(action, offset);
         let (rule_id, reason) = classification.as_ref().map(|c| (c.rule_id.clone(), c.reason.as_str())).unzip();
 
-        if is_duplicate {
+        if let Some((existing_id, seen_count)) = existing_match {
             duplicates_skipped += 1;
+            conn.execute(
+                "UPDATE actions SET seen_count = ?1 WHERE id = ?2",
+                params![seen_count + 1, existing_id],
+            )?;
             conn.execute(
                 "INSERT OR REPLACE INTO ingest_log
                  (source_hash, source_offset, outcome, rule_id, reason, action_id)
@@ -244,7 +334,11 @@ fn persist_actions_with_session(
         }
 
         if action.session_id.is_none() {
-            action.session_id = Some(session.id.clone());
+            action.session_id = Some(session_id.clone());
+        }
+
+        if action.project_id.is_none() && project_id.is_some() {
+            action.project_id = project_id.clone();
         }
 
         for file in &action.files {
@@ -267,34 +361,141 @@ fn persist_actions_with_session(
         )?;
 
         if let Some(ref prev_id) = previous_action_id {
-            let _ = link_follows(db, prev_id, &current_id);
-        }
-
-        fn ingest_source_hash(
-            tool_detected: &str,
-            project_scope: Option<&str>,
-            offset: usize,
-            summary: &str,
-        ) -> String {
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            tool_detected.hash(&mut hasher);
-            project_scope.unwrap_or_default().hash(&mut hasher);
-            offset.hash(&mut hasher);
-            summary.hash(&mut hasher);
-            format!("{:016x}", hasher.finish())
+            link_follows(db, prev_id, &current_id)?;
         }
         previous_action_id = Some(current_id);
     }
 
-    let _ = end_session(db, &session.id);
+    if was_created {
+        end_session(db, &session_id)?;
+    }
 
     Ok(IngestReport {
         actions_imported,
         files_touched: files_touched.len(),
-        sessions_created: if actions_imported > 0 { 1 } else { 0 },
+        sessions_created: if was_created && actions_imported > 0 { 1 } else { 0 },
         duplicates_skipped,
         tool_detected,
     })
+}
+
+/// Ingests transcript lines since the last offset on begin, when a path is configured.
+///
+/// Ensures a session with zero `record` calls still produces memory.
+pub fn cmd_ingest_incremental(
+    transcript_path: &Path,
+    db: &KnoxDb,
+    active_session_id: Option<&crate::core::ids::SessionId>,
+    project_scope: Option<&str>,
+) -> KnoxResult<IngestReport> {
+    if !transcript_path.exists() {
+        return Ok(IngestReport::default());
+    }
+
+    let path_key = transcript_path
+        .canonicalize()
+        .unwrap_or_else(|_| transcript_path.to_path_buf())
+        .to_string_lossy()
+        .to_string();
+
+    let full_bytes = std::fs::read(transcript_path)?;
+    if full_bytes.is_empty() {
+        return Ok(IngestReport::default());
+    }
+
+    let (mut last_line_offset, _) = get_ingest_offset(db, &path_key)?.unwrap_or((0, 0));
+
+    let full_text = String::from_utf8_lossy(&full_bytes);
+    let all_lines: Vec<&str> = full_text.lines().collect();
+    let total_lines = all_lines.len();
+
+    // Reset offset if file was truncated or rotated
+    if total_lines < last_line_offset {
+        last_line_offset = 0;
+    }
+
+    if total_lines <= last_line_offset {
+        return Ok(IngestReport::default());
+    }
+
+    let new_lines_slice = &all_lines[last_line_offset..];
+    let new_lines_text = new_lines_slice.join("\n");
+    let new_lines_bytes = new_lines_text.as_bytes();
+
+    // Map new lines into KnoxAction records
+    let (tool_detected, actions) = match ingest_bytes_with_tool(new_lines_bytes) {
+        Ok(res) => res,
+        Err(_) => {
+            // If new lines alone lack tool headers (e.g. middle of transcript), detect tool from full file
+            if let Ok((detected, full_actions)) = ingest_bytes_with_tool(&full_bytes) {
+                let mut found_actions = Vec::new();
+                for mapper in crate::ingest::all_mappers() {
+                    if mapper.tool_name().eq_ignore_ascii_case(&detected) {
+                        if let Ok(mapped) = mapper.map(new_lines_bytes) {
+                            found_actions = mapped;
+                            break;
+                        }
+                    }
+                }
+                if found_actions.is_empty() && last_line_offset > 0 {
+                    // For structured JSON exports (e.g. Cursor, OpenAI), map full document
+                    // and keep only actions not yet recorded in SQLite
+                    found_actions = full_actions
+                        .into_iter()
+                        .filter(|action| {
+                            let is_dup = db
+                                .conn()
+                                .query_row(
+                                    "SELECT 1 FROM actions WHERE actor = ?1 AND action_type = ?2 AND summary = ?3 LIMIT 1",
+                                    params![action.actor.as_str(), action.action_type.as_str(), action.summary.as_str()],
+                                    |_| Ok(true),
+                                )
+                                .unwrap_or(false);
+                            !is_dup
+                        })
+                        .collect();
+                }
+                (detected, found_actions)
+            } else {
+                ("generic".to_string(), Vec::new())
+            }
+        }
+    };
+
+    if actions.is_empty() {
+        set_ingest_offset(db, &path_key, total_lines, full_bytes.len())?;
+        return Ok(IngestReport {
+            tool_detected,
+            ..Default::default()
+        });
+    }
+
+    // Determine project scope
+    let existing_projects = crate::storage::list_projects(db).unwrap_or_default();
+    let inferred = infer_project_path(transcript_path, &actions, &existing_projects);
+    let resolved_scope = project_scope.or(inferred.as_deref());
+
+    let report = persist_actions_to_db(
+        actions,
+        tool_detected,
+        resolved_scope,
+        active_session_id,
+        db,
+    )?;
+
+    set_ingest_offset(db, &path_key, total_lines, full_bytes.len())?;
+
+    Ok(report)
+}
+
+/// Common helper to persist actions, link follows edges, and record session metrics.
+fn persist_actions_with_session(
+    actions: Vec<KnoxAction>,
+    tool_detected: String,
+    project_scope: Option<&str>,
+    db: &KnoxDb,
+) -> KnoxResult<IngestReport> {
+    persist_actions_to_db(actions, tool_detected, project_scope, None, db)
 }
 
 /// Classifies a persisted action against the R01–R10 rule table based on its

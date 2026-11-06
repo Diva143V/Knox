@@ -331,10 +331,115 @@ pub struct UpdateActionParams {
     pub remove_relations: Option<Vec<String>>,
 }
 
+/// Canonical edge types recognized by Knox.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EdgeType {
+    CausedBy,
+    Contradicts,
+    Implements,
+    DependsOn,
+    Verifies,
+    RelatesTo,
+    Reverts,
+    Supersedes,
+    Resolves,
+}
+
+impl std::fmt::Display for EdgeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CausedBy => write!(f, "caused_by"),
+            Self::Contradicts => write!(f, "contradicts"),
+            Self::Implements => write!(f, "implements"),
+            Self::DependsOn => write!(f, "depends_on"),
+            Self::Verifies => write!(f, "verifies"),
+            Self::RelatesTo => write!(f, "relates_to"),
+            Self::Reverts => write!(f, "reverts"),
+            Self::Supersedes => write!(f, "supersedes"),
+            Self::Resolves => write!(f, "resolves"),
+        }
+    }
+}
+
+impl std::str::FromStr for EdgeType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "caused_by" | "causedby" => Ok(Self::CausedBy),
+            "contradicts" | "contradict" => Ok(Self::Contradicts),
+            "implements" | "implement" => Ok(Self::Implements),
+            "depends_on" | "dependson" | "depends" => Ok(Self::DependsOn),
+            "verifies" | "verify" | "tests" | "test" => Ok(Self::Verifies),
+            "relates_to" | "relatesto" | "relates" => Ok(Self::RelatesTo),
+            "reverts" | "revert" | "fixes" | "fix" => Ok(Self::Reverts),
+            "supersedes" | "supersede" => Ok(Self::Supersedes),
+            "resolves" | "resolve" | "answers" | "answer" => Ok(Self::Resolves),
+            other => Err(format!("Unknown edge type: {other}")),
+        }
+    }
+}
+
+/// A persisted edge record linking an action to an action or a reference target.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Edge {
+    /// Unique identifier for this edge.
+    pub id: String,
+    /// Originating action identifier.
+    pub from_action_id: ActionId,
+    /// Target identifier (either an action ID or a ref ID).
+    pub to_id: String,
+    /// Canonical edge relation type.
+    pub edge_type: String,
+    /// Timestamp when this edge was established.
+    pub created_at: DateTime<Utc>,
+    /// Optional semantic label or context tag.
+    pub label: Option<String>,
+    /// Optional provenance tracking (e.g. git commit sha, transcript source).
+    pub provenance: Option<String>,
+    /// Optional annotation or resolution note.
+    pub note: Option<String>,
+}
+
+/// A reference entity representing an external or non-action target (e.g. file, symbol).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ref {
+    /// Unique identifier for this ref (e.g., "file:src/db.rs" or "symbol:KnoxDb::open").
+    pub id: String,
+    /// Kind of entity ("file", "symbol", "doc", "url").
+    pub kind: String,
+    /// Exact target value.
+    pub value: String,
+    /// Scoped project identifier.
+    #[serde(default)]
+    pub project_id: Option<ProjectId>,
+    /// Timestamp when this ref was registered.
+    pub created_at: DateTime<Utc>,
+}
+
+/// An edge rejection entry recorded when an agent attempts an invalid relation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EdgeRejection {
+    /// Unique rejection identifier.
+    pub id: String,
+    /// ISO 8601 timestamp string.
+    pub ts: String,
+    /// Project identifier if scoped.
+    pub project_id: Option<String>,
+    /// Attempted source identifier.
+    pub from_id: Option<String>,
+    /// Attempted target identifier.
+    pub to_id: Option<String>,
+    /// Attempted relation or edge type.
+    pub attempted_type: String,
+    /// Explanatory reason or teaching error message.
+    pub reason: String,
+}
+
 /// Directed edge connecting nodes in the in-memory graph.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct KnoxEdge {
-    /// Relationship type (e.g., "parent", "follows", "superseded_by", "targets").
+    /// Relationship type (e.g., "caused_by", "parent", "supersedes", "targets").
     pub edge_type: String,
     /// Timestamp of when the edge was established.
     pub timestamp: DateTime<Utc>,
@@ -353,6 +458,9 @@ pub struct Project {
     pub name: String,
     /// Absolute or canonical filesystem path to project root.
     pub path: String,
+    /// Optional normalized Git remote URL.
+    #[serde(default)]
+    pub remote: Option<String>,
     /// Timestamp when project tracking was initialized.
     pub created_at: DateTime<Utc>,
 }
@@ -409,6 +517,9 @@ pub struct QueryFilter {
     /// Optional keyword search query across summaries, rationales, and context.
     #[serde(default)]
     pub query: Option<String>,
+    /// Optional pagination cursor encoding `(timestamp_ms, id)` in base64.
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
 impl Default for QueryFilter {
@@ -426,6 +537,7 @@ impl Default for QueryFilter {
             action_type: None,
             symbols: Vec::new(),
             query: None,
+            cursor: None,
         }
     }
 }
@@ -439,6 +551,33 @@ pub struct QueryResult {
     pub total_count: usize,
     /// Indicates whether additional matching actions exist beyond the limit.
     pub has_more: bool,
+    /// Optional cursor to retrieve the next page of results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+    /// Specific reason if the result set is empty ("no_records", "no_match", "out_of_scope").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// An entry in the operational query telemetry log.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QueryLogEntry {
+    /// Unique query log identifier.
+    pub id: String,
+    /// Timestamp in milliseconds since epoch.
+    pub ts_ms: i64,
+    /// Name of the tool or command executed.
+    pub tool: String,
+    /// Project identifier if scoped.
+    pub project_id: Option<String>,
+    /// Number of action rows returned.
+    pub rows: usize,
+    /// Estimated tokens consumed.
+    pub tokens: usize,
+    /// Execution latency in milliseconds.
+    pub latency_ms: u64,
+    /// Specific reason if result was empty ("no_records", "no_match", "out_of_scope").
+    pub reason: Option<String>,
 }
 
 /// Summary report returned after importing a transcript.
