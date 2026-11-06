@@ -152,8 +152,28 @@ export const OnboardingWizard: React.FC = () => {
 
   useEffect(() => {
     if (!onboardingOpen || currentStep !== 1) return;
-    refreshWorkspaceStatus(workspacePath);
-  }, [onboardingOpen, currentStep, workspacePath, refreshWorkspaceStatus]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const [md, hook] = await Promise.all([
+          KnoxAPI.getKnoxMd(workspacePath),
+          KnoxAPI.getHookStatus(workspacePath),
+        ]);
+        if (!cancelled) {
+          setHasKnoxMd(md !== null);
+          setHookInstalled(hook);
+        }
+      } catch {
+        if (!cancelled) {
+          setHasKnoxMd(false);
+          setHookInstalled(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [onboardingOpen, currentStep, workspacePath]);
 
   const handleDismiss = () => {
     setOnboardingOpen(false);

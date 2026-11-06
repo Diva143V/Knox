@@ -54,15 +54,21 @@ export const CustomTitlebar: React.FC = () => {
 
   useEffect(() => {
     if (!isTauri) return;
+    let cancelled = false;
     try {
       const win = getCurrentWindow();
       win
         .isMaximized()
-        .then(setIsMaximized)
+        .then((max) => {
+          if (!cancelled) setIsMaximized(max);
+        })
         .catch((e) => console.warn("Could not query isMaximized", e));
     } catch (e) {
       console.warn("Could not query isMaximized", e);
     }
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleMinimize = async () => {

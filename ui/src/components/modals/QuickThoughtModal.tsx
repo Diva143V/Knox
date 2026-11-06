@@ -33,14 +33,18 @@ export const QuickThoughtModal: React.FC<QuickThoughtModalProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     if (isOpen) {
-      setTimeout(() => textareaRef.current?.focus(), 50);
+      timer = setTimeout(() => textareaRef.current?.focus(), 50);
     } else {
       setSummary("");
       setContextSummary("");
       setFileInput("");
       setCategory("doubt");
     }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;

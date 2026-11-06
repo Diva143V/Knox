@@ -109,13 +109,33 @@ export const IngestView: React.FC = () => {
     content?: string;
   } | null>(null);
 
-  // Auto-scan on entering detect mode
+  // Auto-scan on entering detect mode with cancellation teardown
   useEffect(() => {
+    let cancelled = false;
     if (mode === "detect" && detectedTranscripts.length === 0) {
-      handleScanLocal();
+      setIsScanning(true);
+      KnoxAPI.detectLocalTranscripts(activeProjectScope || undefined)
+        .then((found) => {
+          if (!cancelled) {
+            setDetectedTranscripts(found);
+            if (found.length > 0) {
+              showToast(`Discovered ${found.length} local agent transcripts.`, "info");
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn("Scan failed:", err);
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setIsScanning(false);
+          }
+        });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, detectedTranscripts.length, activeProjectScope, showToast]);
 
   const handleBrowseFiles = async () => {
     try {

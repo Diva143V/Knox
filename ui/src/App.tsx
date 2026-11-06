@@ -33,11 +33,17 @@ export const App: React.FC = () => {
   // Personalisation: override the accent ramp; the theme keeps everything else.
   useEffect(() => {
     applyAccent(accentColor);
+    return () => {
+      applyAccent(null);
+    };
   }, [accentColor]);
 
   // Appearance → Glow FX gates the graph's ambient motion (battery / focus).
   useEffect(() => {
     document.documentElement.classList.toggle("knox-fx", enableGlowFx);
+    return () => {
+      document.documentElement.classList.remove("knox-fx");
+    };
   }, [enableGlowFx]);
 
   return <AppShell />;

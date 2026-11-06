@@ -22,7 +22,13 @@ export const AppShell: React.FC = () => {
   useRealtimeSync();
 
   useEffect(() => {
-    refreshData();
+    let cancelled = false;
+    refreshData().catch(() => {
+      if (cancelled) return;
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [refreshData]);
 
   return (

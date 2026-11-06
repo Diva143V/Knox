@@ -44,8 +44,22 @@ export const ScanView: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    checkHook(projectPath);
-  }, [projectPath, checkHook]);
+    let cancelled = false;
+    setIsCheckingHook(true);
+    KnoxAPI.getHookStatus(projectPath)
+      .then((isInstalled) => {
+        if (!cancelled) setHookInstalled(isInstalled);
+      })
+      .catch(() => {
+        if (!cancelled) setHookInstalled(false);
+      })
+      .finally(() => {
+        if (!cancelled) setIsCheckingHook(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectPath]);
 
   const handleBrowseFolder = async () => {
     try {
