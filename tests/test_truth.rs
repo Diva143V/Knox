@@ -224,3 +224,26 @@ fn test_instructions_and_tool_list_agree() {
         );
     }
 }
+
+#[test]
+fn test_readme_tool_count_matches_implementation() {
+    let readme = fs::read_to_string("README.md").expect("README.md must exist");
+    let count = LISTED_TOOL_NAMES.len();
+    assert_eq!(count, 7, "LISTED_TOOL_NAMES must contain exactly 7 tools");
+    assert!(
+        readme.contains(&format!("{count} Tools")),
+        "README.md should mention '{count} Tools'"
+    );
+    assert!(
+        readme.contains(&format!("TOOL_COUNT = {count}")),
+        "README.md should mention 'TOOL_COUNT = {count}'"
+    );
+    assert!(
+        !readme.contains("6 Tools"),
+        "README.md must not retain stale '6 Tools' reference"
+    );
+    assert!(
+        !readme.contains("exposes 6 tools"),
+        "README.md must not retain stale 'exposes 6 tools' reference"
+    );
+}

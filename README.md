@@ -18,12 +18,12 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 - **Native Desktop GUI (Tauri v2 + React 19):** Modern, dark-first desktop experience featuring an interactive Knowledge Graph canvas, telemetry dashboard, FTS5 query console, live transcript ingestion studio, and Git human-edit scanner.
 - **Cosmos Orb Mode & Dynamic D3 Physics Simulation:** Dual-mode graph canvas allowing developers to switch between structured rectangular cards and luminous Cosmos circular nodes (`CircleNode.tsx`) with role-based glowing radial auras. Integrated continuous live D3 force physics simulation (`useLivePhysics.ts`) provides interactive node grabbing, spring-link constraints, and fluid reheat motion.
 - **Interactive Getting Started Tour with Peek Window Mode:** 9-step guided walkthrough modal (`OnboardingTourModal.tsx`) with live background tab synchronization, keyboard shortcuts, and instant "Peek Window" toggle (<kbd>P</kbd> or Eye icon) that docks into a floating bottom pill so developers can view the entire live application screen in motion without obstruction.
-- **Focused Model Context Protocol (MCP) Server (6 Tools):** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing six high-level workflow tools — begin, context, check, trace, record, and handoff. Legacy tool names are no longer routed.
+- **Focused Model Context Protocol (MCP) Server (7 Tools):** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing seven high-level workflow tools — begin, context, check, trace, record, handoff, and ask. Legacy tool names are no longer routed.
 - **Token-Compact Markdown Digest Engine:** Automatically formats query and context outputs into dense, high-signal Markdown digests, reducing context window token consumption compared to raw JSON envelopes (measured via knox metrics).
 - **Token-Efficiency Measurements:** The public `knox::metrics::measure_token_efficiency` helper reports estimated tool-definition and context-format tokens, plus compact/Markdown savings against serialized action JSON.
 - **Native MCP Resources & Prompts:** Exposes live architectural resources (`knox://project/overview`, `knox://decisions/active`, `knox://context/{file}`) and guided handover prompts (`/architectural-audit`, `/session-handover`).
 - **V2 Schema & Semantic Relations:** First-class directional relationship graph (`depends_on`, `implements`, `verifies`, `relates_to`, `reverts`), code symbol indexing, and Architectural Decision Records (ADRs) with rationale and prohibited rejected alternatives.
-- **Windows NSIS Setup Wizard & Dedicated Uninstaller:** Consumer-grade installer package (`Knox_2.0.0_x64-setup.exe`, 5.46 MB with LZMA compression). Offers dual install scope (per-user `%LOCALAPPDATA%\Programs\Knox` default requiring no elevation, or machine-wide `Program Files\Knox`), creates Start Menu and Desktop shortcuts, and registers `uninstall.exe` in Windows Settings > Installed apps.
+- **Windows NSIS Setup Wizard & Dedicated Uninstaller:** Consumer-grade installer package (`Knox_2.1.0_x64-setup.exe`, 5.46 MB with LZMA compression). Offers dual install scope (per-user `%LOCALAPPDATA%\Programs\Knox` default requiring no elevation, or machine-wide `Program Files\Knox`), creates Start Menu and Desktop shortcuts, and registers `uninstall.exe` in Windows Settings > Installed apps.
 - **In-App Onboarding Wizard:** First-run interactive setup (`OnboardingWizard.tsx`) verifying SQLite database health, guiding keyboard shortcuts, and providing 1-click MCP configuration for Antigravity, Cursor, Claude Code, and Gemini CLI. Re-accessible anytime via the "Setup Guide" button in the desktop header.
 - **Synchronous Shell Wrapper (`knox.cmd`):** Ships with a native Windows CMD/PowerShell launcher to ensure prompt synchronization and clean return codes during terminal operations.
 - **Transcript Ingestion:** Automatically transforms IDE conversation logs (e.g. Antigravity's `transcript.jsonl`) into high-signal knowledge graph entries without LLM dependencies.
@@ -34,7 +34,7 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 
 ## Architecture
 
-Knox v2.0.0 is organized into three clean layers:
+Knox v2.1.0 is organized into three clean layers:
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -63,7 +63,7 @@ Knox v2.0.0 is organized into three clean layers:
 
 ### 1. Windows Setup Wizard (Recommended for End Users)
 
-Download `Knox_1.2.1_x64-setup.exe` (~5.46 MB) from [GitHub Releases](https://github.com/Diva143V/Knox/releases).
+Download `Knox_2.1.0_x64-setup.exe` (~5.46 MB) from [GitHub Releases](https://github.com/Diva143V/Knox/releases).
 - **Interactive Setup**: Guides through license agreement, installation directory, and shortcut creation.
 - **Dual Install Scope**: Installs by default to `%LOCALAPPDATA%\Programs\Knox` without requiring administrative privileges, with an optional machine-wide installation to `C:\Program Files\Knox`.
 - **Integrated Uninstaller**: Packages `uninstall.exe` and registers Knox in Windows *Settings > Installed apps* for clean removal.
@@ -88,7 +88,7 @@ pnpm install
 # Run desktop app in development mode (hot-reloading UI)
 pnpm tauri dev
 
-# Build the release NSIS installer wizard (target/release/bundle/nsis/Knox_1.2.1_x64-setup.exe)
+# Build the release NSIS installer wizard (target/release/bundle/nsis/Knox_2.1.0_x64-setup.exe)
 pnpm build
 
 # Build portable standalone binary (target/release/knox.exe)
@@ -258,8 +258,10 @@ Knox ships with a unified binary `knox.exe`. For Windows Command Prompt and Powe
 | `knox metrics [PROJECT]` | Computes empirical retrieval hit rate, empty rate, tokens per retrieval, and latency percentiles. | `knox metrics` |
 | `knox scan [PROJECT]` | Scans Git staged changes for unrecorded human modifications. | `knox scan` |
 | `knox hook <ACTION>` | Installs or uninstalls the Git pre-commit hook (`install` \| `uninstall`). | `knox hook install` |
+| `knox ask <QUESTION>` | Grounded technical question answering across project memory. | `knox ask "Why SQLite?"` |
+| `knox check <FILES...>` | Pre-flight guardrail check against active architectural constraints. | `knox check src/db.rs --intent "Use Redis"` |
 | `knox serve` | Launches the MCP stdio JSON-RPC server (`--stdio`). | `knox serve --stdio` |
-| `knox --version` | Displays current version (`knox 2.0.0`). | `knox --version` |
+| `knox --version` | Displays current version (`knox 2.1.0`). | `knox --version` |
 | `knox --help` | Displays command-line help and usage documentation. | `knox --help` |
 
 ---
@@ -294,14 +296,14 @@ cargo test --test test_calibration -- --nocapture
 | **Tokens / Retrieval** | `successful_tokens / hits` | Total successful retrieval queries (`hits`) | Measures average token payload emitted per successful context query. |
 | **Latency (p50 / p95)** | Percentiles of query `latency_ms` | Total queries recorded in `query_log` | Quantifies median and tail response latency in milliseconds under real workloads. |
 | **Duplicate Rate** | `duplicate_actions / total_actions` | Total recorded actions in project | Tracks cohesion and deduplication across multiple sessions and transcript ingests. |
-| **Tool Definition Footprint** | `estimate_tokens(all_tools())` | Registered MCP tools (`TOOL_COUNT = 6`) | Enforces protocol lightness (budgeted target: <= 850 tokens). |
+| **Tool Definition Footprint** | `estimate_tokens(all_tools())` | Registered MCP tools (`TOOL_COUNT = 7`) | Enforces protocol lightness (budgeted target: <= 850 tokens). |
 | **Guardrail Overlap Score** | `matched_tokens / alt_tokens` | Total content tokens in rejected alternative | Evaluates semantic overlap against prohibited ADR alternatives. Calibrated across 50 labeled pairs to empirically justify the 0.60 threshold. |
 
 ---
 
 ## MCP Tools Reference
 
-When running `knox serve`, Knox exposes 6 tools over the Model Context Protocol. Legacy tool names are no longer routed.
+When running `knox serve`, Knox exposes 7 tools over the Model Context Protocol. Legacy tool names are no longer routed.
 
 ### `knox_context`
 Returns compact, token-budgeted engineering context for a file, symbol, query, or project.
@@ -310,9 +312,13 @@ Returns compact, token-budgeted engineering context for a file, symbol, query, o
 
 ### High-level workflow tools
 
-- `knox_check` — guardrail pre-flight check with `intent`, file/symbol scope, and confidence-rated violations.
+- `knox_begin` — explicit session startup and resumption linking to previous session context.
+- `knox_context` — compact, token-budgeted engineering context with grouped markdown digests.
+- `knox_check` — guardrail pre-flight check with `intent`, file/symbol scope, and overlap-rated violations.
 - `knox_trace` — causal ancestry trace from an action ID or file path.
 - `knox_record` — atomic structured entry recording through the batch writer.
+- `knox_handoff` — session finalization producing concise handoff digest.
+- `knox_ask` — grounded technical question answering synthesizing answers across project memory with verified citations.
 
 Token-efficiency measurements are deterministic estimates based on the same conservative
 four-characters-per-token rule used by context budgets. They are intended for regression
@@ -468,6 +474,17 @@ Audits the workspace to detect files modified or deleted on disk without corresp
 | `KNOX_PATH` | `~/.knox/knox.db` | Filesystem path to the SQLite knowledge graph database. |
 | `KNOX_TIMEOUT` | `1800` | Inactivity timeout in seconds before closing idle sessions (30 minutes). |
 | `KNOX_LOG` | `warn` | Logging level filter (`trace`, `debug`, `info`, `warn`, `error`). |
+
+---
+
+## Release Notes
+
+### v2.1.0
+- **Seventh MCP Workflow Tool (`knox_ask`):** Added grounded technical question answering synthesizing answers across project memory with strict citation verification and prompt injection defenses.
+- **Full CLI & MCP Parity (`knox ask` & `knox check`):** Added native CLI subcommands for human verification matching agent MCP workflow capabilities.
+- **Response Field Normalization:** Standardized guardrail violation reporting from `confidence` to empirical `overlap` score.
+- **Automated Schema Migrations (v9 & v10):** Added Git remote URL normalization backfill (Schema v9) and vector embedding cosine similarity tables (Schema v10).
+- **Safe Upgrade Lifecycle:** Existing Knox databases automatically and safely migrate on first open.
 
 ---
 

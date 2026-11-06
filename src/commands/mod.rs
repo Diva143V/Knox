@@ -1,5 +1,6 @@
 //! Business logic and execution routines for Knox CLI commands.
 
+pub mod ask;
 pub mod begin;
 pub mod check;
 pub mod context;
@@ -18,6 +19,7 @@ pub mod status;
 pub mod trace;
 pub mod transfer;
 
+pub use ask::*;
 pub use begin::*;
 pub use check::*;
 pub use context::*;

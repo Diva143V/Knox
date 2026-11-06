@@ -196,3 +196,73 @@ fn test_command_scan_records_human_edit_and_skips_recent_ai() {
     verify_human_edit_detected(dir.path(), &db);
     verify_recent_ai_edit_skipped(dir.path(), &db);
 }
+
+#[test]
+fn test_command_ask_and_check_cli_dispatch() {
+    use chrono::Utc;
+    use knox::cli::args::{AskArgs, CheckArgs};
+    use knox::cli::dispatch::{handle_ask, handle_check};
+    use knox::core::ids::{ActionId, ProjectId};
+    use knox::core::types::{KnoxAction, Project};
+    use knox::storage::nodes::{insert_action, insert_project};
+
+    let db = KnoxDb::open_memory().unwrap();
+
+    let project = Project {
+        id: ProjectId::new(),
+        name: "cli-test".to_string(),
+        path: "/workspace/cli-test".to_string(),
+        remote: None,
+        created_at: Utc::now(),
+    };
+    let proj_id = insert_project(&db, &project).unwrap();
+
+    let action = KnoxAction {
+        id: ActionId::new(),
+        actor: "lead-dev".to_string(),
+        project_id: Some(proj_id.clone()),
+        action_type: "decide".to_string(),
+        summary: "Mandate SQLite WAL for embedded local storage".to_string(),
+        rationale: Some("Eliminates external database dependencies".to_string()),
+        rejected_alternatives: vec!["PostgreSQL daemon in background".to_string()],
+        files: vec!["src/db.rs".to_string()],
+        timestamp: Utc::now(),
+        is_current: true,
+        ..Default::default()
+    };
+    insert_action(&db, &action).unwrap();
+
+    // 1. Test check command dispatch with violation
+    let check_args = CheckArgs {
+        files: vec!["src/db.rs".to_string()],
+        intent: Some("Spin up PostgreSQL daemon in background for persistence".to_string()),
+        project: Some("cli-test".to_string()),
+        budget: 600,
+        strict: false,
+        json: true,
+    };
+    let check_res = handle_check(check_args, &db);
+    assert!(check_res.is_ok(), "handle_check should succeed");
+
+    // 2. Test check command dispatch with passing intent
+    let check_pass_args = CheckArgs {
+        files: vec!["src/db.rs".to_string()],
+        intent: Some("Configure rusqlite connection pooling".to_string()),
+        project: Some("cli-test".to_string()),
+        budget: 600,
+        strict: false,
+        json: false,
+    };
+    assert!(handle_check(check_pass_args, &db).is_ok());
+
+    // 3. Test ask command dispatch
+    let ask_args = AskArgs {
+        question: "What storage engine was mandated?".to_string(),
+        project: Some("cli-test".to_string()),
+        file: Some("src/db.rs".to_string()),
+        strict: true,
+        json: false,
+    };
+    let ask_res = handle_ask(ask_args, &db);
+    assert!(ask_res.is_ok(), "handle_ask should succeed");
+}

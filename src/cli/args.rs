@@ -48,6 +48,10 @@ pub enum Commands {
     Metrics(MetricsArgs),
     /// Inspect model profiles, test embedding and answering connectivity.
     Model(ModelArgs),
+    /// Ask a technical question grounded in project memory with verified citations.
+    Ask(AskArgs),
+    /// Pre-flight guardrail check against active architectural constraints.
+    Check(CheckArgs),
 }
 
 /// Arguments for `knox init`.
@@ -235,6 +239,57 @@ pub enum ModelSubcommand {
     },
 }
 
+/// Arguments for `knox ask`.
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+pub struct AskArgs {
+    /// Natural language question to ask across project memory.
+    pub question: String,
+
+    /// Filter/scope to a specific project (defaults to current directory/project).
+    #[arg(short, long)]
+    pub project: Option<String>,
+
+    /// Filter candidate context to a specific file path.
+    #[arg(short, long)]
+    pub file: Option<String>,
+
+    /// Enforce strict citation verification (default: true).
+    #[arg(long, default_value_t = true)]
+    pub strict: bool,
+
+    /// Format output as JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `knox check`.
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+pub struct CheckArgs {
+    /// Target file paths to verify against active architectural constraints.
+    #[arg(required = true)]
+    pub files: Vec<String>,
+
+    /// Proposed intention or action description to test against rejected alternatives.
+    #[arg(short, long)]
+    pub intent: Option<String>,
+
+    /// Scope to a specific project.
+    #[arg(short, long)]
+    pub project: Option<String>,
+
+    /// Token budget for check output (default: 600).
+    #[arg(short, long, default_value = "600")]
+    pub budget: usize,
+
+    /// Enforce strict violation matching.
+    #[arg(long)]
+    pub strict: bool,
+
+    /// Format output as JSON instead of human-readable report.
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +461,50 @@ mod tests {
                 );
             }
             _ => panic!("Expected Migrate command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_ask_subcommand() {
+        let cli = KnoxCli::try_parse_from([
+            "knox",
+            "ask",
+            "What database is used?",
+            "-p",
+            "knox",
+            "--json",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Ask(args)) => {
+                assert_eq!(args.question, "What database is used?");
+                assert_eq!(args.project, Some("knox".to_string()));
+                assert!(args.json);
+                assert!(args.strict);
+            }
+            _ => panic!("Expected Ask subcommand"),
+        }
+    }
+
+    #[test]
+    fn test_parse_check_subcommand() {
+        let cli = KnoxCli::try_parse_from([
+            "knox",
+            "check",
+            "src/db.rs",
+            "src/lib.rs",
+            "--intent",
+            "Use Redis",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Check(args)) => {
+                assert_eq!(args.files, vec!["src/db.rs", "src/lib.rs"]);
+                assert_eq!(args.intent, Some("Use Redis".to_string()));
+                assert_eq!(args.budget, 600);
+                assert!(!args.strict);
+            }
+            _ => panic!("Expected Check subcommand"),
         }
     }
 }

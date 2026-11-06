@@ -3,12 +3,12 @@
 use anyhow::Context;
 
 use crate::cli::args::{
-    Commands, DoctorArgs, ExportArgs, HookAction, HookArgs, ImportArgs, IngestArgs, InitArgs, KnoxCli,
+    AskArgs, CheckArgs, Commands, DoctorArgs, ExportArgs, HookAction, HookArgs, ImportArgs, IngestArgs, InitArgs, KnoxCli,
     MetricsArgs, MigrationAction, MigrationArgs, ModelArgs, ModelSubcommand, QueryArgs, ScanArgs, StatusArgs,
 };
 use crate::commands::{
-    cmd_doctor, cmd_export, cmd_hook_install, cmd_hook_uninstall, cmd_ingest, cmd_init, cmd_metrics,
-    cmd_query, cmd_scan, cmd_status, export_to_file, format_doctor_report, format_ingest_report,
+    cmd_ask, cmd_check, cmd_doctor, cmd_export, cmd_hook_install, cmd_hook_uninstall, cmd_ingest, cmd_init, cmd_metrics,
+    cmd_query, cmd_scan, cmd_status, export_to_file, format_ask_response, format_doctor_report, format_ingest_report,
     format_metrics_report, format_query_results_json, format_query_results_table,
     format_scan_report, format_status_json, format_status_report, import_from_file,
     migration_apply, migration_check, migration_restore, migration_split,
@@ -43,6 +43,8 @@ pub fn dispatch(cli: KnoxCli, config: &KnoxConfig) -> anyhow::Result<()> {
         Some(Commands::Doctor(args)) => handle_doctor(args, &open_db(config)?),
         Some(Commands::Metrics(args)) => handle_metrics(args, &open_db(config)?),
         Some(Commands::Model(args)) => handle_model(args, config),
+        Some(Commands::Ask(args)) => handle_ask(args, &open_db(config)?),
+        Some(Commands::Check(args)) => handle_check(args, &open_db(config)?),
         Some(Commands::Serve(_args)) => handle_serve(config),
     }
 }
@@ -75,6 +77,57 @@ pub fn handle_model(args: ModelArgs, config: &KnoxConfig) -> anyhow::Result<()> 
         Some(ModelSubcommand::Status) | None => {
             crate::commands::cmd_model_status(config)?;
         }
+    }
+    Ok(())
+}
+
+pub fn handle_ask(args: AskArgs, db: &KnoxDb) -> anyhow::Result<()> {
+    // If project is not explicitly passed, attempt resolving project from current directory "."
+    let project_arg = match args.project {
+        Some(p) => Some(p),
+        None => {
+            if let Ok(Some(proj)) = crate::storage::sessions::resolve_project_identifier(db, ".") {
+                Some(proj)
+            } else {
+                None
+            }
+        }
+    };
+    let params = serde_json::json!({
+        "question": args.question,
+        "project": project_arg,
+        "file_path": args.file,
+        "strict_citations": args.strict,
+    });
+    let res = cmd_ask(db, params).context("Failed to execute knox ask")?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&res)?);
+    } else {
+        print!("{}", format_ask_response(&res));
+    }
+    Ok(())
+}
+
+pub fn handle_check(args: CheckArgs, db: &KnoxDb) -> anyhow::Result<()> {
+    let mut params = serde_json::json!({
+        "files": args.files,
+        "budget": args.budget,
+        "strict": args.strict,
+        "format": if args.json { "json" } else { "markdown" },
+    });
+    if let Some(intent) = args.intent {
+        params["intent"] = serde_json::json!(intent);
+    }
+    if let Some(project) = args.project {
+        params["project"] = serde_json::json!(project);
+    }
+    let res = cmd_check(db, params).context("Failed to execute knox check")?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&res)?);
+    } else if let Some(md) = res.get("markdown").and_then(serde_json::Value::as_str) {
+        println!("{md}");
+    } else {
+        println!("{}", serde_json::to_string_pretty(&res)?);
     }
     Ok(())
 }

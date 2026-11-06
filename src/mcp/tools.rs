@@ -1,6 +1,6 @@
 //! MCP tool declarations and JSON Schema definitions for Knox.
 //!
-//! Only the six high-level workflow tools are defined. Legacy tool names are
+//! Only the seven high-level workflow tools are defined. Legacy tool names are
 //! no longer accepted by `tools/list` or `execute_tool`.
 
 use serde_json::json;
@@ -36,7 +36,7 @@ pub fn all_tools() -> Vec<ToolDescription> {
     ]
 }
 
-/// Finds a tool definition by name among the six advertised tools.
+/// Finds a tool definition by name among the seven advertised tools.
 pub fn find_tool(name: &str) -> Option<ToolDescription> {
     all_tools().into_iter().find(|t| t.name == name)
 }

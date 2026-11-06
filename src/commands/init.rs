@@ -151,6 +151,7 @@ fn render_knox_config_header(project_id: &str, kg_path: &str, created_at: &str) 
         .iter()
         .map(|name| format!("  - {name}\n"))
         .collect::<String>();
+    let version = env!("CARGO_PKG_VERSION");
     format!(
         "<!-- knox:config\n\
 project_id: \"{project_id}\"\n\
@@ -167,7 +168,7 @@ prompts_available:\n\
   - architectural-audit\n\
   - session-handover\n\
 created_at: \"{created_at}\"\n\
-knox_version: \"2.0.0\"\n\
+knox_version: \"{version}\"\n\
 -->\n\n"
     )
 }
@@ -343,9 +344,9 @@ mod tests {
         assert!(rendered.contains("project_id: \"test-proj-id\""));
         assert!(rendered.contains("kg_path: \"~/.knox/knox.db\""));
         assert!(rendered.contains("MANDATORY PROTOCOL"));
-        assert!(rendered.contains("knox_version: \"2.0.0\""));
+        assert!(rendered.contains(&format!("knox_version: \"{}\"", env!("CARGO_PKG_VERSION"))));
 
-        // All six advertised tools must be present
+        // All advertised tools must be present
         for tool_name in crate::mcp::tools::LISTED_TOOL_NAMES {
             assert!(
                 rendered.contains(tool_name),
