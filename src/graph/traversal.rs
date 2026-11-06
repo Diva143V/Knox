@@ -13,14 +13,14 @@ use crate::core::types::KnoxAction;
 fn is_causal_edge(edge_type: &str) -> bool {
     matches!(
         edge_type,
-        "parent" | "supersedes" | "depends_on" | "implements" | "verifies" | "reverts" | "resolves"
+        "caused_by" | "parent" | "supersedes" | "depends_on" | "implements" | "verifies" | "reverts" | "resolves"
     )
 }
 
 /// Deterministic preference order when several incoming causal edges exist.
 fn causal_priority(edge_type: &str) -> u8 {
     match edge_type {
-        "parent" => 0,
+        "caused_by" | "parent" => 0,
         "supersedes" => 1,
         "implements" => 2,
         "depends_on" => 3,
@@ -291,5 +291,51 @@ mod tests {
             chain.iter().map(|action| action.id.clone()).collect::<Vec<_>>(),
             vec![effect.id, cause.id]
         );
+    }
+
+    #[test]
+    fn test_caused_by_is_traversed_and_follows_is_never_traversed() {
+        assert!(is_causal_edge("caused_by"));
+        assert!(!is_causal_edge("follows"));
+        assert_eq!(causal_priority("caused_by"), 0);
+
+        let mut graph = KnoxGraph::new();
+        let root = mock_action("human", "plan", "Root plan", None);
+        let caused_child = mock_action("agent", "write", "Caused child", None);
+        let follows_child = mock_action("agent", "write", "Follows child", None);
+
+        let root_idx = graph.add_node(root.clone());
+        let caused_idx = graph.add_node(caused_child.clone());
+        let follows_idx = graph.add_node(follows_child.clone());
+
+        graph.add_edge(
+            root_idx,
+            caused_idx,
+            KnoxEdge {
+                edge_type: "caused_by".to_string(),
+                timestamp: Utc::now(),
+                session_id: None,
+                tool_source: None,
+            },
+        );
+        graph.add_edge(
+            root_idx,
+            follows_idx,
+            KnoxEdge {
+                edge_type: "follows".to_string(),
+                timestamp: Utc::now(),
+                session_id: None,
+                tool_source: None,
+            },
+        );
+
+        let chain_caused = causal_chain(&graph, &caused_child.id);
+        assert_eq!(chain_caused.len(), 2);
+        assert_eq!(chain_caused[0].id, caused_child.id);
+        assert_eq!(chain_caused[1].id, root.id);
+
+        let chain_follows = causal_chain(&graph, &follows_child.id);
+        assert_eq!(chain_follows.len(), 1);
+        assert_eq!(chain_follows[0].id, follows_child.id);
     }
 }

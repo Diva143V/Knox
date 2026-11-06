@@ -9,11 +9,24 @@ use crate::core::error::KnoxResult;
 use crate::core::ids::ActionId;
 use crate::core::types::{KnoxAction, KnoxEdge, QueryFilter};
 use crate::storage::db::KnoxDb;
-use crate::storage::nodes::get_action;
 use crate::storage::queries::query_actions;
 
 /// In-memory directed graph representing Knox actions and causal/temporal relationships.
 pub type KnoxGraph = petgraph::Graph<KnoxAction, KnoxEdge, Directed>;
+
+/// Default maximum number of component nodes to explore in a bounded subgraph traversal.
+pub const DEFAULT_MAX_NODES: usize = 200;
+
+/// Bounded subgraph traversal result with cutoff metadata.
+#[derive(Clone, Debug)]
+pub struct BoundedSubgraph {
+    /// In-memory directed graph of the component up to `max_nodes`.
+    pub graph: KnoxGraph,
+    /// Whether the connected component traversal was truncated at `max_nodes`.
+    pub truncated: bool,
+    /// Boundary action IDs at the cutoff that were not expanded further.
+    pub frontier_ids: Vec<ActionId>,
+}
 
 /// Direction in which a subgraph should be expanded from its anchors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,82 +64,89 @@ pub fn build_node_index(graph: &KnoxGraph) -> HashMap<ActionId, NodeIndex> {
 fn build_subgraph_cte_sql(anchor_count: usize, direction: SubgraphDirection) -> String {
     let placeholders = vec!["?"; anchor_count].join(", ");
 
-    let mut clauses: Vec<&str> = Vec::new();
-    if matches!(
-        direction,
-        SubgraphDirection::Descendants | SubgraphDirection::Both
-    ) {
-        // Effects: children, superseded successors, and actions that point to
-        // this action as their semantic cause.
-        clauses.push("a.parent_action_id = c.action_id");
-        clauses.push("a.id = (SELECT superseded_by FROM actions WHERE id = c.action_id)");
-        clauses.push(
-            "EXISTS (
-                SELECT 1 FROM action_relations ar
-                WHERE ar.to_action_id = c.action_id AND ar.from_action_id = a.id
-            )",
-        );
-    }
-    if matches!(
-        direction,
-        SubgraphDirection::Ancestors | SubgraphDirection::Both
-    ) {
-        // Causes: parents, superseded predecessors, incoming semantic relations.
-        clauses.push("a.id = (SELECT parent_action_id FROM actions WHERE id = c.action_id)");
-        clauses.push("a.superseded_by = c.action_id");
-        clauses.push(
-            "EXISTS (
-                SELECT 1 FROM action_relations ar
-                WHERE ar.from_action_id = a.id AND ar.to_action_id = c.action_id
-            )",
-        );
-    }
-
-    // `Both` is the only direction that can be empty-safe; the match above
-    // always pushes at least one clause.
-    let join_condition = clauses.join("\n                OR ");
+    let recursive_select = match direction {
+        SubgraphDirection::Ancestors => {
+            "SELECT a.id, c.depth + 1, c.path || a.id || ','
+            FROM connected c
+            JOIN edges e ON e.from_action_id = c.action_id
+            JOIN actions a ON a.id = e.to_id
+            WHERE c.depth < CAST(? AS INTEGER)
+              AND instr(c.path, ',' || a.id || ',') = 0"
+        }
+        SubgraphDirection::Descendants => {
+            "SELECT a.id, c.depth + 1, c.path || a.id || ','
+            FROM connected c
+            JOIN edges e ON e.to_id = c.action_id
+            JOIN actions a ON a.id = e.from_action_id
+            WHERE c.depth < CAST(? AS INTEGER)
+              AND instr(c.path, ',' || a.id || ',') = 0"
+        }
+        SubgraphDirection::Both => {
+            "SELECT a.id, c.depth + 1, c.path || a.id || ','
+            FROM connected c
+            JOIN edges e ON (e.from_action_id = c.action_id OR e.to_id = c.action_id)
+            JOIN actions a ON a.id = (CASE WHEN e.from_action_id = c.action_id THEN e.to_id ELSE e.from_action_id END)
+            WHERE c.depth < CAST(? AS INTEGER)
+              AND instr(c.path, ',' || a.id || ',') = 0"
+        }
+    };
 
     format!(
         "WITH RECURSIVE connected(action_id, depth, path) AS (
             SELECT id, 0, ',' || id || ',' FROM actions WHERE id IN ({placeholders})
             UNION
-            SELECT a.id, c.depth + 1, c.path || a.id || ','
-            FROM connected c
-            JOIN actions a ON (
-                {join_condition}
-            )
-            WHERE c.depth < CAST(? AS INTEGER)
-              AND instr(c.path, ',' || a.id || ',') = 0
+            {recursive_select}
         )
-        SELECT DISTINCT action_id FROM connected;"
+        SELECT action_id, MIN(depth) as min_depth FROM connected
+        GROUP BY action_id
+        ORDER BY min_depth ASC
+        LIMIT ?;"
     )
 }
 
 /// Loads a scoped subgraph containing all actions within `max_depth` hops of the given anchor action IDs.
-/// Uses a recursive CTE in SQLite to compute the bounded connected component.
+/// Uses a recursive CTE in SQLite to compute the bounded connected component up to `DEFAULT_MAX_NODES`.
 pub fn load_subgraph(db: &KnoxDb, anchors: &[ActionId], max_depth: usize) -> KnoxResult<KnoxGraph> {
     load_subgraph_directional(db, anchors, max_depth, SubgraphDirection::Both)
 }
 
-/// Loads a scoped subgraph expanded only in the requested direction.
+/// Loads a scoped subgraph expanded only in the requested direction up to `DEFAULT_MAX_NODES`.
 pub fn load_subgraph_directional(
     db: &KnoxDb,
     anchors: &[ActionId],
     max_depth: usize,
     direction: SubgraphDirection,
 ) -> KnoxResult<KnoxGraph> {
+    load_subgraph_bounded(db, anchors, max_depth, DEFAULT_MAX_NODES, direction)
+        .map(|bounded| bounded.graph)
+}
+
+/// Loads a scoped subgraph bounded by both `max_depth` and `max_nodes`.
+pub fn load_subgraph_bounded(
+    db: &KnoxDb,
+    anchors: &[ActionId],
+    max_depth: usize,
+    max_nodes: usize,
+    direction: SubgraphDirection,
+) -> KnoxResult<BoundedSubgraph> {
     if anchors.is_empty() {
-        return Ok(KnoxGraph::new());
+        return Ok(BoundedSubgraph {
+            graph: KnoxGraph::new(),
+            truncated: false,
+            frontier_ids: Vec::new(),
+        });
     }
 
     let conn = db.conn();
     let cte_sql = build_subgraph_cte_sql(anchors.len(), direction);
     let max_depth_i64 = max_depth as i64;
-    let mut params_vec: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(anchors.len() + 1);
+    let limit_i64 = (max_nodes + 1) as i64;
+    let mut params_vec: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(anchors.len() + 2);
     for anchor in anchors {
         params_vec.push(&anchor.0);
     }
     params_vec.push(&max_depth_i64);
+    params_vec.push(&limit_i64);
 
     let mut stmt = conn.prepare(&cte_sql)?;
     let id_rows = stmt
@@ -135,14 +155,21 @@ pub fn load_subgraph_directional(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    let mut actions = Vec::with_capacity(id_rows.len());
-    for id in id_rows {
-        if let Some(act) = get_action(db, &id)? {
-            actions.push(act);
-        }
-    }
+    let (selected_ids, frontier_ids, truncated) = if id_rows.len() > max_nodes {
+        let (selected, frontier) = id_rows.split_at(max_nodes);
+        (selected.to_vec(), frontier.to_vec(), true)
+    } else {
+        (id_rows, Vec::new(), false)
+    };
 
-    build_graph_from_actions(actions)
+    let actions = crate::storage::queries::get_actions_by_ids(db, &selected_ids)?;
+    let graph = build_graph_from_actions(db, actions)?;
+
+    Ok(BoundedSubgraph {
+        graph,
+        truncated,
+        frontier_ids,
+    })
 }
 
 /// Loads all actions and edges from the SQLite database into a full in-memory petgraph.
@@ -154,11 +181,11 @@ pub fn load_full_graph(db: &KnoxDb) -> KnoxResult<KnoxGraph> {
     };
 
     let query_result = query_actions(db, &filter)?;
-    build_graph_from_actions(query_result.results)
+    build_graph_from_actions(db, query_result.results)
 }
 
-/// Constructs a `KnoxGraph` from a collection of `KnoxAction` records, wiring parent and supersede edges.
-fn build_graph_from_actions(actions: Vec<KnoxAction>) -> KnoxResult<KnoxGraph> {
+/// Constructs a `KnoxGraph` from a collection of `KnoxAction` records, reading edges from the `edges` table.
+fn build_graph_from_actions(db: &KnoxDb, actions: Vec<KnoxAction>) -> KnoxResult<KnoxGraph> {
     let mut graph = KnoxGraph::new();
     let mut node_map: HashMap<ActionId, NodeIndex> = HashMap::with_capacity(actions.len());
 
@@ -169,58 +196,28 @@ fn build_graph_from_actions(actions: Vec<KnoxAction>) -> KnoxResult<KnoxGraph> {
         node_map.insert(id, idx);
     }
 
-    // 2. Add edges for parent links, semantic relations, and superseded links
-    for node_idx in graph.node_indices() {
-        let (parent_opt, supersedes, relations, timestamp, session_id, actor) = {
-            let act = &graph[node_idx];
-            (
-                act.parent_action_id.clone(),
-                act.supersedes.clone(),
-                act.relations.clone(),
-                act.timestamp,
-                act.session_id.clone(),
-                act.actor.clone(),
-            )
-        };
+    if node_map.is_empty() {
+        return Ok(graph);
+    }
 
-        // If parent exists in the subgraph, add directed edge: parent -> child
-        if let Some(parent_id) = parent_opt {
-            if let Some(&parent_idx) = node_map.get(&parent_id) {
-                let edge = KnoxEdge {
-                    edge_type: "parent".to_string(),
-                    timestamp,
-                    session_id: session_id.clone(),
-                    tool_source: Some(actor.clone()),
-                };
-                graph.add_edge(parent_idx, node_idx, edge);
-            }
-        }
+    // 2. Add edges directly from the `edges` table
+    let action_ids: Vec<ActionId> = node_map.keys().cloned().collect();
+    let edges = crate::storage::edges::get_all_edges_for_actions(db, &action_ids)?;
 
-        // If this action supersedes a prior action in the subgraph, add
-        // directed edge: superseded -> superseding.
-        if let Some(prior_id) = supersedes {
-            if let Some(&prior_idx) = node_map.get(&prior_id) {
-                let edge = KnoxEdge {
-                    edge_type: "supersedes".to_string(),
-                    timestamp,
-                    session_id: session_id.clone(),
-                    tool_source: Some(actor.clone()),
-                };
-                graph.add_edge(prior_idx, node_idx, edge);
-            }
-        }
-
-        // If semantic relations target nodes in the subgraph, add directed edges
-        for rel in relations {
-            if let Some(&target_idx) = node_map.get(&rel.target_id) {
-                let edge = KnoxEdge {
-                    edge_type: rel.relation_type.to_string(),
-                    timestamp,
-                    session_id: session_id.clone(),
-                    tool_source: Some(actor.clone()),
-                };
-                graph.add_edge(target_idx, node_idx, edge);
-            }
+    for edge in edges {
+        let target_action_id = ActionId::from(edge.to_id);
+        if let (Some(&cause_idx), Some(&effect_idx)) =
+            (node_map.get(&target_action_id), node_map.get(&edge.from_action_id))
+        {
+            let knox_edge = KnoxEdge {
+                edge_type: edge.edge_type,
+                timestamp: edge.created_at,
+                session_id: graph[effect_idx].session_id.clone(),
+                tool_source: edge
+                    .provenance
+                    .or_else(|| Some(graph[effect_idx].actor.clone())),
+            };
+            graph.add_edge(cause_idx, effect_idx, knox_edge);
         }
     }
 
