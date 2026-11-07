@@ -172,15 +172,15 @@ fn test_c1_empty_reasons_on_read_tools() {
 
     // 5. knox_query empty reasons
     // 5a: out_of_scope
-    let q_out = cmd_query("project:unregistered_xyz", &db, None).unwrap();
+    let q_out = cmd_query("project:unregistered_xyz", &db, None, None, None, None).unwrap();
     assert_eq!(q_out.reason.as_deref(), Some("out_of_scope"));
 
     // 5b: no_records
-    let q_no_rec = cmd_query("project:demo", &db, None).unwrap();
+    let q_no_rec = cmd_query("project:demo", &db, None, None, None, None).unwrap();
     assert_eq!(q_no_rec.reason.as_deref(), Some("no_records"));
 
     // 5c: no_match
-    let q_no_match = cmd_query("tag:nonexistent_tag_xyz", &db, None).unwrap();
+    let q_no_match = cmd_query("tag:nonexistent_tag_xyz", &db, None, None, None, None).unwrap();
     assert_eq!(q_no_match.reason.as_deref(), Some("no_match"));
 
     // 6. knox_handoff empty reasons

@@ -147,23 +147,28 @@ impl SessionManager {
                     );
                 }
 
-                let db_result = {
-                    let db_guard = match db.lock() {
+                let db_clone = Arc::clone(&db);
+                let db_result = tokio::task::spawn_blocking(move || {
+                    let db_guard = match db_clone.lock() {
                         Ok(g) => g,
                         Err(poisoned) => poisoned.into_inner(),
                     };
                     crate::storage::sessions::timeout_stale_sessions(&db_guard, max_idle)
-                };
+                })
+                .await;
 
                 match db_result {
-                    Ok(closed) if !closed.is_empty() => {
+                    Ok(Ok(closed)) if !closed.is_empty() => {
                         tracing::info!(
                             closed_count = closed.len(),
                             "Closed timed-out sessions in database"
                         );
                     }
-                    Err(err) => {
+                    Ok(Err(err)) => {
                         tracing::warn!(error = %err, "Failed timing out stale sessions in database");
+                    }
+                    Err(join_err) => {
+                        tracing::warn!(error = %join_err, "Background session timeout task panicked");
                     }
                     _ => {}
                 }

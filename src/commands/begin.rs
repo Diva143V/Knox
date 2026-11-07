@@ -11,10 +11,15 @@ use crate::core::budget::DEFAULT_CONTEXT_BUDGET;
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::storage::db::KnoxDb;
 
+fn default_workspace() -> String {
+    ".".to_string()
+}
+
 /// Input parameters for `knox_begin`.
 #[derive(Debug, Deserialize)]
 pub struct BeginParams {
-    /// Project scope filter (required — cross-project sessions are rejected).
+    /// Project scope filter (defaults to current directory ".").
+    #[serde(default = "default_workspace")]
     pub workspace: String,
     pub actor: String,
     pub task: Option<String>,
@@ -39,13 +44,19 @@ pub fn cmd_begin(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         ));
     }
 
+    let workspace_str = if input.workspace.trim().is_empty() {
+        ".".to_string()
+    } else {
+        input.workspace.trim().to_string()
+    };
+
     let existing =
-        crate::storage::sessions::find_open_session(db, actor, Some(&input.workspace))?;
+        crate::storage::sessions::find_open_session(db, actor, Some(&workspace_str))?;
     let (session, resumed, parent_session) = match existing {
         Some(session) => (session, true, None),
         None => {
             let session =
-                crate::storage::sessions::start_session(db, actor, Some(&input.workspace))?;
+                crate::storage::sessions::start_session(db, actor, Some(&workspace_str))?;
             // Link the new session to the most recent session for the same
             // actor and project so handoff digests form a chain.
             let previous = crate::storage::sessions::list_recent_sessions(db, 50)?
@@ -81,7 +92,7 @@ pub fn cmd_begin(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         })
         .map(|p| {
             if p.is_relative() {
-                let ws_path = std::path::Path::new(&input.workspace);
+                let ws_path = std::path::Path::new(&workspace_str);
                 let combined = ws_path.join(&p);
                 if combined.exists() {
                     combined

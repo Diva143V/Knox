@@ -219,13 +219,17 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
     let input: CheckGuardrailsParams = serde_json::from_value(params)
         .map_err(|e| KnoxError::InvalidInput(format!("Invalid check_guardrails params: {e}")))?;
 
-    let project_root = if let Some(project) = input.project.as_deref() {
+    let query_project: Option<String> = if let Some(ref project) = input.project {
         crate::storage::sessions::resolve_project_identifier(db, project)?
-            .and_then(|id| {
-                crate::storage::nodes::get_project(db, &crate::core::ids::ProjectId::from(id))
-                    .ok()
-                    .flatten()
-            })
+            .or_else(|| Some(project.clone()))
+    } else {
+        crate::storage::sessions::resolve_project_identifier(db, ".")?
+    };
+
+    let project_root = if let Some(ref proj_id) = query_project {
+        crate::storage::nodes::get_project(db, &crate::core::ids::ProjectId::from(proj_id.as_str()))
+            .ok()
+            .flatten()
             .map(|project| project.path)
     } else {
         Some(
@@ -247,7 +251,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
         db,
         &scopes,
         &input.symbols,
-        input.project.as_deref(),
+        query_project.as_deref(),
         "decide",
         true,
     )?;
@@ -258,7 +262,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
         db,
         &scopes,
         &input.symbols,
-        input.project.as_deref(),
+        query_project.as_deref(),
         "decide",
         false,
     )?;
@@ -272,7 +276,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
         db,
         &scopes,
         &input.symbols,
-        input.project.as_deref(),
+        query_project.as_deref(),
         "doubt",
         true,
     )?
@@ -329,7 +333,7 @@ pub fn handle_check_guardrails(db: &KnoxDb, params: Value) -> KnoxResult<Value> 
             Some(
                 crate::storage::telemetry::determine_empty_reason(
                     db,
-                    input.project.as_deref(),
+                    query_project.as_deref(),
                     norm_files.first().map(String::as_str),
                 )
                 .to_string(),

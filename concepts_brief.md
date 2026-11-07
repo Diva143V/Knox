@@ -224,12 +224,7 @@ Implement free functions following Knox storage conventions:
 pub fn insert_deltas(db: &KnoxDb, deltas: &[ActionDelta]) -> KnoxResult<()>;
 pub fn get_deltas_by_action(db: &KnoxDb, action_id: &ActionId) -> KnoxResult<Vec<ActionDelta>>;
 pub fn get_deltas_by_file(db: &KnoxDb, file_path: &str, limit: usize) -> KnoxResult<Vec<ActionDelta>>;
-pub fn find_causal_action_by_file_and_commit(
-    db: &KnoxDb,
-    file_path: &str,
-    commit_sha: Option<&str>,
-    line_number: u32,
-) -> KnoxResult<Option<(KnoxAction, Option<ActionDelta>)>>;
+pub fn prune_action_deltas(db: &KnoxDb, max_age_days: i64) -> KnoxResult<usize>;
 ```
 
 ---

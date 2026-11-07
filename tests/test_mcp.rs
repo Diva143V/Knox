@@ -1098,3 +1098,99 @@ fn test_mcp_stdio_stdout_purity() {
     let _ = child.wait();
 }
 
+#[test]
+fn test_begin_without_workspace_param() {
+    let db = KnoxDb::open_memory().expect("open memory db");
+    let res = dispatch("knox_begin", json!({ "actor": "gemini" }), &db);
+    assert!(res.error.is_none(), "knox_begin should succeed without workspace: {:?}", res.error);
+    let scope = res.result.unwrap().get("scope").cloned().unwrap();
+    assert_eq!(scope.get("actor").unwrap(), "gemini");
+}
+
+#[test]
+fn test_context_schema_and_project_fallback() {
+    let db = KnoxDb::open_memory().expect("open memory db");
+    // Register project for "." so fallback resolves cleanly
+    let proj = knox::core::types::Project {
+        id: knox::core::ids::ProjectId("proj_root".to_string()),
+        name: "test-root".to_string(),
+        path: ".".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    };
+    knox::storage::nodes::insert_project(&db, &proj).unwrap();
+
+    let res = dispatch("knox_context", json!({ "view": "context" }), &db);
+    assert!(res.error.is_none(), "knox_context should resolve workspace project fallback: {:?}", res.error);
+}
+
+#[test]
+fn test_context_with_files_alias() {
+    let db = KnoxDb::open_memory().expect("open memory db");
+    let proj = knox::core::types::Project {
+        id: knox::core::ids::ProjectId("demo".to_string()),
+        name: "demo".to_string(),
+        path: "d:/dummy/demo".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    };
+    knox::storage::nodes::insert_project(&db, &proj).unwrap();
+
+    let res = dispatch("knox_context", json!({
+        "project": "demo",
+        "view": "file",
+        "files": ["src/main.rs"]
+    }), &db);
+    assert!(res.error.is_none(), "knox_context must accept files alias: {:?}", res.error);
+}
+
+#[test]
+fn test_check_guardrails_project_isolation() {
+    let db = KnoxDb::open_memory().expect("open memory db");
+    let proj_a = knox::core::types::Project {
+        id: knox::core::ids::ProjectId("proj_a".to_string()),
+        name: "Project A".to_string(),
+        path: "d:/dummy/proj_a".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    };
+    let proj_b = knox::core::types::Project {
+        id: knox::core::ids::ProjectId("proj_b".to_string()),
+        name: "Project B".to_string(),
+        path: "d:/dummy/proj_b".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    };
+    knox::storage::nodes::insert_project(&db, &proj_a).unwrap();
+    knox::storage::nodes::insert_project(&db, &proj_b).unwrap();
+
+    // Record decision in Project A strictly forbidding edits to sensitive.rs
+    let act_a = knox::core::types::KnoxAction {
+        id: ActionId::new(),
+        actor: "lead".to_string(),
+        action_type: "decide".to_string(),
+        summary: "Do not modify sensitive.rs directly".to_string(),
+        files: vec!["sensitive.rs".to_string()],
+        tags: vec![],
+        confidence: None,
+        is_current: true,
+        timestamp: chrono::Utc::now(),
+        project_id: Some(knox::core::ids::ProjectId("proj_a".to_string())),
+        ..Default::default()
+    };
+    knox::storage::nodes::insert_action(&db, &act_a).unwrap();
+
+    // Check guardrails for sensitive.rs in Project B with strict: true
+    let check_res = dispatch("knox_check", json!({
+        "project": "proj_b",
+        "files": ["sensitive.rs"],
+        "proposed_action": "modify sensitive.rs directly",
+        "strict": true
+    }), &db);
+
+    assert!(check_res.error.is_none());
+    let val = check_res.result.unwrap();
+    assert_eq!(val.get("pass").unwrap(), true, "Project A decision must NOT leak into Project B check");
+    assert_eq!(val.get("decision_count").unwrap(), 0, "No decisions should be found in Project B scope");
+}
+

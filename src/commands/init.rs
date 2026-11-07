@@ -232,7 +232,7 @@ Before touching files:
 
 ## 3. MCP Tool Reference & Schemas
 
-Knox exposes 6 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
+Knox exposes 7 tools, 3 resources, and 2 prompts over JSON-RPC 2.0 stdio transport (`knox serve --stdio`).
 
 ### 3.1 `knox_begin`
 Resumes or creates a scoped session and returns compact task context. Call this at the start of every turn.
@@ -252,12 +252,15 @@ Atomically records structured engineering entries (decisions, doubts, code chang
 ### 3.6 `knox_handoff`
 Closes a session and returns a compact digest (open doubts, constraints touched, last outcomes, unresolved plans) for the next session to resume from.
 
-### 3.20 Native MCP Resources (`resources/*`)
+### 3.7 `knox_ask`
+Synthesizes engineering knowledge, decisions, and architectural context using model intelligence or hybrid retrieval.
+
+### 3.8 Native MCP Resources (`resources/*`)
 - `knox://project/overview` — High-level knowledge graph metrics, action counts, and recent activity.
 - `knox://decisions/active` — Live architectural constraints, design decisions, and rationales.
 - `knox://context/{file_path}` — Non-superseded context for any file in the workspace.
 
-### 3.21 Native MCP Prompts (`prompts/*`)
+### 3.9 Native MCP Prompts (`prompts/*`)
 - `architectural-audit` — Guided audit of active decisions, stale patterns, and constraint compliance.
 - `session-handover` — Synthesized context digest for handing over work to the next agent.
 

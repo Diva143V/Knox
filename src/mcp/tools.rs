@@ -83,7 +83,9 @@ fn tool_context() -> ToolDescription {
         json!({
             "type": "object",
             "properties": {
+                "project": { "type": "string" },
                 "view": { "type": "string", "description": "context, file, symbol, or query" },
+                "file_path": { "type": "string" },
                 "files": { "type": "array", "items": { "type": "string" } },
                 "symbols": { "type": "array", "items": { "type": "string" } },
                 "query": { "type": "string" },

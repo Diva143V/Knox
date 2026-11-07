@@ -49,7 +49,7 @@ export const ActionRow: React.FC<ActionRowProps> = ({
         {formattedTime}
       </span>
 
-      <p className="order-2 min-w-0 truncate text-[13px] text-foreground lg:order-4">
+      <p className="order-2 min-w-0 truncate text-2xs text-foreground lg:order-4">
         {action.summary}
       </p>
 

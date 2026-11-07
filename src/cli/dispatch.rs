@@ -262,8 +262,15 @@ pub fn handle_serve(config: &KnoxConfig) -> anyhow::Result<()> {
 }
 
 pub fn handle_query(args: QueryArgs, db: &KnoxDb) -> anyhow::Result<()> {
-    let result = cmd_query(&args.pattern, db, None)
-        .with_context(|| format!("Query failed for pattern '{}'", args.pattern))?;
+    let result = cmd_query(
+        &args.pattern,
+        db,
+        None,
+        args.project,
+        args.file,
+        Some(args.limit),
+    )
+    .with_context(|| format!("Query failed for pattern '{}'", args.pattern))?;
 
     if args.json {
         let json_text = format_query_results_json(&result)?;

@@ -344,28 +344,56 @@ fn fetch_query_actions(
     hydrate_action_rows(conn, action_rows)
 }
 
-/// Executes full-text search against action summaries using the SQLite FTS5 table.
-pub fn search_actions(db: &KnoxDb, query: &str, limit: usize) -> KnoxResult<Vec<KnoxAction>> {
+/// Executes full-text search against action summaries using the SQLite FTS5 table,
+/// optionally scoped to a project and file path.
+pub fn search_actions_scoped(
+    db: &KnoxDb,
+    query: &str,
+    project: Option<&str>,
+    file_path: Option<&str>,
+    limit: usize,
+) -> KnoxResult<Vec<KnoxAction>> {
     let conn = db.conn();
     let sanitized_query = sanitize_fts_query(query);
 
-    let mut stmt = conn.prepare(
-        "SELECT a.id
-         FROM actions_fts fts
-         JOIN actions a ON fts.rowid = a.rowid
-         WHERE actions_fts MATCH ?1
-         ORDER BY rank
-         LIMIT ?2",
-    )?;
+    let mut sql = "SELECT a.id FROM actions_fts fts JOIN actions a ON fts.rowid = a.rowid WHERE actions_fts MATCH ?".to_string();
+    let mut params: Vec<SqlParam> = vec![SqlParam::Text(sanitized_query)];
 
+    if let Some(p) = project {
+        match crate::storage::sessions::resolve_project_identifier(db, p)? {
+            Some(project_id) => {
+                sql.push_str(" AND (a.project_id = ? OR a.session_id IN (SELECT s.id FROM sessions s WHERE s.project_id = ?))");
+                params.push(SqlParam::Text(project_id.clone()));
+                params.push(SqlParam::Text(project_id));
+            }
+            None => {
+                sql.push_str(" AND 0=1");
+            }
+        }
+    }
+
+    if let Some(f) = file_path {
+        sql.push_str(" AND a.id IN (SELECT af.action_id FROM action_files af WHERE af.file_path = ?)");
+        params.push(SqlParam::Text(f.to_string()));
+    }
+
+    sql.push_str(" ORDER BY rank LIMIT ?");
+    params.push(SqlParam::Int(limit as i64));
+
+    let mut stmt = conn.prepare(&sql)?;
+    let to_sql_params: Vec<&dyn ToSql> = params.iter().map(|p| p as &dyn ToSql).collect();
     let action_ids = stmt
-        .query_map(
-            params_from_iter([&sanitized_query, &limit.to_string()]),
-            |r| r.get::<_, String>(0).map(ActionId::from),
-        )?
+        .query_map(params_from_iter(to_sql_params), |r| {
+            r.get::<_, String>(0).map(ActionId::from)
+        })?
         .collect::<Result<Vec<_>, _>>()?;
 
     get_actions_by_ids(db, &action_ids)
+}
+
+/// Executes full-text search against action summaries using the SQLite FTS5 table.
+pub fn search_actions(db: &KnoxDb, query: &str, limit: usize) -> KnoxResult<Vec<KnoxAction>> {
+    search_actions_scoped(db, query, None, None, limit)
 }
 
 /// Fetches a set of actions and all of their child rows using batched queries.

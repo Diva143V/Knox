@@ -745,7 +745,7 @@ mod tests {
         assert_eq!(report.latency_p50_ms, 0.0);
         assert_eq!(report.latency_p95_ms, 0.0);
         assert_eq!(report.tool_count, 7);
-        assert!(report.tool_definition_tokens <= 850);
+        assert!(report.tool_definition_tokens <= 850, "tool_definition_tokens was {}", report.tool_definition_tokens);
         assert!(report.calibration.is_none());
 
         let formatted = format_metrics_report(&report);

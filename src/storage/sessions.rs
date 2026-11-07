@@ -75,6 +75,55 @@ fn resolve_project_identifier_conn(
         return Ok(by_path);
     }
 
+    // 3b. If identifier is a filesystem path (e.g. "." or relative path):
+    // Check knox.md project_id or canonical path against projects.path.
+    let path_obj = std::path::Path::new(clean_path);
+    if path_obj.exists() {
+        if path_obj.is_dir() {
+            let knox_md = path_obj.join("knox.md");
+            if knox_md.exists() {
+                if let Ok(content) = std::fs::read_to_string(&knox_md) {
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if let Some(rest) = trimmed.strip_prefix("project_id: \"") {
+                            if let Some(id) = rest.strip_suffix('"') {
+                                let by_knox_md: Option<String> = conn
+                                    .query_row(
+                                        "SELECT id FROM projects WHERE id = ?1",
+                                        params![id],
+                                        |r| r.get(0),
+                                    )
+                                    .optional()?;
+                                if by_knox_md.is_some() {
+                                    return Ok(by_knox_md);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(canon) = std::fs::canonicalize(path_obj) {
+            let canon_clean = canon
+                .to_string_lossy()
+                .strip_prefix(r"\\?\")
+                .map(String::from)
+                .unwrap_or_else(|| canon.to_string_lossy().to_string());
+            let canon_verbatim = format!(r"\\?\{canon_clean}");
+            let by_canon_path: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM projects WHERE path = ?1 OR path = ?2",
+                    params![canon_clean, canon_verbatim],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if by_canon_path.is_some() {
+                return Ok(by_canon_path);
+            }
+        }
+    }
+
     // 4. Display name, but only when it identifies exactly one project.
     let mut stmt = conn.prepare("SELECT id FROM projects WHERE name = ?1")?;
     let matches = stmt

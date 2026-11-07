@@ -925,70 +925,15 @@ pub fn parse_hunk_line_range(hunk: &str) -> Option<(u32, u32)> {
     None
 }
 
-/// Finds the most relevant causal action and optional code delta responsible for a given file and line number.
-///
-/// Precedence order:
-/// 1. Exact or prefix match on Git commit SHA in `actions`.
-/// 2. Code delta hunk overlapping the target line number in `action_deltas`.
-/// 3. Most recent action touching `file_path` in `action_files`.
-pub fn find_causal_action_by_file_and_commit(
-    db: &KnoxDb,
-    file_path: &str,
-    commit_sha: Option<&str>,
-    line_number: u32,
-) -> KnoxResult<Option<(KnoxAction, Option<ActionDelta>)>> {
-    let conn = db.conn();
-
-    // 1. Commit SHA match
-    if let Some(sha) = commit_sha.map(|s| s.trim()).filter(|s| !s.is_empty()) {
-        if let Some(action) = find_action_by_commit(db, sha)? {
-            let deltas = get_deltas_by_action(db, &action.id)?;
-            let matched_delta = deltas.into_iter().find(|d| {
-                if d.file_path != file_path {
-                    return false;
-                }
-                if let Some(ref hunk) = d.diff_hunk {
-                    if let Some((start, count)) = parse_hunk_line_range(hunk) {
-                        return line_number >= start && line_number < start + count.max(1);
-                    }
-                }
-                true
-            });
-            return Ok(Some((action, matched_delta)));
-        }
-    }
-
-    // 2. Line range overlap in recent action_deltas for this file
-    let file_deltas = get_deltas_by_file(db, file_path, 20)?;
-    for delta in &file_deltas {
-        if let Some(ref hunk) = delta.diff_hunk {
-            if let Some((start, count)) = parse_hunk_line_range(hunk) {
-                if line_number >= start && line_number < start + count.max(1) {
-                    if let Some(action) = get_action(db, &delta.action_id)? {
-                        return Ok(Some((action, Some(delta.clone()))));
-                    }
-                }
-            }
-        }
-    }
-
-    // 3. Fallback: most recent action touching the file
-    let mut stmt_fallback = conn.prepare(
-        "SELECT af.action_id FROM action_files af
-         JOIN actions a ON af.action_id = a.id
-         WHERE af.file_path = ?1
-         ORDER BY COALESCE(a.timestamp_ms, 0) DESC LIMIT 1",
+/// Prunes action deltas older than `max_age_days` days to prevent unbounded database growth.
+pub fn prune_action_deltas(db: &KnoxDb, max_age_days: i64) -> KnoxResult<usize> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days);
+    let cutoff_str = cutoff.to_rfc3339();
+    let deleted = db.conn().execute(
+        "DELETE FROM action_deltas WHERE created_at < ?1",
+        params![cutoff_str],
     )?;
-    let mut rows_fallback = stmt_fallback.query(params![file_path])?;
-    if let Some(row) = rows_fallback.next()? {
-        let action_id = ActionId::from(row.get::<_, String>(0)?);
-        if let Some(action) = get_action(db, &action_id)? {
-            let latest_delta = file_deltas.into_iter().next();
-            return Ok(Some((action, latest_delta)));
-        }
-    }
-
-    Ok(None)
+    Ok(deleted)
 }
 
 fn map_delta_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ActionDelta> {
@@ -1254,34 +1199,9 @@ mod tests {
         assert_eq!(summary.lines_added, 25);
         assert_eq!(summary.lines_deleted, 5);
 
-        // Test causal resolution
-        // 1. By commit SHA
-        let (causal1, delta1) = find_causal_action_by_file_and_commit(
-            &db,
-            "src/storage/nodes.rs",
-            Some("abcdef12"),
-            15,
-        )
-        .unwrap()
-        .expect("causal action found by commit");
-        assert_eq!(causal1.id, action.id);
-        assert!(delta1.is_some());
-
-        // 2. By line overlap (no commit)
-        let (causal2, delta2) =
-            find_causal_action_by_file_and_commit(&db, "src/storage/nodes.rs", None, 20)
-                .unwrap()
-                .expect("causal action found by line");
-        assert_eq!(causal2.id, action.id);
-        assert!(delta2.is_some());
-
-        // 3. Line outside delta hunk falls back to file match
-        let (causal3, delta3) =
-            find_causal_action_by_file_and_commit(&db, "src/storage/nodes.rs", None, 999)
-                .unwrap()
-                .expect("causal action fallback to file");
-        assert_eq!(causal3.id, action.id);
-        assert!(delta3.is_some());
+        // Test delta retention pruning
+        let pruned = prune_action_deltas(&db, 90).unwrap();
+        assert_eq!(pruned, 0); // newly inserted delta is within 90 days
     }
 
     #[test]

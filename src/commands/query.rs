@@ -5,7 +5,7 @@ use crate::core::error::KnoxResult;
 use crate::core::types::{QueryFilter, QueryResult};
 use crate::graph::loader::KnoxGraph;
 use crate::storage::db::KnoxDb;
-use crate::storage::queries::{query_actions, search_actions};
+use crate::storage::queries::query_actions;
 
 /// Parses prefix query patterns such as project, actor, and tag.
 fn parse_prefix_filter(trimmed: &str) -> Option<QueryFilter> {
@@ -36,20 +36,40 @@ pub fn cmd_query(
     pattern: &str,
     db: &KnoxDb,
     _graph: Option<&KnoxGraph>,
+    project: Option<String>,
+    file: Option<String>,
+    limit: Option<usize>,
 ) -> KnoxResult<QueryResult> {
     let start_instant = std::time::Instant::now();
     let trimmed = pattern.trim();
+    let query_limit = limit.unwrap_or(20);
 
-    let res = if let Some(filter) = parse_prefix_filter(trimmed) {
+    let res = if let Some(mut filter) = parse_prefix_filter(trimmed) {
+        if let Some(p) = project.clone() {
+            filter.project = Some(p);
+        }
+        if let Some(f) = file.clone() {
+            filter.file_path = Some(f);
+        }
+        filter.limit = query_limit;
         query_actions(db, &filter)?
     } else if is_file_pattern(trimmed) {
+        let target_file = file.clone().unwrap_or_else(|| trimmed.to_string());
         let filter = QueryFilter {
-            file_path: Some(trimmed.to_string()),
+            file_path: Some(target_file),
+            project: project.clone(),
+            limit: query_limit,
             ..Default::default()
         };
         query_actions(db, &filter)?
     } else {
-        let fts_results = search_actions(db, trimmed, 20)?;
+        let fts_results = crate::storage::queries::search_actions_scoped(
+            db,
+            trimmed,
+            project.as_deref(),
+            file.as_deref(),
+            query_limit,
+        )?;
         if !fts_results.is_empty() {
             let count = fts_results.len();
             QueryResult {
@@ -61,7 +81,9 @@ pub fn cmd_query(
             }
         } else {
             let filter = QueryFilter {
-                file_path: Some(trimmed.to_string()),
+                file_path: Some(file.unwrap_or_else(|| trimmed.to_string())),
+                project: project.clone(),
+                limit: query_limit,
                 ..Default::default()
             };
             query_actions(db, &filter)?
@@ -75,7 +97,7 @@ pub fn cmd_query(
             id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
             ts_ms: chrono::Utc::now().timestamp_millis(),
             tool: "knox_query".to_string(),
-            project_id: None,
+            project_id: project,
             rows: res.results.len(),
             tokens: 0,
             latency_ms,
@@ -182,12 +204,12 @@ mod tests {
         insert_action(&db, &action).unwrap();
 
         // Query by file path
-        let res_file = cmd_query("src/parser.rs", &db, None).unwrap();
+        let res_file = cmd_query("src/parser.rs", &db, None, None, None, None).unwrap();
         assert_eq!(res_file.results.len(), 1);
         assert_eq!(res_file.results[0].id, action.id);
 
         // Query by keyword
-        let res_kw = cmd_query("grammar", &db, None).unwrap();
+        let res_kw = cmd_query("grammar", &db, None, None, None, None).unwrap();
         assert_eq!(res_kw.results.len(), 1);
         assert_eq!(res_kw.results[0].id, action.id);
 

@@ -45,6 +45,17 @@ pub fn prune_query_log(db: &KnoxDb, max_age_days: i64) -> KnoxResult<usize> {
     Ok(deleted)
 }
 
+/// Prunes idempotency keys older than `max_age_days` days to prevent unbounded database growth.
+pub fn prune_idempotency_keys(db: &KnoxDb, max_age_days: i64) -> KnoxResult<usize> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days);
+    let cutoff_str = cutoff.to_rfc3339();
+    let deleted = db.conn().execute(
+        "DELETE FROM idempotency_keys WHERE created_at < ?1",
+        params![cutoff_str],
+    )?;
+    Ok(deleted)
+}
+
 /// Aggregated query telemetry statistics.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct QueryTelemetryStats {

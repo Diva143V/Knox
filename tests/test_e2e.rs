@@ -76,7 +76,7 @@ fn test_e2e_init_ingest_query_status_walkthrough() {
     assert_eq!(ingest_report.sessions_created, 1);
 
     // 3. Query knowledge graph
-    let query_res = cmd_query("parser", &db, None).unwrap();
+    let query_res = cmd_query("parser", &db, None, None, None, None).unwrap();
     assert!(!query_res.results.is_empty());
     assert_eq!(query_res.results[0].files, vec!["src/parser.rs"]);
 

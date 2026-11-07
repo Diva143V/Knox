@@ -360,3 +360,28 @@ fn test_embeddings_linear_scan_ceiling_and_hnsw_trigger_documented() {
         "embeddings.rs must document why usearch was rejected"
     );
 }
+
+#[test]
+fn test_knox_md_template_tool_census_and_numbering() {
+    let knox_md = render_knox_md("test-proj", "~/.knox/knox.db", "2026-11-05T00:00:00Z");
+    assert!(
+        knox_md.contains("Knox exposes 7 tools, 3 resources, and 2 prompts"),
+        "knox.md must state '7 tools'"
+    );
+    assert!(
+        knox_md.contains("### 3.7 `knox_ask`"),
+        "knox.md must document knox_ask under 3.7"
+    );
+    assert!(
+        knox_md.contains("### 3.8 Native MCP Resources"),
+        "knox.md must number resources as 3.8"
+    );
+    assert!(
+        knox_md.contains("### 3.9 Native MCP Prompts"),
+        "knox.md must number prompts as 3.9"
+    );
+    assert!(
+        !knox_md.contains("### 3.20"),
+        "knox.md must not have broken section numbering 3.20"
+    );
+}

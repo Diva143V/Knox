@@ -209,6 +209,17 @@ pub fn get_edge_rejections(db: &KnoxDb, limit: usize) -> KnoxResult<Vec<EdgeReje
     Ok(rejections)
 }
 
+/// Prunes rejected edge attempts older than `max_age_days` days to prevent unbounded database growth.
+pub fn prune_edge_rejections(db: &KnoxDb, max_age_days: i64) -> KnoxResult<usize> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days);
+    let cutoff_str = cutoff.to_rfc3339();
+    let deleted = db.conn().execute(
+        "DELETE FROM edge_rejections WHERE ts < ?1",
+        params![cutoff_str],
+    )?;
+    Ok(deleted)
+}
+
 /// Links an action to its causal parent action (`parent_action_id`).
 pub fn link_parent(db: &KnoxDb, child_id: &ActionId, parent_id: &ActionId) -> KnoxResult<()> {
     db.conn().execute(

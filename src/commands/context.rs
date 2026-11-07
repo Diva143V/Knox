@@ -29,7 +29,10 @@ use crate::storage::queries::query_actions;
 pub struct ContextParams {
     /// Optional file path filter.
     pub file_path: Option<String>,
-    /// Project scope filter (required — cross-project reads are rejected).
+    /// Optional list of files to inspect (alias for file_path / multiple files).
+    #[serde(default)]
+    pub files: Vec<String>,
+    /// Project scope filter (optional in input; resolved to active session or workspace ".").
     pub project: Option<String>,
     /// Optional session identifier filter.
     pub session_id: Option<String>,
@@ -64,6 +67,9 @@ pub struct ContextParams {
     /// Optional pagination cursor from a previous page's `next` field.
     #[serde(default)]
     pub cursor: Option<String>,
+    /// View type (e.g. "context", "file", "symbol", "query") passed from MCP schema.
+    #[serde(default)]
+    pub view: Option<String>,
 }
 
 /// Runs the context query for `knox_context`.
@@ -77,12 +83,40 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             "Invalid context params: {e}"
         )))?;
 
-    let project = input.project.as_deref();
-    if project.is_none() {
-        return Err(crate::core::error::KnoxError::NoScope(
-            "project is required — cross-project reads are rejected".to_string(),
-        ));
+    // Early budget validation
+    let budget = input.budget.unwrap_or(DEFAULT_CONTEXT_BUDGET);
+    if budget == 0 || budget > MAX_CONTEXT_BUDGET {
+        return Err(crate::core::error::KnoxError::InvalidInput(format!(
+            "'budget' must be between 1 and {MAX_CONTEXT_BUDGET}"
+        )));
     }
+
+    // Coalesce file_path from file_path or files alias
+    let resolved_file_path = input
+        .file_path
+        .clone()
+        .or_else(|| input.files.first().cloned());
+
+    // Resolve project: explicit param -> session lookup -> "." workspace fallback -> fail closed
+    let project = if let Some(ref p) = input.project {
+        p.clone()
+    } else if let Some(ref s_id) = input.session_id {
+        if let Ok(Some(s)) = crate::storage::sessions::get_session(db, &crate::core::ids::SessionId::from(s_id.as_str())) {
+            s.project_id.map(|pid| pid.0).unwrap_or_else(|| ".".to_string())
+        } else if let Ok(Some(p)) = crate::storage::sessions::resolve_project_identifier(db, ".") {
+            p
+        } else {
+            return Err(crate::core::error::KnoxError::NoScope(
+                "project is required — cross-project reads are rejected. Specify 'project' or run from an initialized workspace.".to_string(),
+            ));
+        }
+    } else if let Ok(Some(p)) = crate::storage::sessions::resolve_project_identifier(db, ".") {
+        p
+    } else {
+        return Err(crate::core::error::KnoxError::NoScope(
+            "project is required — cross-project reads are rejected. Specify 'project' or run from an initialized workspace.".to_string(),
+        ));
+    };
 
     let since_dt = if let Some(ref s) = input.since {
         Some(
@@ -98,13 +132,13 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         None
     };
 
-    let ranking_file = input.file_path.clone();
+    let ranking_file = resolved_file_path.clone();
     let ranking_symbols = input.symbols.clone();
     let ranking_query = input.query.clone();
     let filter = QueryFilter {
-        file_path: input.file_path.as_deref().map(normalize_query_file_path),
+        file_path: resolved_file_path.as_deref().map(normalize_query_file_path),
         file_path_exact: false,
-        project: input.project.clone(),
+        project: Some(project.clone()),
         session_id: input.session_id.map(SessionId::from),
         actor: input.actor,
         since: since_dt,
@@ -119,7 +153,7 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 
     let mut result = query_actions(db, &filter)?;
     let config = crate::core::config::KnoxConfig::from_env();
-    let router = ModelRouter::for_project(&config, Some(db), input.project.as_deref());
+    let router = ModelRouter::for_project(&config, Some(db), Some(&project));
     result.results = rank_actions_hybrid(
         result.results,
         ranking_file.as_deref(),
@@ -128,12 +162,6 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         Some(&router),
         Some(db),
     );
-    let budget = input.budget.unwrap_or(DEFAULT_CONTEXT_BUDGET);
-    if budget == 0 || budget > MAX_CONTEXT_BUDGET {
-        return Err(crate::core::error::KnoxError::InvalidInput(format!(
-            "'budget' must be between 1 and {MAX_CONTEXT_BUDGET}"
-        )));
-    }
 
     let format_mode = input
         .format
@@ -162,7 +190,7 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
                     id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
                     ts_ms: Utc::now().timestamp_millis(),
                     tool: "knox_context".to_string(),
-                    project_id: input.project.clone(),
+                    project_id: Some(project.clone()),
                     rows: result.results.len(),
                     tokens: structured_tokens,
                     latency_ms,
@@ -229,7 +257,7 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
             id: format!("ql_{}", uuid::Uuid::new_v4().simple()),
             ts_ms: Utc::now().timestamp_millis(),
             tool: "knox_context".to_string(),
-            project_id: input.project.clone(),
+            project_id: Some(project.clone()),
             rows: packed_results.len(),
             tokens: budget_used,
             latency_ms,

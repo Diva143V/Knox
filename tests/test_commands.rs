@@ -69,7 +69,7 @@ fn test_command_ingest_and_status_and_query_flow() {
     assert!(status_text.contains("Total Actions:     6"));
 
     // 3. Query by file
-    let query_file = cmd_query("src/parser.rs", &db, None).unwrap();
+    let query_file = cmd_query("src/parser.rs", &db, None, None, None, None).unwrap();
     assert!(!query_file.results.is_empty());
     assert!(
         query_file
@@ -79,11 +79,11 @@ fn test_command_ingest_and_status_and_query_flow() {
     );
 
     // 4. Query by keyword
-    let query_kw = cmd_query("parser", &db, None).unwrap();
+    let query_kw = cmd_query("parser", &db, None, None, None, None).unwrap();
     assert!(!query_kw.results.is_empty());
 
     // 5. Query by actor prefix
-    let query_actor = cmd_query("actor:human", &db, None).unwrap();
+    let query_actor = cmd_query("actor:human", &db, None, None, None, None).unwrap();
     assert_eq!(query_actor.results.len(), 2);
 
     // 6. Query formatting
@@ -144,7 +144,7 @@ fn verify_human_edit_detected(path: &std::path::Path, db: &KnoxDb) {
     assert_eq!(report1.human_edits_detected, 1);
     assert_eq!(report1.actions_recorded, 1);
 
-    let query_human = cmd_query("human_edit.txt", db, None).unwrap();
+    let query_human = cmd_query("human_edit.txt", db, None, None, None, None).unwrap();
     assert_eq!(query_human.results[0].actor, "human");
     assert_eq!(query_human.results[0].action_type, "human_write");
 
@@ -304,4 +304,106 @@ fn test_command_ask_and_check_cli_dispatch() {
         json: false,
     };
     assert!(knox::cli::dispatch::handle_trace(trace_desc_args, &db).is_ok());
+}
+
+#[test]
+fn test_query_flags_scoped() {
+    let db = KnoxDb::open_memory().unwrap();
+    let proj_a = knox::core::types::Project {
+        id: knox::core::ids::ProjectId("proj_a".to_string()),
+        name: "Project A".to_string(),
+        path: "d:/dummy/proj_a".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    };
+    let proj_b = knox::core::types::Project {
+        id: knox::core::ids::ProjectId("proj_b".to_string()),
+        name: "Project B".to_string(),
+        path: "d:/dummy/proj_b".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    };
+    knox::storage::nodes::insert_project(&db, &proj_a).unwrap();
+    knox::storage::nodes::insert_project(&db, &proj_b).unwrap();
+
+    let act_a = knox::core::types::KnoxAction {
+        id: knox::core::ids::ActionId::new(),
+        actor: "antigravity".to_string(),
+        action_type: "write".to_string(),
+        summary: "Query test in project A".to_string(),
+        files: vec!["file_a.rs".to_string()],
+        tags: vec![],
+        confidence: None,
+        timestamp: chrono::Utc::now(),
+        project_id: Some(knox::core::ids::ProjectId("proj_a".to_string())),
+        is_current: true,
+        ..Default::default()
+    };
+    let act_b = knox::core::types::KnoxAction {
+        id: knox::core::ids::ActionId::new(),
+        actor: "antigravity".to_string(),
+        action_type: "write".to_string(),
+        summary: "Query test in project B".to_string(),
+        files: vec!["file_b.rs".to_string()],
+        tags: vec![],
+        confidence: None,
+        timestamp: chrono::Utc::now(),
+        project_id: Some(knox::core::ids::ProjectId("proj_b".to_string())),
+        is_current: true,
+        ..Default::default()
+    };
+    knox::storage::nodes::insert_action(&db, &act_a).unwrap();
+    knox::storage::nodes::insert_action(&db, &act_b).unwrap();
+
+    // Query scoped to proj_a
+    let res_a = cmd_query("Query test", &db, None, Some("proj_a".to_string()), None, Some(10)).unwrap();
+    assert_eq!(res_a.results.len(), 1);
+    assert_eq!(res_a.results[0].id, act_a.id);
+
+    // Query scoped to file_b.rs
+    let res_b = cmd_query("Query test", &db, None, None, Some("file_b.rs".to_string()), Some(10)).unwrap();
+    assert_eq!(res_b.results.len(), 1);
+    assert_eq!(res_b.results[0].id, act_b.id);
+}
+
+#[test]
+fn test_retention_sweeps_prune_tables() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    let old_date = (chrono::Utc::now() - chrono::Duration::days(100)).to_rfc3339();
+    let recent_date = (chrono::Utc::now() - chrono::Duration::days(2)).to_rfc3339();
+
+    db.with_tx(|conn| {
+        // 1. Idempotency keys
+        conn.execute(
+            "INSERT INTO idempotency_keys (key, payload_hash, response_json, created_at)
+             VALUES ('old_key', 'h1', '{}', ?1), ('new_key', 'h2', '{}', ?2)",
+            rusqlite::params![old_date, recent_date],
+        )?;
+
+        // 2. Edge rejections
+        conn.execute(
+            "INSERT INTO edge_rejections (id, ts, project_id, from_id, to_id, attempted_type, reason)
+             VALUES ('old_rej', ?1, 'p', 'f', 't', 'invalid', 'bad'), ('new_rej', ?2, 'p', 'f', 't', 'invalid', 'bad')",
+            rusqlite::params![old_date, recent_date],
+        )?;
+        Ok(())
+    }).unwrap();
+
+    // Run doctor which invokes all retention sweeps
+    let doc_report = knox::commands::doctor::cmd_doctor(&db, None).unwrap();
+    assert_eq!(doc_report.integrity_check, "ok");
+
+    // Verify old rows pruned and recent rows preserved
+    let idemp_count: i64 = db.with_tx(|conn| {
+        let count = conn.query_row("SELECT COUNT(*) FROM idempotency_keys", [], |r| r.get(0))?;
+        Ok(count)
+    }).unwrap();
+    assert_eq!(idemp_count, 1, "Only recent idempotency key should survive");
+
+    let edge_count: i64 = db.with_tx(|conn| {
+        let count = conn.query_row("SELECT COUNT(*) FROM edge_rejections", [], |r| r.get(0))?;
+        Ok(count)
+    }).unwrap();
+    assert_eq!(edge_count, 1, "Only recent edge rejection should survive");
 }
