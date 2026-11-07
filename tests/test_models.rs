@@ -7,6 +7,7 @@
 //! - Mock model backend: deterministic unit vectors, citation-grounded answering.
 
 use chrono::Utc;
+use serde_json::json;
 use tempfile::tempdir;
 
 use knox::core::config::KnoxConfig;
@@ -179,9 +180,9 @@ fn test_h1_migration_v10_and_vector_persistence() {
     let fetched = get_embedding(&db, &action.id).unwrap().expect("embedding must exist");
     assert_eq!(fetched, original_vector);
 
-    // Find similar actions
+    // Find similar actions (scoped or global)
     let query_vector = vec![0.12f32, -0.38f32, 0.88f32, 0.05f32];
-    let matches = find_similar_actions(&db, &query_vector, 5, 0.8).unwrap();
+    let matches = find_similar_actions(&db, None, &query_vector, 5, 0.8).unwrap();
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].0, action.id);
     assert!(matches[0].1 > 0.95, "Vector should have high cosine similarity");
@@ -466,5 +467,91 @@ fn test_c2_cloud_egress_guard_and_project_egress() {
     assert!(router_proj_allowed.is_enabled());
     assert!(router_proj_allowed.check_egress().is_ok());
     assert!(router_proj_allowed.embedding().is_some());
+}
+
+#[test]
+fn test_cross_project_embedding_isolation_in_ask() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    let proj_a = knox::core::types::Project {
+        id: knox::core::ids::ProjectId::new(),
+        name: "ProjectAlpha".to_string(),
+        path: "D:\\Alpha".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    };
+    knox::storage::insert_project(&db, &proj_a).unwrap();
+
+    let proj_b = knox::core::types::Project {
+        id: knox::core::ids::ProjectId::new(),
+        name: "ProjectBeta".to_string(),
+        path: "D:\\Beta".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    };
+    knox::storage::insert_project(&db, &proj_b).unwrap();
+
+    let act_a = KnoxAction {
+        id: ActionId::new(),
+        actor: "gemini".to_string(),
+        action_type: "decide".to_string(),
+        project_id: Some(proj_a.id.clone()),
+        summary: "Project A public database configuration".to_string(),
+        files: vec!["src/db.rs".to_string()],
+        timestamp: chrono::Utc::now(),
+        is_current: true,
+        ..Default::default()
+    };
+    knox::storage::insert_action(&db, &act_a).unwrap();
+
+    let act_b = KnoxAction {
+        id: ActionId::new(),
+        actor: "gemini".to_string(),
+        action_type: "decide".to_string(),
+        project_id: Some(proj_b.id.clone()),
+        summary: "Project B confidential proprietary secrets".to_string(),
+        files: vec!["src/secret.rs".to_string()],
+        timestamp: chrono::Utc::now(),
+        is_current: true,
+        ..Default::default()
+    };
+    knox::storage::insert_action(&db, &act_b).unwrap();
+
+    let vec_a = vec![1.0f32, 0.0f32, 0.0f32, 0.0f32];
+    let vec_b = vec![0.0f32, 1.0f32, 0.0f32, 0.0f32];
+    insert_embedding(&db, &act_a.id, &vec_a, "mock-embed").unwrap();
+    insert_embedding(&db, &act_b.id, &vec_b, "mock-embed").unwrap();
+
+    // 1. Verify count_embeddings respects project scoping
+    assert_eq!(knox::storage::count_embeddings(&db, Some(proj_a.id.as_str())).unwrap(), 1);
+    assert_eq!(knox::storage::count_embeddings(&db, Some(proj_b.id.as_str())).unwrap(), 1);
+    assert_eq!(knox::storage::count_embeddings(&db, None).unwrap(), 2);
+
+    // 2. Querying similar actions scoped to Project A NEVER returns Project B's action
+    let target_query_vec = vec![0.01f32, 0.99f32, 0.0f32, 0.0f32]; // Closer to vec_b
+    let scoped_to_a = find_similar_actions(&db, Some(proj_a.id.as_str()), &target_query_vec, 10, 0.0).unwrap();
+    assert_eq!(scoped_to_a.len(), 1);
+    assert_eq!(scoped_to_a[0].0, act_a.id, "Scoped search must return Project A action only");
+
+    // 3. knox_ask on Project A must never cite or leak Project B
+    let ask_res = knox::mcp::handlers::handle_ask(
+        &db,
+        json!({
+            "project": proj_a.id.as_str(),
+            "question": "What confidential proprietary secrets are configured?",
+            "strict_citations": true
+        }),
+    )
+    .unwrap();
+
+    let citations = ask_res["citations"].as_array().expect("citations array");
+    for c in citations {
+        let cited_id = c["action_id"].as_str().unwrap();
+        assert_ne!(
+            cited_id,
+            act_b.id.as_str(),
+            "Cross-project leak detected: Project A ask cited Project B action!"
+        );
+    }
 }
 

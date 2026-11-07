@@ -12,8 +12,8 @@ pub mod telemetry;
 
 pub use db::KnoxDb;
 pub use embeddings::{
-    blob_to_vector, cosine_similarity, find_similar_actions, get_embedding, get_embeddings_batch,
-    insert_embedding, insert_embedding_conn, vector_to_blob,
+    blob_to_vector, cosine_similarity, count_embeddings, find_similar_actions, get_embedding,
+    get_embeddings_batch, insert_embedding, insert_embedding_conn, vector_to_blob,
 };
 pub use edges::{
     ensure_ref, get_all_edges_for_actions, get_child_action_ids, get_edge_rejections,

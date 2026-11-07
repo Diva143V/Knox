@@ -78,6 +78,12 @@ pub struct MetricsReport {
     pub tool_definition_tokens: usize,
     /// Compact context token savings vs raw JSON envelope (percentage).
     pub compact_savings_percent: usize,
+    /// Stored vector embeddings for this project/scope.
+    pub vector_count: usize,
+    /// Estimated memory allocation footprint for a full linear scan of these vectors in megabytes.
+    pub vector_scan_memory_mb: f64,
+    /// 95th percentile semantic search / ask latency in milliseconds.
+    pub semantic_latency_p95_ms: Option<f64>,
     /// Optional empirical calibration report against the 50 labeled pairs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub calibration: Option<CalibrationReport>,
@@ -532,6 +538,29 @@ pub fn cmd_metrics(
         None
     };
 
+    let vector_count = crate::storage::count_embeddings(db, project).unwrap_or(0);
+    // 384 dimensions * 4 bytes per f32 = 1,536 bytes per vector
+    let vector_scan_memory_mb = (vector_count as f64 * 384.0 * 4.0) / (1024.0 * 1024.0);
+
+    let semantic_latencies: Vec<i64> = db
+        .conn()
+        .prepare(
+            "SELECT latency_ms FROM query_log WHERE tool = 'knox_ask' AND (?1 IS NULL OR project_id = ?1) ORDER BY latency_ms ASC",
+        )
+        .and_then(|mut s| {
+            let rows = s.query_map(rusqlite::params![project], |r| r.get(0))?;
+            rows.collect::<Result<Vec<i64>, _>>()
+        })
+        .unwrap_or_default();
+
+    let semantic_latency_p95_ms = if semantic_latencies.is_empty() {
+        None
+    } else {
+        let n = semantic_latencies.len();
+        let p95_idx = ((n as f64 * 0.95).ceil() as usize).saturating_sub(1).min(n - 1);
+        Some(semantic_latencies[p95_idx] as f64)
+    };
+
     Ok(MetricsReport {
         total_queries: stats.total_queries,
         hit_count: hits,
@@ -553,6 +582,9 @@ pub fn cmd_metrics(
         tool_count: efficiency.tool_count,
         tool_definition_tokens: efficiency.tool_definition_tokens,
         compact_savings_percent: efficiency.compact_savings_percent(),
+        vector_count,
+        vector_scan_memory_mb,
+        semantic_latency_p95_ms,
         calibration,
     })
 }
@@ -652,6 +684,30 @@ pub fn format_metrics_report(report: &MetricsReport) -> String {
         "  Compact Token Savings         : {}% savings vs raw JSON\n",
         report.compact_savings_percent
     ));
+
+    out.push_str("\nVector Index & Scan Telemetry (find_similar_actions):\n");
+    out.push_str(&format!(
+        "  Vector Count                  : {} vectors\n",
+        report.vector_count
+    ));
+    out.push_str(&format!(
+        "  Scan Allocation per Query     : {:.2} MB (384 dims × 4B)\n",
+        report.vector_scan_memory_mb
+    ));
+    if let Some(sem_p95) = report.semantic_latency_p95_ms {
+        out.push_str(&format!(
+            "  Semantic Query Latency (p95)  : {:.2} ms\n",
+            sem_p95
+        ));
+    } else {
+        out.push_str("  Semantic Query Latency (p95)  : None recorded\n");
+    }
+    let index_triggered = report.vector_count > 50_000 || report.semantic_latency_p95_ms.is_some_and(|p| p > 50.0);
+    if index_triggered {
+        out.push_str("  Index Recommendation          : ⚠️ TRIGGER EXCEEDED (> 50k vectors or > 50ms p95). Adopt pure-Rust HNSW (instant-distance/hnsw_rs).\n");
+    } else {
+        out.push_str("  Index Recommendation          : Linear scan healthy (< 50,000 vectors and < 50ms p95 ceiling)\n");
+    }
 
     if let Some(ref cal) = report.calibration {
         out.push_str("\nGuardrail Overlap Score Calibration (50 Labeled Pairs):\n");

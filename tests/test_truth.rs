@@ -304,3 +304,59 @@ fn test_readme_knowledge_graph_four_questions_and_retired_tools_absence() {
         );
     }
 }
+
+#[test]
+fn test_embeddings_linear_scan_ceiling_and_hnsw_trigger_documented() {
+    let embeddings_src = fs::read_to_string("src/storage/embeddings.rs")
+        .expect("src/storage/embeddings.rs must exist");
+
+    // 1. Verify memory allocation calculations are explicitly documented
+    assert!(
+        embeddings_src.contains("384 dimensions"),
+        "embeddings.rs must document 384 dimensions"
+    );
+    assert!(
+        embeddings_src.contains("15.36 MB"),
+        "embeddings.rs must document ~15.36 MB allocation at 10k"
+    );
+    assert!(
+        embeddings_src.contains("76.8 MB"),
+        "embeddings.rs must document ~76.8 MB allocation at 50k"
+    );
+    assert!(
+        embeddings_src.contains("768 MB"),
+        "embeddings.rs must document ~768 MB allocation at 500k"
+    );
+
+    // 2. Verify project isolation scoping is documented and implemented
+    assert!(
+        embeddings_src.contains("project_id"),
+        "embeddings.rs must document project_id scoping"
+    );
+    assert!(
+        embeddings_src.contains("JOIN actions a ON a.id = e.action_id WHERE a.project_id = ?1"),
+        "embeddings.rs must implement project-scoped JOIN query"
+    );
+
+    // 3. Verify index trigger criteria and engine recommendations
+    assert!(
+        embeddings_src.contains("vector_count > 50,000"),
+        "embeddings.rs must document > 50,000 vector count trigger"
+    );
+    assert!(
+        embeddings_src.contains("p95 semantic search latency > 50ms"),
+        "embeddings.rs must document > 50ms p95 latency trigger"
+    );
+    assert!(
+        embeddings_src.contains("instant-distance") || embeddings_src.contains("hnsw_rs"),
+        "embeddings.rs must document pure-Rust HNSW target index"
+    );
+    assert!(
+        embeddings_src.contains("sqlite-vss"),
+        "embeddings.rs must document why sqlite-vss was rejected"
+    );
+    assert!(
+        embeddings_src.contains("usearch"),
+        "embeddings.rs must document why usearch was rejected"
+    );
+}

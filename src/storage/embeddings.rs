@@ -124,34 +124,100 @@ pub fn get_embeddings_batch(
     Ok(map)
 }
 
+/// Returns the count of vector embeddings stored, optionally scoped to a project.
+pub fn count_embeddings(db: &KnoxDb, project_id: Option<&str>) -> KnoxResult<usize> {
+    let count = match project_id {
+        Some(p) => db.conn().query_row(
+            "SELECT COUNT(*) FROM embeddings e JOIN actions a ON a.id = e.action_id WHERE a.project_id = ?1",
+            params![p],
+            |r| r.get(0),
+        )?,
+        None => db.conn().query_row(
+            "SELECT COUNT(*) FROM embeddings",
+            [],
+            |r| r.get(0),
+        )?,
+    };
+    Ok(count)
+}
+
 /// Scans stored embeddings and returns the top matching action IDs ordered by cosine similarity.
 ///
-/// # Performance & Scalability
-/// This performs an in-memory linear brute-force scan over all rows in the `embeddings` table.
-/// On modern hardware with SQLite WAL and 384-dimensional embeddings (e.g. all-MiniLM-L6-v2),
-/// this linear scan executes in sub-millisecond to low tens-of-milliseconds up to ~50,000 vectors.
-/// For repositories exceeding 50,000 embedded actions, an approximate nearest-neighbor index
-/// (such as `sqlite-vec` or an external HNSW/Faiss index) should be adopted.
+/// # Project Scoping & Isolation
+/// When `project_id` is `Some(p)`, the query explicitly joins `actions` on `a.id = e.action_id`
+/// with `WHERE a.project_id = ?1`. This strictly bounds the linear scan to only actions belonging
+/// to that project, eliminating cross-project memory leakage and cutting memory allocation by the
+/// project partition ratio.
+///
+/// # Performance Realities & Memory Allocation Ceiling
+/// A linear scan over embeddings requires reading and deserializing raw float coordinate blobs:
+/// - 384 dimensions × 4 bytes (`f32`) = 1,536 bytes per vector entry.
+/// - Scanned in-memory allocation per query:
+///   - 10,000 vectors: ~15.36 MB allocation
+///   - 50,000 vectors: ~76.8 MB allocation
+///   - 500,000 vectors: ~768 MB allocation
+///
+/// SQL execution is not the primary bottleneck; memory allocation and SIMD dot products dominate.
+///
+/// # Index Trigger Criteria
+/// Knox observes rather than asserts the indexing ceiling. Transition from linear scan to an
+/// approximate nearest-neighbor index should be triggered when:
+/// 1. `vector_count > 50,000` within a single project, OR
+/// 2. `p95 semantic search latency > 50ms`.
+///
+/// # Target Index Architecture (Pure-Rust HNSW)
+/// When the trigger criteria are met:
+/// - Adopt pure-Rust HNSW (e.g. `instant-distance` or `hnsw_rs`) to preserve Knox's zero-dependency,
+///   clean-compiling, pure-Rust cross-platform distribution.
+/// - Rejected alternatives:
+///   - `sqlite-vss`: Dynamic C++ extension requiring runtime loadable extensions and incompatible
+///     with statically-linked `rusqlite` bundled mode.
+///   - `usearch`: C++ library dependency that introduces C++ build tools into Knox's pure-Rust toolchain.
 pub fn find_similar_actions(
     db: &KnoxDb,
+    project_id: Option<&str>,
     target_vector: &[f32],
     limit: usize,
     min_similarity: f32,
 ) -> KnoxResult<Vec<(ActionId, f32)>> {
-    let mut stmt = db.conn().prepare("SELECT action_id, vector FROM embeddings")?;
-    let rows = stmt.query_map([], |row| {
-        let id_str: String = row.get(0)?;
-        let blob: Vec<u8> = row.get(1)?;
-        Ok((id_str, blob))
-    })?;
-
     let mut matches: Vec<(ActionId, f32)> = Vec::new();
-    for row in rows {
-        let (id_str, blob) = row?;
-        let cand_vec = blob_to_vector(&blob);
-        let sim = cosine_similarity(target_vector, &cand_vec);
-        if sim >= min_similarity {
-            matches.push((ActionId::from(id_str), sim));
+
+    if let Some(proj) = project_id {
+        let mut stmt = db.conn().prepare(
+            "SELECT e.action_id, e.vector \
+             FROM embeddings e \
+             JOIN actions a ON a.id = e.action_id \
+             WHERE a.project_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![proj], |row| {
+            let id_str: String = row.get(0)?;
+            let blob: Vec<u8> = row.get(1)?;
+            Ok((id_str, blob))
+        })?;
+
+        for row in rows {
+            let (id_str, blob) = row?;
+            let cand_vec = blob_to_vector(&blob);
+            let sim = cosine_similarity(target_vector, &cand_vec);
+            if sim >= min_similarity {
+                matches.push((ActionId::from(id_str), sim));
+            }
+        }
+    } else {
+        let mut stmt = db.conn().prepare("SELECT action_id, vector FROM embeddings")?;
+        let rows = stmt.query_map([], |row| {
+            let id_str: String = row.get(0)?;
+            let blob: Vec<u8> = row.get(1)?;
+            Ok((id_str, blob))
+        })?;
+
+        for row in rows {
+            let (id_str, blob) = row?;
+            let cand_vec = blob_to_vector(&blob);
+            let sim = cosine_similarity(target_vector, &cand_vec);
+            if sim >= min_similarity {
+                matches.push((ActionId::from(id_str), sim));
+            }
         }
     }
 

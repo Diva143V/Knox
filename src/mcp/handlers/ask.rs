@@ -33,6 +33,7 @@ fn default_strict() -> bool {
 
 /// Executes `knox_ask`.
 pub fn handle_ask(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
+    let start_time = std::time::Instant::now();
     let input: AskParams = serde_json::from_value(params)
         .map_err(|e| KnoxError::InvalidInput(format!("Failed to parse knox_ask parameters: {e}")))?;
 
@@ -79,11 +80,19 @@ pub fn handle_ask(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
 
     if router.is_enabled() {
         if let Ok(q_vec) = router.embed(&sanitized_question) {
-            if let Ok(similar) = crate::storage::embeddings::find_similar_actions(db, &q_vec, 10, 0.4) {
+            if let Ok(similar) = crate::storage::embeddings::find_similar_actions(
+                db,
+                project_id.as_deref(),
+                &q_vec,
+                10,
+                0.4,
+            ) {
                 let sim_ids: Vec<ActionId> = similar.into_iter().map(|(id, _)| id).collect();
                 if let Ok(extra_actions) = crate::storage::queries::get_actions_by_ids(db, &sim_ids) {
                     for act in extra_actions {
-                        if !candidates.iter().any(|c| c.id == act.id) {
+                        if act.project_id.as_ref().map(|p| p.as_str()) == project_id.as_deref()
+                            && !candidates.iter().any(|c| c.id == act.id)
+                        {
                             candidates.push(act);
                         }
                     }
@@ -113,6 +122,25 @@ pub fn handle_ask(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         resp.citations.retain(|c| valid_ids.contains(&c.action_id));
         resp.answer = filter_hallucinated_citations(&resp.answer, &valid_ids);
     }
+
+    let latency_ms = start_time.elapsed().as_millis() as u64;
+    crate::storage::telemetry::record_query_log_best_effort(
+        db,
+        &crate::core::types::QueryLogEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            ts_ms: chrono::Utc::now().timestamp_millis(),
+            tool: "knox_ask".to_string(),
+            project_id: project_id.clone(),
+            rows: ranked.len(),
+            tokens: resp.answer.len() / 4,
+            latency_ms,
+            reason: if ranked.is_empty() {
+                Some("no_records".to_string())
+            } else {
+                None
+            },
+        },
+    );
 
     Ok(json!({
         "question": input.question,
