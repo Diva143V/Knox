@@ -1,7 +1,7 @@
 //! Integration tests for the Knox MCP protocol and tool execution layer.
 //!
-//! Only the six advertised tools are exercised: begin, context, check, trace,
-//! record, handoff.
+//! The advertised tools are exercised: begin, context, check, trace,
+//! record, handoff, ask.
 
 use serde_json::json;
 

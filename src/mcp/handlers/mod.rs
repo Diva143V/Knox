@@ -1,6 +1,6 @@
 //! Handlers and dispatcher for Model Context Protocol (MCP) tools in Knox.
 //!
-//! Only the six high-level workflow handlers are exposed.
+//! Only the seven high-level workflow handlers are exposed.
 
 pub mod ask;
 pub mod begin;
@@ -81,7 +81,7 @@ pub fn dispatch_with_id(
 }
 
 /// Executes an individual Knox tool by its canonical tool name.
-/// Only the six advertised tools are accepted; legacy names are no longer routed.
+/// Only the seven advertised tools are accepted; legacy names are no longer routed.
 pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value> {
     let result = match name {
         "knox_context" => handle_context(db, params),
