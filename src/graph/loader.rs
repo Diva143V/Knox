@@ -60,34 +60,49 @@ pub fn build_node_index(graph: &KnoxGraph) -> HashMap<ActionId, NodeIndex> {
         .collect()
 }
 
+/// SQL filter restricting recursive subgraph expansion strictly to causal edges.
+/// Associative links (`relates_to`) and conflict markers (`contradicts`) are non-causal
+/// and must never pollute the bounded node budget during traversal.
+pub const CAUSAL_EDGE_SQL_FILTER: &str =
+    "e.edge_type IN ('caused_by', 'parent', 'supersedes', 'implements', 'depends_on', 'verifies', 'reverts', 'resolves')";
+
 /// Builds the recursive CTE for a bounded, *directional* subgraph traversal.
 fn build_subgraph_cte_sql(anchor_count: usize, direction: SubgraphDirection) -> String {
     let placeholders = vec!["?"; anchor_count].join(", ");
 
     let recursive_select = match direction {
         SubgraphDirection::Ancestors => {
-            "SELECT a.id, c.depth + 1, c.path || a.id || ','
+            format!(
+                "SELECT a.id, c.depth + 1, c.path || a.id || ','
             FROM connected c
             JOIN edges e ON e.from_action_id = c.action_id
             JOIN actions a ON a.id = e.to_id
             WHERE c.depth < CAST(? AS INTEGER)
-              AND instr(c.path, ',' || a.id || ',') = 0"
+              AND instr(c.path, ',' || a.id || ',') = 0
+              AND {CAUSAL_EDGE_SQL_FILTER}"
+            )
         }
         SubgraphDirection::Descendants => {
-            "SELECT a.id, c.depth + 1, c.path || a.id || ','
+            format!(
+                "SELECT a.id, c.depth + 1, c.path || a.id || ','
             FROM connected c
             JOIN edges e ON e.to_id = c.action_id
             JOIN actions a ON a.id = e.from_action_id
             WHERE c.depth < CAST(? AS INTEGER)
-              AND instr(c.path, ',' || a.id || ',') = 0"
+              AND instr(c.path, ',' || a.id || ',') = 0
+              AND {CAUSAL_EDGE_SQL_FILTER}"
+            )
         }
         SubgraphDirection::Both => {
-            "SELECT a.id, c.depth + 1, c.path || a.id || ','
+            format!(
+                "SELECT a.id, c.depth + 1, c.path || a.id || ','
             FROM connected c
             JOIN edges e ON (e.from_action_id = c.action_id OR e.to_id = c.action_id)
             JOIN actions a ON a.id = (CASE WHEN e.from_action_id = c.action_id THEN e.to_id ELSE e.from_action_id END)
             WHERE c.depth < CAST(? AS INTEGER)
-              AND instr(c.path, ',' || a.id || ',') = 0"
+              AND instr(c.path, ',' || a.id || ',') = 0
+              AND {CAUSAL_EDGE_SQL_FILTER}"
+            )
         }
     };
 
@@ -313,5 +328,79 @@ mod tests {
         // 5. Assert leaf has no descendants and root has no ancestors
         assert!(crate::graph::traversal::descendants(&subgraph, &write.id).is_empty());
         assert!(crate::graph::traversal::ancestors(&subgraph, &plan.id).is_empty());
+    }
+
+    #[test]
+    fn test_subgraph_cte_excludes_relates_to_and_contradicts() {
+        let db = KnoxDb::open_memory().unwrap();
+
+        let plan = create_action("human", "plan", "Design API architecture", None);
+        let write = create_action("gemini", "write", "Implement endpoints", Some(plan.id.clone()));
+        let note = create_action("human", "read", "Associative research note", None);
+        let conflict = create_action("cursor", "decide", "Conflicting design proposal", None);
+
+        insert_action(&db, &plan).unwrap();
+        insert_action(&db, &write).unwrap();
+        insert_action(&db, &note).unwrap();
+        insert_action(&db, &conflict).unwrap();
+
+        // Insert non-causal edges directly: note relates_to plan, conflict contradicts plan
+        let now = Utc::now();
+        crate::storage::edges::insert_edge(
+            &db,
+            &crate::core::types::Edge {
+                id: format!("{}:{}:relates_to", note.id, plan.id),
+                from_action_id: note.id.clone(),
+                to_id: plan.id.to_string(),
+                edge_type: "relates_to".to_string(),
+                created_at: now,
+                label: None,
+                provenance: None,
+                note: None,
+            },
+        )
+        .unwrap();
+
+        crate::storage::edges::insert_edge(
+            &db,
+            &crate::core::types::Edge {
+                id: format!("{}:{}:contradicts", conflict.id, plan.id),
+                from_action_id: conflict.id.clone(),
+                to_id: plan.id.to_string(),
+                edge_type: "contradicts".to_string(),
+                created_at: now,
+                label: None,
+                provenance: None,
+                note: None,
+            },
+        )
+        .unwrap();
+
+        // 1. Descendant expansion from plan: must ONLY include plan and write, NEVER note or conflict
+        let desc_subgraph = load_subgraph_directional(&db, std::slice::from_ref(&plan.id), 3, SubgraphDirection::Descendants).unwrap();
+        assert_eq!(desc_subgraph.node_count(), 2);
+        let desc_map = build_node_index(&desc_subgraph);
+        assert!(desc_map.contains_key(&plan.id));
+        assert!(desc_map.contains_key(&write.id));
+        assert!(!desc_map.contains_key(&note.id), "relates_to must NOT be expanded in descendant CTE");
+        assert!(!desc_map.contains_key(&conflict.id), "contradicts must NOT be expanded in descendant CTE");
+
+        // 2. Ancestor expansion from write: must ONLY include write and plan
+        let anc_subgraph = load_subgraph_directional(&db, std::slice::from_ref(&write.id), 3, SubgraphDirection::Ancestors).unwrap();
+        assert_eq!(anc_subgraph.node_count(), 2);
+        let anc_map = build_node_index(&anc_subgraph);
+        assert!(anc_map.contains_key(&write.id));
+        assert!(anc_map.contains_key(&plan.id));
+        assert!(!anc_map.contains_key(&note.id));
+        assert!(!anc_map.contains_key(&conflict.id));
+
+        // 3. Both directions expansion from plan: must NOT expand across non-causal edges
+        let both_subgraph = load_subgraph_directional(&db, std::slice::from_ref(&plan.id), 3, SubgraphDirection::Both).unwrap();
+        assert_eq!(both_subgraph.node_count(), 2);
+        let both_map = build_node_index(&both_subgraph);
+        assert!(both_map.contains_key(&plan.id));
+        assert!(both_map.contains_key(&write.id));
+        assert!(!both_map.contains_key(&note.id));
+        assert!(!both_map.contains_key(&conflict.id));
     }
 }

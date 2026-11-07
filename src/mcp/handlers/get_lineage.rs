@@ -33,34 +33,36 @@ pub fn handle_get_lineage(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let input: GetLineageParams = serde_json::from_value(params)
         .map_err(|e| KnoxError::InvalidInput(format!("Invalid get_lineage params: {e}")))?;
 
-    let (target_id, mut empty_reason) = if let Some(ref id_str) = input.action_id {
+    let (target_ids, primary_target_id, mut empty_reason) = if let Some(ref id_str) = input.action_id {
         let trimmed_id = id_str.trim();
         let target = ActionId::from(trimmed_id);
         let exists = crate::storage::nodes::get_action(db, &target)?.is_some();
         if !exists {
             let reason = crate::storage::telemetry::determine_empty_reason(db, None, None);
-            (Some(target), Some(reason.to_string()))
+            (vec![target.clone()], Some(target), Some(reason.to_string()))
         } else {
-            (Some(target), None)
+            (vec![target.clone()], Some(target), None)
         }
     } else if let Some(ref fp) = input.file_path {
         let is_out_of_scope = fp.starts_with("..") || fp.contains("/../") || fp.contains("\\..\\");
         if is_out_of_scope {
-            (None, Some("out_of_scope".to_string()))
+            (Vec::new(), None, Some("out_of_scope".to_string()))
         } else {
             let norm = normalize_query_file_path(fp);
             let filter = QueryFilter {
                 file_path: Some(norm),
                 current_only: true,
-                limit: 1,
+                limit: 50,
                 ..Default::default()
             };
             let query_res = crate::storage::queries::query_actions(db, &filter)?;
-            if let Some(first) = query_res.results.first() {
-                (Some(first.id.clone()), None)
-            } else {
+            if query_res.results.is_empty() {
                 let reason = crate::storage::telemetry::determine_empty_reason(db, None, Some(fp));
-                (None, Some(reason.to_string()))
+                (Vec::new(), None, Some(reason.to_string()))
+            } else {
+                let first_id = query_res.results.first().map(|a| a.id.clone());
+                let ids: Vec<ActionId> = query_res.results.into_iter().map(|a| a.id).collect();
+                (ids, first_id, None)
             }
         }
     } else {
@@ -86,44 +88,70 @@ pub fn handle_get_lineage(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         _ => (SubgraphDirection::Ancestors, false, false),
     };
 
-    let (chain, impact_list) = if let Some(ref tid) = target_id {
-        if empty_reason.is_none() {
-            let bounded = load_subgraph_bounded(
-                db,
-                std::slice::from_ref(tid),
-                max_depth,
-                max_nodes,
-                subgraph_dir,
-            )?;
-            truncated = bounded.truncated;
-            frontier = bounded.frontier_ids.into_iter().map(|id| id.0).collect();
+    let (chain, impact_list) = if !target_ids.is_empty() && empty_reason.is_none() {
+        let bounded = load_subgraph_bounded(
+            db,
+            &target_ids,
+            max_depth,
+            max_nodes,
+            subgraph_dir,
+        )?;
+        truncated = bounded.truncated;
+        frontier = bounded.frontier_ids.into_iter().map(|id| id.0).collect();
 
-            if is_impact {
-                let desc = crate::graph::traversal::descendants(&bounded.graph, tid);
-                if desc.is_empty() {
-                    empty_reason = Some("no_downstream_dependents".to_string());
-                }
-                (Vec::new(), desc)
-            } else if is_both {
-                let c = causal_chain(&bounded.graph, tid);
-                let desc = crate::graph::traversal::descendants(&bounded.graph, tid);
-                (c, desc)
-            } else {
-                let c = causal_chain(&bounded.graph, tid);
-                if c.is_empty() {
-                    empty_reason = Some(
-                        crate::storage::telemetry::determine_empty_reason(
-                            db,
-                            None,
-                            input.file_path.as_deref(),
-                        )
-                        .to_string(),
-                    );
-                }
-                (c, Vec::new())
+        if is_impact {
+            let mut seen = std::collections::HashSet::new();
+            for tid in &target_ids {
+                seen.insert(tid.clone());
             }
+            let mut desc_all = Vec::new();
+            for tid in &target_ids {
+                for act in crate::graph::traversal::descendants(&bounded.graph, tid) {
+                    if seen.insert(act.id.clone()) {
+                        desc_all.push(act);
+                    }
+                }
+            }
+            if desc_all.is_empty() {
+                empty_reason = Some("no_downstream_dependents".to_string());
+            }
+            (Vec::new(), desc_all)
+        } else if is_both {
+            let c = if let Some(ref tid) = primary_target_id {
+                causal_chain(&bounded.graph, tid)
+            } else {
+                Vec::new()
+            };
+            let mut seen = std::collections::HashSet::new();
+            for tid in &target_ids {
+                seen.insert(tid.clone());
+            }
+            let mut desc_all = Vec::new();
+            for tid in &target_ids {
+                for act in crate::graph::traversal::descendants(&bounded.graph, tid) {
+                    if seen.insert(act.id.clone()) {
+                        desc_all.push(act);
+                    }
+                }
+            }
+            (c, desc_all)
         } else {
-            (Vec::new(), Vec::new())
+            let c = if let Some(ref tid) = primary_target_id {
+                causal_chain(&bounded.graph, tid)
+            } else {
+                Vec::new()
+            };
+            if c.is_empty() {
+                empty_reason = Some(
+                    crate::storage::telemetry::determine_empty_reason(
+                        db,
+                        None,
+                        input.file_path.as_deref(),
+                    )
+                    .to_string(),
+                );
+            }
+            (c, Vec::new())
         }
     } else {
         (Vec::new(), Vec::new())
@@ -137,10 +165,10 @@ pub fn handle_get_lineage(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
     let label = input
         .file_path
         .as_deref()
-        .or_else(|| target_id.as_ref().map(|id| id.as_str()))
+        .or_else(|| primary_target_id.as_ref().map(|id| id.as_str()))
         .unwrap_or("-");
 
-    let target_id_str = target_id
+    let target_id_str = primary_target_id
         .as_ref()
         .map(|id| id.to_string())
         .unwrap_or_default();

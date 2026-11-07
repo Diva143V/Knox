@@ -301,30 +301,76 @@ cargo test --test test_calibration -- --nocapture
 
 ---
 
-## MCP Tools Reference
+## Knowledge Graph Architecture: The 4 Grounded Questions
 
-When running `knox serve`, Knox exposes 7 tools over the Model Context Protocol. Legacy tool names are no longer routed.
+Knox operates an in-process, acyclic causal knowledge graph backed by SQLite WAL and `petgraph`. Rather than treating a graph as an associative keyword cloud, Knox earns the word "graph" by answering four concrete engineering questions with fail-closed precision:
 
-### `knox_context`
-Returns compact, token-budgeted engineering context for a file, symbol, query, or project.
-- **Inputs:** Same filters as `knox_get_context`, plus `budget` (integer, default 1200, maximum 4000).
-- **Output:** Compact one-line entries with `budget_used`, `truncated`, and `has_more` metadata.
+### 1. Why does this exist? (Causal Ancestry)
+- **Question:** Given a line of code, file, or action, what original intent, plan, or architectural decision prompted it?
+- **Live Path:** `knox_trace` (`direction: "ancestors"`), `knox trace --from <ACTION_ID>`, or `knox trace --file <PATH>`.
+- **Mechanism:** Starting from the anchor action, walks incoming causal edges (`caused_by`, `implements`, `supersedes`, `depends_on`, `verifies`, `reverts`, `resolves`) back to the root plan or decision.
+- **Guarantee:** Cycle-safe bounded breadth-first search. Associative relations (`relates_to`) and conflict markers (`contradicts`) are strictly excluded so ancestry reflects actual causal lineage rather than topical association.
 
-### High-level workflow tools
+### 2. What breaks if I change this? (Downstream Impact)
+- **Question:** If an architectural decision or core file is modified, what downstream actions, implementations, and files are affected?
+- **Live Path:** `knox_trace` (`direction: "impact"`), `knox trace --from <ID> --direction impact`, or `knox trace --file <PATH> --direction impact`.
+- **Mechanism:** File-first anchor resolution identifies all current actions covering the file, then expands the bounded directional subgraph forwards along outgoing causal edges.
+- **Guarantee:** Strict causal edge filtering in both the recursive SQLite CTE and in-memory PetGraph. Blast radius is summarized (`Affects X actions across Y files`), grouped by impacted file, with an explicit warning callout if traversal hits `max_nodes`. Non-causal edges never pollute the impact report.
 
-- `knox_begin` — explicit session startup and resumption linking to previous session context.
-- `knox_context` — compact, token-budgeted engineering context with grouped markdown digests.
-- `knox_check` — guardrail pre-flight check with `intent`, file/symbol scope, and overlap-rated violations.
-- `knox_trace` — causal ancestry trace from an action ID or file path.
-- `knox_record` — atomic structured entry recording through the batch writer.
-- `knox_handoff` — session finalization producing concise handoff digest.
-- `knox_ask` — grounded technical question answering synthesizing answers across project memory with verified citations.
+### 3. What contradicts what? (Architectural Conflict Tracking)
+- **Question:** Does a proposed code change or new decision violate established architectural constraints or prior ADRs?
+- **Live Path:** `knox_record`, `knox_check`, `knox_context`, and `knox_handoff`.
+- **Mechanism:** When recording actions, active decisions covering touched files are evaluated by the local/cloud model (`router.check_contradiction`). When conflicts are detected, an explicit `contradicts` edge with `provenance: "model"` is persisted in the knowledge graph.
+- **Guarantee:** Surfaced prominently in `knox_context` under the `#### ⚠️ Architectural Contradictions & Conflicts` section with rationale callouts, and reported as an audit count in `knox_handoff`.
 
-Token-efficiency measurements are deterministic estimates based on the same conservative
-four-characters-per-token rule used by context budgets. They are intended for regression
-tests and release comparisons, not billing or provider-specific accounting.
+### 4. What decisions touch this file? (File Endpoints in the Graph)
+- **Question:** What architectural decisions, past implementations, or constraints govern a specific source file?
+- **Live Path:** `knox_context` (`file_path: "..."`), `knox query <FILE>`, and `knox_check`.
+- **Mechanism:** Files, symbols, and documents are registered as first-class endpoints in the unified `refs` and `edges` graph (e.g. `file:src/db.rs`). Actions connect via typed edges (`relates_to`, `implements`).
+- **Guarantee:** File-scoped queries resolve through graph joins on `edges` (`e.to_id = 'file:' || ?`) alongside `action_files`, allowing arbitrary external references (`{"target": "file:src/db.rs", "type": "relates_to"}`) to participate in knowledge graph queries.
 
-### Database migration operations
+---
+
+## MCP Tools Reference (7 Tools)
+
+When running `knox serve`, Knox exposes 7 tools (`TOOL_COUNT = 7`) over the Model Context Protocol. Legacy tool names are no longer routed.
+
+### 1. `knox_begin`
+Resumes or starts a scoped turn session, returning active task context and handoff digests from previous sessions.
+- **Inputs:** `workspace` (string, required), `actor` (string, required), `task` (string, optional), `budget` (integer, optional).
+- **Output:** `{ "scope": { "session_id": "...", "project": "...", "actor": "..." }, "context": { ... } }`.
+
+### 2. `knox_context`
+Returns compact, token-budgeted engineering context with grouped markdown digests, active decisions, and conflict warnings.
+- **Inputs:** `project` (string, required), `file_path` (string, optional), `symbols` (array, optional), `synthesis` (bool, optional), `budget` (integer, optional, default 1200).
+- **Output:** Grouped markdown digest (`mode: "grouped"`) or compact one-line entries with `budget_used`, `truncated`, and `has_more` metadata.
+
+### 3. `knox_check`
+Pre-flight guardrail check against active architectural constraints and prohibited patterns before editing code.
+- **Inputs:** `files` (array of strings, required), `intent` (string, optional), `symbols` (array, optional), `project` (string, optional).
+- **Output:** `{ "pass": true/false, "violations_count": N, "violation_details": [...], "markdown": "..." }`.
+
+### 4. `knox_trace`
+Traces causal ancestry or downstream impact using the bounded knowledge graph.
+- **Inputs:** `from` (action ID, optional), `file_path` (string, optional), `direction` ("ancestors" | "descendants" | "impact" | "both", default "ancestors"), `max_depth` (default 10), `max_nodes` (default 200), `budget` (default 800).
+- **Output:** Ordered DAG lineage, downstream impact grouped by file, or bidirectional blast radius with token-bounded markdown.
+
+### 5. `knox_record`
+Atomic structured batch entry recorder for actions, decisions, and doubts with deduplication and contradiction checking.
+- **Inputs:** `actor` (string, required), `project` (string, optional), `entries` (array of action objects, required), `session_id` (string, optional), `dry_run` (bool, optional), `idem` (string, optional).
+- **Output:** `{ "status": "recorded", "session_id": "...", "ids": [...], "deduped": [...], "warnings": [...] }`.
+
+### 6. `knox_handoff`
+Finalizes an active work session, produces a concise handoff digest, and audits active contradictions for the next turn.
+- **Inputs:** `session_id` (string, required), `budget` (integer, optional, default 800).
+- **Output:** `{ "status": "closed", "session_id": "...", "ended_at": "...", "contradictions": N, "digest": { ... } }`.
+
+### 7. `knox_ask`
+Grounded technical question answering across project memory with verified citation enforcement.
+- **Inputs:** `question` (string, required), `project` (string, required), `budget` (integer, optional, default 1200), `strict_citations` (bool, optional, default true).
+- **Output:** `{ "answer": "...", "citations": [...], "grounded": true, "confidence": 0.95 }`.
+
+### Database Migration Operations
 
 Knox provides explicit migration safety commands for existing databases:
 
@@ -340,117 +386,6 @@ and validates SQLite integrity plus project/action/relationship orphan counts.
 `restore` restores the newest adjacent backup. `split` creates one validated
 project-local database per registered project and leaves the source database
 untouched.
-
-### 1. `knox_start_session`
-Explicitly starts a new work session and returns a `session_id` (optional; actions auto-manage implicit sessions if omitted).
-- **Inputs:** `actor` (string, required), `project` (string, optional), `metadata` (object, optional).
-- **Output:** `{ "session_id": "...", "created_at": "..." }`.
-
-### 2. `knox_end_session`
-Closes an active session.
-- **Inputs:** `session_id` (string, required).
-- **Output:** `{ "status": "closed", "actions_recorded": N, "duration_seconds": N }`.
-
-### 3. `knox_record_action`
-Records an action (write, debug, read, review, plan, change) linked to a session, with V2 semantic relations, symbols, and optional working-tree code deltas.
-- **Inputs:** `actor`, `action_type`, `summary` (required); `session_id`, `files`, `commit_sha`, `auto_git_diff`, `deltas`, `deletion_reason`, `parent_action_id`, `relations`, `symbols`, `rationale`, `rejected_alternatives`, `context_summary`, `link_to_latest`, `tags`, `confidence`, `supersedes` (optional).
-- **Output:** `{ "id": "...", "status": "recorded", "action_id": "...", "session_id": "...", "deltas_recorded": N }`.
-
-### 4. `knox_record_decision`
-Records a design decision or Architectural Decision Record (ADR), forcing `action_type = "decide"`. Accepts `significance: "major"` (default) or `"minor"`.
-- **Inputs:** `actor`, `summary` (required); `rationale`, `rejected_alternatives`, `symbols`, `files`, `parent_action_id`, `relations`, `significance`, `tags`, `supersedes` (optional).
-- **Output:** `{ "id": "...", "status": "recorded", "action_id": "..." }`.
-
-### 5. `knox_record_doubt`
-Records an active developer or agent uncertainty, question, or hypothesis to track until answered and resolved.
-- **Inputs:** `actor`, `summary` (required); `context_summary`, `files`, `session_id`, `tags` (optional).
-- **Output:** `{ "id": "...", "status": "recorded_doubt", "action_id": "..." }`.
-
-### 6. `knox_resolve_doubt`
-Marks a previously recorded doubt as resolved, adding an explanation note and optional answering decision or action link.
-- **Inputs:** `doubt_id` (string, required); `resolution_note` (string, required), `resolved_by_action_id` (string, optional).
-- **Output:** `{ "status": "resolved", "doubt_id": "...", "resolved_by_action_id": "..." }`.
-
-### 7. `knox_record_batch`
-Atomically records multiple related actions, decisions, and doubts in a single round trip with sequential linking.
-- **Inputs:** `actor`, `actions` (array of action objects, required); `session_id`, `project`, `link_to_previous` (optional).
-- **Output:** `{ "status": "recorded_batch", "recorded_count": N, "action_ids": [...] }`.
-
-### 8. `knox_update_action`
-Mutates summary, action_type, relations, symbols, rationale, significance, or doubt resolution status of an existing action node.
-- **Inputs:** `id` (string, required); `summary`, `action_type`, `symbols`, `relations`, `rationale`, `significance`, `is_resolved`, `resolution_note` (optional).
-- **Output:** Updated `KnoxAction` JSON or error.
-
-### 9. `knox_get_context`
-Retrieves current context for a file or project with token-compact Markdown digests (excludes superseded actions by default).
-- **Inputs:** `file_path`, `project`, `session_id`, `actor`, `symbols`, `tags`, `since`, `format` ("markdown" | "json", default "markdown"), `synthesis` (bool), `limit` (default 20).
-- **Output:** Dense Markdown digest or structured JSON.
-
-### 10. `knox_get_history`
-Full append-only history including superseded actions (`current_only` defaults to `false`).
-- **Inputs:** Same as `knox_get_context`, plus `action_type` filter.
-- **Output:** Chronological history digest or raw JSON array.
-
-### 11. `knox_get_lineage`
-Traces causal ancestry and parent lineage backwards to the root plan or decision ("Why was this code written?").
-- **Inputs:** `action_id` or `file_path` (required); `max_depth` (default 10), `format` ("markdown" | "json").
-- **Output:** Ordered DAG ancestor chain.
-
-### 12. `knox_get_impact`
-Traces downstream descendant effects of an action or decision ("What code depends on or implements this?").
-- **Inputs:** `action_id` or `file_path` (required); `max_depth` (default 5), `format` ("markdown" | "json").
-- **Output:** Downstream affected actions list and unique impacted files.
-
-### 13. `knox_get_path`
-Finds the shortest directed causal path between two actions in the graph ("How did A lead to B?").
-- **Inputs:** `from_action_id` or `from_file`, and `to_action_id` or `to_file` (required); `max_depth` (default 10), `format` ("markdown" | "json").
-- **Output:** Directed causal hop sequence.
-
-### 14. `knox_check_guardrails`
-Pre-flight safety check before editing files. Retrieves active architectural constraints, tests proposed changes against rejected alternatives, and flags superseded anti-patterns.
-- **Inputs:** `files` (array of strings, required); `proposed_action` (string, optional), `strict` (bool, optional), `project` (optional), `format` ("markdown" | "json").
-- **Output:** `{ "pass": true/false, "violations": [...], "active_constraints": [...] }`.
-
-### 15. `knox_search`
-Full-text keyword and code symbol search (SQLite FTS5) across action summaries, rationales, and context summaries.
-- **Inputs:** `query` (string, required); `project`, `actor`, `tags`, `since`, `limit` (optional).
-- **Output:** Matched actions with relevance rank.
-
-### 16. `knox_list_stale`
-Lists superseded actions (`is_current = false`) to inspect outdated architectural patterns and anti-patterns.
-- **Inputs:** `project`, `file_path`, `limit` (default 50).
-- **Output:** Flat list of actions where `is_current: false`.
-
-### 17. `knox_scan_staged`
-Scans git index for untracked human modifications and records `human_write` actions with diff stats and code deltas.
-- **Inputs:** `project` (string, optional, defaults to `.`).
-- **Output:** `{ "human_edits_detected": N, "actions_recorded": N }`.
-
-### 18. `knox_ingest`
-Ingests conversational transcripts, chat logs, or raw conversation text into the knowledge graph. Automatically classifies human inputs into plans, doubts, and dialogues, records decisions and writes, and establishes causal lineage.
-
-Transcript classification is intentionally heuristic and local: explicit task verbs and common
-instruction prefixes are classified as plans, question starters and uncertainty phrases as doubts,
-and remaining conversational text as dialogue. It does not perform semantic understanding, so
-ambiguous or compound messages may be classified conservatively; callers should use the explicit
-recording tools when the action type matters.
-- **Inputs:** `file_path` or `raw_transcript` (required); `actor` (optional, default "gemini").
-- **Output:** Ingestion report summary.
-
-### 19. `knox_diff_inspect`
-Inspects granular code deltas, unified diff hunks, and deleted code snippets associated with an action or file.
-- **Inputs:** `action_id` (string, required); `file_path` (string, optional).
-- **Output:** Granular list of `ActionDelta` objects with change type and line stats.
-
-### 20. `knox_blame_causal`
-Resolves the causal AI or human decision and code delta responsible for a specific file and line of code, combining git blame with the Knox knowledge graph.
-- **Inputs:** `file_path` (string, required); `line_number` (number, required), `commit_sha` (string, optional).
-- **Output:** Causal attribution report with responsible action ID, summary, author, and decision context.
-
-### 21. `knox_verify_drift`
-Audits the workspace to detect files modified or deleted on disk without corresponding Knox recorded actions.
-- **Inputs:** `project_path` (string, optional, default "."), `since` (string, optional).
-- **Output:** Drift report with untracked files, modified files, and deleted files.
 
 ---
 

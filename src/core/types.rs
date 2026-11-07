@@ -22,6 +22,12 @@ pub enum RelationType {
     RelatesTo,
     /// This decision, action, or commit resolves or answers a prior doubt.
     Resolves,
+    /// This action directly contradicts an established architectural decision.
+    Contradicts,
+    /// Direct causal origin for this action.
+    CausedBy,
+    /// Replaces or supersedes an earlier decision or action.
+    Supersedes,
 }
 
 impl std::fmt::Display for RelationType {
@@ -33,6 +39,9 @@ impl std::fmt::Display for RelationType {
             Self::Reverts => write!(f, "reverts"),
             Self::RelatesTo => write!(f, "relates_to"),
             Self::Resolves => write!(f, "resolves"),
+            Self::Contradicts => write!(f, "contradicts"),
+            Self::CausedBy => write!(f, "caused_by"),
+            Self::Supersedes => write!(f, "supersedes"),
         }
     }
 }
@@ -47,6 +56,9 @@ impl std::str::FromStr for RelationType {
             "reverts" | "revert" | "fixes" | "fix" => Ok(Self::Reverts),
             "relates_to" | "relatesto" | "relates" => Ok(Self::RelatesTo),
             "resolves" | "resolve" | "answers" | "answer" => Ok(Self::Resolves),
+            "contradicts" | "contradict" => Ok(Self::Contradicts),
+            "caused_by" | "causedby" => Ok(Self::CausedBy),
+            "supersedes" | "supersede" => Ok(Self::Supersedes),
             other => Err(format!("Unknown relation type: {other}")),
         }
     }

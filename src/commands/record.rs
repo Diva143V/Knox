@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rusqlite::{OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -16,6 +16,7 @@ use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::ids::{ActionId, ProjectId};
 use crate::core::types::{ActionRelation, KnoxAction, RelationType};
 use crate::ingest::summary::normalize_file_path_with_root;
+use crate::models::ModelRouter;
 use crate::storage::db::KnoxDb;
 
 const MAX_SUMMARY_CHARS: usize = 300;
@@ -87,11 +88,11 @@ pub struct RecordEntry {
 /// A semantic relation to another action within a `knox_record` entry.
 #[derive(Debug, Deserialize)]
 pub struct RecordRelation {
-    #[serde(default)]
+    #[serde(default, alias = "target")]
     pub to: Option<String>,
     #[serde(default)]
     pub target_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "type")]
     pub relation_type: Option<String>,
 }
 
@@ -385,12 +386,16 @@ fn resolve_target_project(
     // If target has a ref prefix (e.g. "file:src/db.rs"), auto-register in refs
     let target_str = target.as_str();
     if let Some((kind, val)) = target_str.split_once(':') {
-        if matches!(kind, "file" | "symbol" | "commit" | "doc" | "url" | "ref") && !val.is_empty() {
+        if matches!(
+            kind,
+            "file" | "symbol" | "commit" | "doc" | "url" | "ref" | "requirement" | "defect" | "issue"
+        ) && !val.is_empty()
+        {
             let now = Utc::now().to_rfc3339();
             let proj_str = current_project.map(|p| p.as_str());
             conn.execute(
                 "INSERT OR IGNORE INTO refs (id, kind, value, project_id, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                 VALUES (?1, ?2, ?3, (SELECT id FROM projects WHERE id = ?4), ?5)",
                 params![target_str, kind, val, proj_str, now],
             )?;
             return Ok(Some(proj_str.map(|s| s.to_string())));
@@ -857,6 +862,84 @@ pub fn prepare_record_entries(
     })
 }
 
+/// Evaluates potential architectural contradictions against established decisions and persists model edges.
+fn check_and_persist_contradictions(
+    conn: &rusqlite::Connection,
+    router: &ModelRouter,
+    action: &KnoxAction,
+    warnings: &mut Vec<Value>,
+) -> KnoxResult<()> {
+    if !router.is_enabled() || router.contradiction().is_none() {
+        return Ok(());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, actor, action_type, summary, rationale, project_id, timestamp
+         FROM actions
+         WHERE is_current = 1 AND action_type = 'decide' AND id != ?1 AND (project_id = ?2 OR project_id IS NULL)
+         LIMIT 20",
+    )?;
+
+    let proj_str = action.project_id.as_ref().map(|p| p.as_str());
+    let rows = stmt.query_map(params![action.id.as_str(), proj_str], |row| {
+        let ts_str: String = row.get(6)?;
+        let ts = DateTime::parse_from_rfc3339(&ts_str)
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(|_| Utc::now());
+        Ok(KnoxAction {
+            id: ActionId::from(row.get::<_, String>(0)?),
+            actor: row.get(1)?,
+            action_type: row.get(2)?,
+            summary: row.get(3)?,
+            rationale: row.get(4)?,
+            project_id: row.get::<_, Option<String>>(5)?.map(crate::core::ids::ProjectId),
+            timestamp: ts,
+            is_current: true,
+            ..Default::default()
+        })
+    })?;
+
+    let proposed_text = match &action.rationale {
+        Some(r) => format!("{}\nRationale: {}", action.summary, r),
+        None => action.summary.clone(),
+    };
+
+    let mut stmt_edge = conn.prepare_cached(
+        "INSERT OR REPLACE INTO edges (id, from_action_id, to_id, edge_type, created_at, provenance, note)
+         VALUES (?1, ?2, ?3, 'contradicts', ?4, 'model', ?5)",
+    )?;
+    let mut stmt_rel = conn.prepare_cached(
+        "INSERT OR IGNORE INTO action_relations (from_action_id, to_action_id, relation_type)
+         VALUES (?1, ?2, 'contradicts')",
+    )?;
+
+    for est in rows {
+        let est_act = est?;
+        if let Ok(eval) = router.check_contradiction(&proposed_text, &est_act) {
+            if eval.contradicts {
+                let edge_id = format!("{}:{}:contradicts", action.id, est_act.id);
+                let now_str = Utc::now().to_rfc3339();
+                stmt_edge.execute(params![
+                    edge_id,
+                    action.id.as_str(),
+                    est_act.id.as_str(),
+                    now_str,
+                    eval.explanation,
+                ])?;
+                stmt_rel.execute(params![action.id.as_str(), est_act.id.as_str()])?;
+                warnings.push(json!({
+                    "code": "contradiction_detected",
+                    "action_id": action.id.as_str(),
+                    "established_id": est_act.id.as_str(),
+                    "explanation": eval.explanation,
+                }));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// 3. Commits the prepared batch into the database inside a transaction.
 pub fn commit_record_batch(
     db: &KnoxDb,
@@ -869,6 +952,7 @@ pub fn commit_record_batch(
     let router = crate::models::router::ModelRouter::for_project(&config, Some(db), project_id);
 
     db.with_tx(|conn| {
+        let mut warnings = batch.warnings.clone();
         let mut recorded = Vec::with_capacity(batch.prepared.len());
         // A local ref that dedupes into an existing action must be remapped so
         // later entries in the same batch point at the committed row, not at
@@ -908,6 +992,7 @@ pub fn commit_record_batch(
                             &router.profile.embedding_model,
                         );
                     }
+                    check_and_persist_contradictions(conn, &router, &action, &mut warnings)?;
                 }
             }
             recorded.push(RecordedEntry {
@@ -917,7 +1002,7 @@ pub fn commit_record_batch(
             });
         }
 
-        let response = build_ack(&batch.session_id, &recorded, &batch.warnings, dry_run, batch.is_implicit);
+        let response = build_ack(&batch.session_id, &recorded, &warnings, dry_run, batch.is_implicit);
         if let Some(key) = batch.idem.as_deref() {
             if !dry_run {
                 conn.execute(

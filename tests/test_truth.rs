@@ -247,3 +247,60 @@ fn test_readme_tool_count_matches_implementation() {
         "README.md must not retain stale 'exposes 6 tools' reference"
     );
 }
+
+#[test]
+fn test_readme_knowledge_graph_four_questions_and_retired_tools_absence() {
+    let readme = fs::read_to_string("README.md").expect("README.md must exist");
+
+    // 1. Assert the 4 grounded knowledge graph questions are documented
+    const FOUR_QUESTIONS: &[&str] = &[
+        "Why does this exist?",
+        "What breaks if I change this?",
+        "What contradicts what?",
+        "What decisions touch this file?",
+    ];
+    for q in FOUR_QUESTIONS {
+        assert!(
+            readme.contains(q),
+            "README.md must explicitly define the graph question: '{q}'"
+        );
+    }
+
+    // 2. Assert retired tools are NEVER documented as tool headers in README.md
+    const RETIRED_TOOL_HEADERS: &[&str] = &[
+        "knox_start_session",
+        "knox_end_session",
+        "knox_record_action",
+        "knox_record_decision",
+        "knox_record_doubt",
+        "knox_resolve_doubt",
+        "knox_record_batch",
+        "knox_update_action",
+        "knox_get_context",
+        "knox_get_history",
+        "knox_get_lineage",
+        "knox_get_impact",
+        "knox_get_path",
+        "knox_check_guardrails",
+        "knox_search",
+        "knox_list_stale",
+        "knox_scan_staged",
+        "knox_diff_inspect",
+        "knox_blame_causal",
+        "knox_verify_drift",
+    ];
+    for retired in RETIRED_TOOL_HEADERS {
+        assert!(
+            !readme.contains(&format!("### `{retired}`")) && !readme.contains(&format!("### 1. `{retired}`")),
+            "README.md must not retain header documentation for retired tool: '{retired}'"
+        );
+    }
+
+    // 3. Assert the 7 active tools are documented under MCP Tools Reference
+    for active in LISTED_TOOL_NAMES {
+        assert!(
+            readme.contains(&format!("`{active}`")),
+            "README.md must document active MCP tool '{active}'"
+        );
+    }
+}

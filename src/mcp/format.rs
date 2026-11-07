@@ -203,6 +203,31 @@ fn format_grouped_digest(title: &str, actions: &[KnoxAction]) -> String {
         })
         .collect();
 
+    // 0. Architectural Contradictions & Conflicts
+    let mut contradictions = Vec::new();
+    for a in actions {
+        for rel in &a.relations {
+            if rel.relation_type == crate::core::types::RelationType::Contradicts {
+                contradictions.push((a, &rel.target_id));
+            }
+        }
+    }
+    if !contradictions.is_empty() {
+        out.push_str("#### ⚠️ Architectural Contradictions & Conflicts\n");
+        for (act, target_id) in &contradictions {
+            let ts = act.timestamp.format("%Y-%m-%d").to_string();
+            out.push_str(&format!(
+                "> [!WARNING]\n> **Contradiction Detected**: [`{}`] ({}) contradicts established decision [`{}`]\n",
+                act.id, ts, target_id
+            ));
+            out.push_str(&format!("> - **Summary**: {}\n", act.summary));
+            if let Some(ref r) = act.rationale {
+                out.push_str(&format!("> - **Rationale**: {}\n", r));
+            }
+            out.push('\n');
+        }
+    }
+
     // 0. Open Doubts & Technical Inquiries
     if !open_doubts.is_empty() {
         out.push_str("#### ❓ Open Doubts & Unresolved Questions\n");
@@ -364,7 +389,7 @@ pub fn format_lineage_markdown_with_reason(
     out
 }
 
-/// Formats downstream causal impact (descendants) into an indented list showing blast radius.
+/// Formats downstream causal impact (descendants) grouped by file showing blast radius.
 pub fn format_impact_markdown_with_reason(
     target_label: &str,
     descendants: &[KnoxAction],
@@ -378,28 +403,85 @@ pub fn format_impact_markdown_with_reason(
         }
     }
 
+    let mut file_set = std::collections::BTreeSet::new();
+    for act in descendants {
+        for file in &act.files {
+            file_set.insert(file.clone());
+        }
+    }
+    let file_count = file_set.len();
+    let action_count = descendants.len();
+    let file_noun = if file_count == 1 { "file" } else { "files" };
+    let action_noun = if action_count == 1 { "action" } else { "actions" };
+
     let mut out = String::with_capacity(1024);
     out.push_str(&format!(
-        "### Downstream Impact for `{target_label}` ({} dependent actions)\n\n",
-        descendants.len()
+        "### Downstream Impact for `{target_label}` (Affects {action_count} {action_noun} across {file_count} {file_noun})\n\n"
     ));
 
-    for (i, act) in descendants.iter().enumerate() {
-        let ts = act.timestamp.format("%Y-%m-%d %H:%M").to_string();
-        out.push_str(&format!(
-            "{}. **{}** [`{}`] by `@{}` ({}):\n   {}\n",
-            i + 1,
-            act.action_type.to_uppercase(),
-            act.id,
-            act.actor,
-            ts,
-            act.summary
-        ));
-        if !act.files.is_empty() {
-            out.push_str(&format!("   *Impacted files*: {}\n", act.files.join(", ")));
+    if file_set.is_empty() {
+        for (i, act) in descendants.iter().enumerate() {
+            let ts = act.timestamp.format("%Y-%m-%d %H:%M").to_string();
+            out.push_str(&format!(
+                "{}. **{}** [`{}`] by `@{}` ({}):\n   {}\n",
+                i + 1,
+                act.action_type.to_uppercase(),
+                act.id,
+                act.actor,
+                ts,
+                act.summary
+            ));
+            if let Some(ref r) = act.rationale {
+                out.push_str(&format!("   *Rationale*: {}\n", r));
+            }
         }
-        if let Some(ref r) = act.rationale {
-            out.push_str(&format!("   *Rationale*: {}\n", r));
+    } else {
+        for file in &file_set {
+            let acts_for_file: Vec<&KnoxAction> = descendants
+                .iter()
+                .filter(|a| a.files.contains(file))
+                .collect();
+            let count = acts_for_file.len();
+            let noun = if count == 1 { "action" } else { "actions" };
+            out.push_str(&format!("#### `{file}` ({count} {noun})\n"));
+            for act in acts_for_file {
+                let ts = act.timestamp.format("%Y-%m-%d %H:%M").to_string();
+                out.push_str(&format!(
+                    "- **{}** [`{}`] by `@{}` ({}): {}\n",
+                    act.action_type.to_uppercase(),
+                    act.id,
+                    act.actor,
+                    ts,
+                    act.summary
+                ));
+                if let Some(ref r) = act.rationale {
+                    out.push_str(&format!("  *Rationale*: {}\n", r));
+                }
+            }
+            out.push('\n');
+        }
+
+        let no_file_acts: Vec<&KnoxAction> = descendants
+            .iter()
+            .filter(|a| a.files.is_empty())
+            .collect();
+        if !no_file_acts.is_empty() {
+            out.push_str("#### (other downstream actions)\n");
+            for act in no_file_acts {
+                let ts = act.timestamp.format("%Y-%m-%d %H:%M").to_string();
+                out.push_str(&format!(
+                    "- **{}** [`{}`] by `@{}` ({}): {}\n",
+                    act.action_type.to_uppercase(),
+                    act.id,
+                    act.actor,
+                    ts,
+                    act.summary
+                ));
+                if let Some(ref r) = act.rationale {
+                    out.push_str(&format!("  *Rationale*: {}\n", r));
+                }
+            }
+            out.push('\n');
         }
     }
 

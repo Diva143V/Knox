@@ -163,8 +163,21 @@ fn insert_action_files_and_tags(
     let mut stmt_files = conn.prepare_cached(
         "INSERT OR IGNORE INTO action_files (action_id, file_path) VALUES (?1, ?2)",
     )?;
+    let mut stmt_ref = conn.prepare_cached(
+        "INSERT OR IGNORE INTO refs (id, kind, value, project_id, created_at)
+         VALUES (?1, 'file', ?2, (SELECT p.id FROM projects p WHERE p.id = (SELECT a.project_id FROM actions a WHERE a.id = ?3)), ?4)",
+    )?;
+    let mut stmt_edge = conn.prepare_cached(
+        "INSERT OR IGNORE INTO edges (id, from_action_id, to_id, edge_type, created_at, provenance)
+         VALUES (?1, ?2, ?3, 'relates_to', ?4, (SELECT commit_sha FROM actions WHERE id = ?2))",
+    )?;
+    let now = chrono::Utc::now().to_rfc3339();
     for file in files {
         stmt_files.execute(params![id.as_str(), file.as_str()])?;
+        let ref_id = format!("file:{file}");
+        stmt_ref.execute(params![ref_id.as_str(), file.as_str(), id.as_str(), now.as_str()])?;
+        let edge_id = format!("{}:{}:relates_to", id, ref_id);
+        stmt_edge.execute(params![edge_id.as_str(), id.as_str(), ref_id.as_str(), now.as_str()])?;
     }
 
     let mut stmt_tags =

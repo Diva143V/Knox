@@ -558,6 +558,318 @@ fn test_mcp_record_batch_and_graph_tools() {
 }
 
 #[test]
+fn test_trace_impact_traverses_implements_and_ignores_relates_to() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    let rec_res = dispatch(
+        "knox_record",
+        json!({
+            "actor": "architect",
+            "project": "demo",
+            "entries": [
+                {
+                    "ref": "dec",
+                    "kind": "decide",
+                    "summary": "Mandate SQLite for persistent storage",
+                    "files": ["src/storage/db.rs"],
+                    "rationale": "Zero external operational dependencies"
+                },
+                {
+                    "ref": "impl",
+                    "kind": "write",
+                    "summary": "Implement SQLite database connection pool",
+                    "files": ["src/storage/db.rs"],
+                    "relations": [{"to": "dec", "relation_type": "implements"}]
+                },
+                {
+                    "ref": "assoc",
+                    "kind": "write",
+                    "summary": "Update external benchmark documentation referencing SQLite",
+                    "files": ["docs/benchmarks.md"],
+                    "relations": [{"to": "dec", "relation_type": "relates_to"}]
+                }
+            ]
+        }),
+        &db,
+    );
+    assert!(rec_res.error.is_none(), "record error: {:?}", rec_res.error);
+    let ids = rec_res.result.unwrap()["ids"].as_array().unwrap().clone();
+    let dec_id = ids[0].as_str().unwrap();
+    let impl_id = ids[1].as_str().unwrap();
+    let assoc_id = ids[2].as_str().unwrap();
+
+    // Trace impact from the architectural decision
+    let trace_res = dispatch(
+        "knox_trace",
+        json!({
+            "from": dec_id,
+            "direction": "impact",
+            "max_depth": 5
+        }),
+        &db,
+    );
+    assert!(trace_res.error.is_none(), "trace error: {:?}", trace_res.error);
+    let trace_val = trace_res.result.unwrap();
+    let impact = trace_val["impact"].as_array().expect("impact must be an array");
+
+    // Must ONLY contain the implementing action, NOT the associative note
+    let impact_ids: Vec<&str> = impact.iter().filter_map(|a| a["id"].as_str()).collect();
+    assert!(
+        impact_ids.contains(&impl_id),
+        "impact must include causal implementer '{impl_id}', got: {impact_ids:?}"
+    );
+    assert!(
+        !impact_ids.contains(&assoc_id),
+        "impact must NOT include associative relates_to action '{assoc_id}', got: {impact_ids:?}"
+    );
+    assert_eq!(impact.len(), 1, "only causal descendants should be returned in impact analysis");
+
+    let md = trace_val["markdown"].as_str().unwrap();
+    assert!(md.contains("Implement SQLite database connection pool"));
+    assert!(!md.contains("Update external benchmark documentation"));
+}
+
+#[test]
+fn test_trace_file_first_impact_groups_by_file_with_summary() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    let rec_res = dispatch(
+        "knox_record",
+        json!({
+            "actor": "architect",
+            "project": "demo",
+            "entries": [
+                {
+                    "ref": "dec",
+                    "kind": "decide",
+                    "summary": "Core type system design",
+                    "files": ["src/core/types.rs"],
+                    "rationale": "Strong domain modeling"
+                },
+                {
+                    "ref": "w1",
+                    "kind": "write",
+                    "summary": "Initial struct definitions",
+                    "files": ["src/core/types.rs"],
+                    "caused_by": "dec"
+                },
+                {
+                    "ref": "w2",
+                    "kind": "write",
+                    "summary": "Graph traversal algorithm implementation",
+                    "files": ["src/graph/traversal.rs"],
+                    "relations": [{"to": "dec", "relation_type": "implements"}]
+                },
+                {
+                    "ref": "w3",
+                    "kind": "write",
+                    "summary": "MCP response formatting",
+                    "files": ["src/mcp/format.rs"],
+                    "caused_by": "w1"
+                }
+            ]
+        }),
+        &db,
+    );
+    assert!(rec_res.error.is_none(), "record error: {:?}", rec_res.error);
+    let ids = rec_res.result.unwrap()["ids"].as_array().unwrap().clone();
+    let w2_id = ids[2].as_str().unwrap();
+    let w3_id = ids[3].as_str().unwrap();
+
+    // Query impact for the file "src/core/types.rs"
+    let trace_res = dispatch(
+        "knox_trace",
+        json!({
+            "file_path": "src/core/types.rs",
+            "direction": "impact",
+            "max_depth": 5
+        }),
+        &db,
+    );
+    assert!(trace_res.error.is_none(), "trace error: {:?}", trace_res.error);
+    let trace_val = trace_res.result.unwrap();
+    let impact = trace_val["impact"].as_array().expect("impact must be an array");
+
+    let impact_ids: Vec<&str> = impact.iter().filter_map(|a| a["id"].as_str()).collect();
+    assert!(impact_ids.contains(&w2_id));
+    assert!(impact_ids.contains(&w3_id));
+    assert_eq!(impact.len(), 2);
+
+    let md = trace_val["markdown"].as_str().unwrap();
+    // Summary line: Affects 2 actions across 2 files
+    assert!(
+        md.contains("Affects 2 actions across 2 files"),
+        "Markdown must contain summary line with actions and files count: {md}"
+    );
+    // Grouped file headings
+    assert!(md.contains("#### `src/graph/traversal.rs`"));
+    assert!(md.contains("#### `src/mcp/format.rs`"));
+}
+
+#[test]
+fn test_contradictions_persisted_surfaced_in_context_and_reported_in_handoff() {
+    unsafe {
+        std::env::set_var("KNOX_MODEL_PROFILE", "mock");
+    }
+
+    let db = KnoxDb::open_memory().unwrap();
+
+    // 1. Start an explicit session
+    let begin_res = dispatch(
+        "knox_begin",
+        json!({
+            "actor": "developer",
+            "workspace": "demo"
+        }),
+        &db,
+    );
+    assert!(begin_res.error.is_none(), "begin error: {:?}", begin_res.error);
+    let sess_id = begin_res.result.unwrap()["scope"]["session_id"].as_str().unwrap().to_string();
+
+    // 2. Record an established architectural decision
+    let dec_res = dispatch(
+        "knox_record",
+        json!({
+            "actor": "architect",
+            "project": "demo",
+            "session_id": sess_id,
+            "entries": [{
+                "ref": "dec1",
+                "kind": "decide",
+                "summary": "Mandate SQLite for all embedded persistent storage",
+                "files": ["src/db.rs"],
+                "rationale": "Zero external network dependencies"
+            }]
+        }),
+        &db,
+    );
+    assert!(dec_res.error.is_none());
+
+    // 3. Record an action that contradicts the established decision
+    let conflict_res = dispatch(
+        "knox_record",
+        json!({
+            "actor": "contributor",
+            "project": "demo",
+            "session_id": sess_id,
+            "entries": [{
+                "ref": "conf1",
+                "kind": "write",
+                "summary": "Replace SQLite with external MongoDB instead",
+                "files": ["src/db.rs"],
+                "rationale": "Need document store"
+            }]
+        }),
+        &db,
+    );
+    assert!(conflict_res.error.is_none());
+    let conf_val = conflict_res.result.unwrap();
+
+    // Check warning was emitted in record response
+    let warnings = conf_val["warnings"].as_array().expect("warnings array");
+    let has_contra_warn = warnings.iter().any(|w| {
+        w.get("code").and_then(serde_json::Value::as_str) == Some("contradiction_detected")
+    });
+    assert!(has_contra_warn, "Record response should warn of detected contradiction: {warnings:?}");
+
+    // Check edge was persisted in database with provenance = 'model'
+    let conf_id = conf_val["ids"][0].as_str().unwrap();
+    let edges = knox::storage::edges::get_edges_for_action(&db, &ActionId::from(conf_id)).unwrap();
+    let contra_edge = edges.iter().find(|e| e.edge_type == "contradicts").expect("Contradiction edge must be persisted in edges table");
+    assert_eq!(contra_edge.provenance.as_deref(), Some("model"));
+
+    // 4. knox_context must surface Contradictions section in grouped context
+    let ctx_res = dispatch(
+        "knox_context",
+        json!({
+            "project": "demo",
+            "format": "markdown",
+            "synthesis": true
+        }),
+        &db,
+    );
+    assert!(ctx_res.error.is_none());
+    let ctx_md = ctx_res.result.unwrap()["markdown"].as_str().unwrap().to_string();
+    assert!(
+        ctx_md.contains("Architectural Contradictions & Conflicts"),
+        "Grouped context must surface contradictions section: {ctx_md}"
+    );
+    assert!(ctx_md.contains("contradicts established decision"));
+
+    // 5. knox_handoff must report contradiction counts
+    let handoff_res = dispatch(
+        "knox_handoff",
+        json!({
+            "session_id": sess_id
+        }),
+        &db,
+    );
+    assert!(handoff_res.error.is_none());
+    let handoff_val = handoff_res.result.unwrap();
+    let count = handoff_val["contradictions"].as_u64().expect("contradictions count");
+    assert!(count >= 1, "Session handoff must report non-zero contradiction count: {count}");
+
+    unsafe {
+        std::env::remove_var("KNOX_MODEL_PROFILE");
+    }
+}
+
+#[test]
+fn test_refs_as_endpoints_in_relations_and_file_graph_query() {
+    let db = KnoxDb::open_memory().unwrap();
+
+    // 1. Record an architectural decision with relation targeting "file:src/db.rs" using target/type keys
+    let rec_res = dispatch(
+        "knox_record",
+        json!({
+            "actor": "architect",
+            "project": "demo",
+            "entries": [{
+                "ref": "dec_schema",
+                "kind": "decide",
+                "summary": "Strict column-oriented schema specification",
+                "relations": [{
+                    "target": "file:src/database/schema.rs",
+                    "type": "relates_to"
+                }]
+            }]
+        }),
+        &db,
+    );
+    assert!(rec_res.error.is_none(), "record error: {:?}", rec_res.error);
+    let act_id = rec_res.result.unwrap()["ids"][0].as_str().unwrap().to_string();
+
+    // 2. Assert external reference was auto-registered in refs table
+    let ref_entry = knox::storage::edges::get_ref(&db, "file:src/database/schema.rs")
+        .unwrap()
+        .expect("Ref file:src/database/schema.rs must exist in refs table");
+    assert_eq!(ref_entry.id, "file:src/database/schema.rs");
+    assert_eq!(ref_entry.kind, "file");
+    assert_eq!(ref_entry.value, "src/database/schema.rs");
+
+    // 3. Assert graph edge exists in edges table
+    let edges = knox::storage::edges::get_edges_for_action(&db, &ActionId::from(act_id.as_str())).unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].to_id, "file:src/database/schema.rs");
+    assert_eq!(edges[0].edge_type, "relates_to");
+
+    // 4. Assert graph query for file resolves the decision via edges
+    let ctx_res = dispatch(
+        "knox_context",
+        json!({
+            "project": "demo",
+            "file_path": "src/database/schema.rs"
+        }),
+        &db,
+    );
+    assert!(ctx_res.error.is_none(), "context error: {:?}", ctx_res.error);
+    let ctx_val = ctx_res.result.unwrap();
+    let total = ctx_val["total_count"].as_u64().unwrap();
+    assert_eq!(total, 1, "Graph query on file_path should find action connected via edges table");
+    assert!(ctx_val["markdown"].as_str().unwrap().contains("Strict column-oriented schema"));
+}
+
+#[test]
 fn test_mcp_check_guardrails() {
     let db = KnoxDb::open_memory().unwrap();
 

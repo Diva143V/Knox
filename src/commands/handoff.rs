@@ -80,10 +80,20 @@ pub fn cmd_handoff(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         },
     );
 
+    let contradiction_count: usize = db
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM edges WHERE edge_type = 'contradicts' AND from_action_id IN (SELECT id FROM actions WHERE session_id = ?1)",
+            rusqlite::params![session_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
     let mut response = json!({
         "status": "closed",
         "session_id": session_id,
         "ended_at": closed.ended_at.map(|time| time.to_rfc3339()),
+        "contradictions": contradiction_count,
         "digest": digest
     });
     if let Some(r) = reason {

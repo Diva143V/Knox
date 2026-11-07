@@ -553,12 +553,18 @@ fn append_file_filter(
     file_path: &str,
     exact: bool,
 ) {
+    let ref_target = format!("file:{file_path}");
     if exact {
         clauses.push(
-            "a.id IN (SELECT af.action_id FROM action_files af WHERE af.file_path = ?)"
-                .to_string(),
+            "a.id IN (
+                SELECT af.action_id FROM action_files af WHERE af.file_path = ?
+                UNION
+                SELECT e.from_action_id FROM edges e WHERE e.to_id = ?
+            )"
+            .to_string(),
         );
         params.push(SqlParam::Text(file_path.to_string()));
+        params.push(SqlParam::Text(ref_target));
         return;
     }
 
@@ -567,13 +573,20 @@ fn append_file_filter(
         .replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_");
+    let ref_prefix_like = format!("file:{escaped}/%");
 
     clauses.push(
-        "a.id IN (SELECT af.action_id FROM action_files af WHERE af.file_path = ? OR af.file_path LIKE ? ESCAPE '\\')"
-            .to_string(),
+        "a.id IN (
+            SELECT af.action_id FROM action_files af WHERE af.file_path = ? OR af.file_path LIKE ? ESCAPE '\\'
+            UNION
+            SELECT e.from_action_id FROM edges e WHERE e.to_id = ? OR e.to_id LIKE ? ESCAPE '\\'
+        )"
+        .to_string(),
     );
     params.push(SqlParam::Text(file_path.to_string()));
     params.push(SqlParam::Text(format!("{escaped}/%")));
+    params.push(SqlParam::Text(ref_target));
+    params.push(SqlParam::Text(ref_prefix_like));
 }
 
 /// Appends project matching clauses to the dynamic query.
