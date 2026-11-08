@@ -114,6 +114,11 @@ pub fn descendants(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
 /// Retrieves all causal ancestors (actions that led to `action_id`).
 /// Uses breadth-first search traversing incoming edges filtered strictly by `is_causal_edge`.
 /// Non-causal relations such as `relates_to` and `contradicts` are deliberately excluded.
+///
+/// Note: Standard lineage tracing uses [`causal_chain`] for single-root ancestry.
+/// `ancestors` provides a full BFS directed acyclic graph traversal when exploring
+/// all multi-parent causal branches.
+#[allow(dead_code)]
 pub fn ancestors(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
     let node_index = build_node_index(graph);
     let Some(&start_idx) = node_index.get(action_id) else {
@@ -145,6 +150,9 @@ pub fn ancestors(graph: &KnoxGraph, action_id: &ActionId) -> Vec<KnoxAction> {
 /// Finds the shortest directed causal path between two actions in the graph.
 /// Returns `Some([from, ..., to])` if connected via causal edges, or `None` if unreachable.
 /// Non-causal relations such as `relates_to` and `contradicts` are deliberately excluded.
+///
+/// Wired into [`crate::commands::trace::cmd_trace`] when both `from` and `to` are passed
+/// to discover how two actions are causally connected.
 pub fn path_between(graph: &KnoxGraph, from: &ActionId, to: &ActionId) -> Option<Vec<KnoxAction>> {
     let node_index = build_node_index(graph);
     let from_idx = *node_index.get(from)?;

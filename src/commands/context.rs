@@ -97,6 +97,44 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .clone()
         .or_else(|| input.files.first().cloned());
 
+    // Validate view mode and enforce parameter contracts
+    let view_mode = input.view.as_deref().unwrap_or("context");
+    match view_mode {
+        "context" => {}
+        "file" => {
+            if resolved_file_path.is_none() {
+                return Err(crate::core::error::KnoxError::InvalidInput(
+                    "view 'file' requires 'file_path' or 'files'".to_string(),
+                ));
+            }
+        }
+        "symbol" => {
+            if input.symbols.is_empty() {
+                return Err(crate::core::error::KnoxError::InvalidInput(
+                    "view 'symbol' requires non-empty 'symbols'".to_string(),
+                ));
+            }
+        }
+        "query" => {
+            if input
+                .query
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_none()
+            {
+                return Err(crate::core::error::KnoxError::InvalidInput(
+                    "view 'query' requires non-empty 'query'".to_string(),
+                ));
+            }
+        }
+        other => {
+            return Err(crate::core::error::KnoxError::InvalidInput(format!(
+                "Invalid view '{other}': must be one of 'context', 'file', 'symbol', or 'query'"
+            )));
+        }
+    }
+
     // Resolve project: explicit param -> session lookup -> "." workspace fallback -> fail closed
     let project = if let Some(ref p) = input.project {
         p.clone()
@@ -170,12 +208,15 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .to_ascii_lowercase();
     let (packed_results, packed_truncated) = pack_actions(&result.results, budget);
 
-    let title = if let Some(ref fp) = input.file_path {
-        format!("Context for `{fp}`")
-    } else if input.project.is_none() {
-        format!("Project Context `{}`", input.project.as_deref().unwrap_or("project"))
-    } else {
-        "Active Knox Context".to_string()
+    let title = match view_mode {
+        "file" => format!("Context for `{}`", resolved_file_path.as_deref().unwrap_or("")),
+        "symbol" => format!("Symbol Context for `{}`", ranking_symbols.join(", ")),
+        "query" => format!("Query Context for `{}`", ranking_query.as_deref().unwrap_or("")),
+        _ => if let Some(ref fp) = resolved_file_path {
+            format!("Context for `{fp}`")
+        } else {
+            "Active Knox Context".to_string()
+        },
     };
     let compact = format_compact_digest_with_reason(&packed_results, result.reason.as_deref());
 
@@ -198,6 +239,7 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
                 },
             );
             let mut val = serde_json::json!({
+                "view": view_mode,
                 "results": structured,
                 "total_count": result.total_count,
                 "has_more": result.has_more,
@@ -234,6 +276,7 @@ pub fn cmd_context(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         result.next.clone()
     };
     let mut response = serde_json::json!({
+        "view": view_mode,
         "results": if truncated { serde_json::Value::Null } else { serde_json::to_value(&result.results)? },
         "total_count": result.total_count,
         "has_more": result.has_more || packed_truncated || truncated,

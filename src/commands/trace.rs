@@ -31,6 +31,137 @@ pub fn cmd_trace(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         .and_then(Value::as_str)
         .map(String::from);
 
+    // If both 'from' and 'to' are provided, trace the directed causal path between them.
+    if let (Some(from_str), Some(to_str)) = (
+        object.get("from").and_then(Value::as_str),
+        object.get("to").and_then(Value::as_str),
+    ) {
+        let from_id = crate::core::ids::ActionId::from(from_str.trim());
+        let to_id = crate::core::ids::ActionId::from(to_str.trim());
+
+        let from_act = crate::storage::nodes::get_action(db, &from_id)?;
+        let to_act = crate::storage::nodes::get_action(db, &to_id)?;
+
+        if from_act.is_none() || to_act.is_none() {
+            let reason = if from_act.is_none() {
+                "from_not_found"
+            } else {
+                "to_not_found"
+            };
+            let result = json!({
+                "target_id": from_str,
+                "to_id": to_str,
+                "direction": "path",
+                "depth": 0,
+                "chain": [],
+                "markdown": format!("No causal path found between `{from_str}` and `{to_str}` ({reason})."),
+                "reason": reason,
+                "truncated": false,
+            });
+            return render_trace_budget(db, result, budget, project, start_instant);
+        }
+
+        let max_nodes = object
+            .get("max_nodes")
+            .and_then(Value::as_u64)
+            .unwrap_or(crate::graph::loader::DEFAULT_MAX_NODES as u64) as usize;
+        let max_depth = object
+            .get("depth")
+            .and_then(Value::as_u64)
+            .unwrap_or(10) as usize;
+
+        let bounded = crate::graph::loader::load_subgraph_bounded(
+            db,
+            &[from_id.clone(), to_id.clone()],
+            max_depth,
+            max_nodes,
+            crate::graph::loader::SubgraphDirection::Both,
+        )?;
+
+        let (path_opt, forward) = if let Some(p) =
+            crate::graph::traversal::path_between(&bounded.graph, &from_id, &to_id)
+        {
+            (Some(p), true)
+        } else if let Some(p) =
+            crate::graph::traversal::path_between(&bounded.graph, &to_id, &from_id)
+        {
+            (Some(p), false)
+        } else {
+            (None, true)
+        };
+
+        if let Some(path_nodes) = path_opt {
+            let chain_json: Vec<Value> = path_nodes
+                .iter()
+                .map(|a| {
+                    json!({
+                        "id": a.id.as_str(),
+                        "action_type": a.action_type,
+                        "summary": a.summary,
+                        "actor": a.actor,
+                        "files": a.files,
+                        "timestamp": a.timestamp.to_rfc3339(),
+                    })
+                })
+                .collect();
+
+            let header = if forward {
+                format!(
+                    "### Causal Path from `{from_str}` to `{to_str}` ({} hops)\n",
+                    path_nodes.len().saturating_sub(1)
+                )
+            } else {
+                format!(
+                    "### Causal Path from `{to_str}` to `{from_str}` ({} hops)\n",
+                    path_nodes.len().saturating_sub(1)
+                )
+            };
+
+            let mut md_lines = vec![header];
+            for (idx, node) in path_nodes.iter().enumerate() {
+                let file_ref = if let Some(first_file) = node.files.first() {
+                    format!(" | `{first_file}`")
+                } else {
+                    String::new()
+                };
+                md_lines.push(format!(
+                    "{}. `[{}]` **{}** - {}{}",
+                    idx + 1,
+                    node.id.as_str(),
+                    node.action_type,
+                    node.summary,
+                    file_ref
+                ));
+            }
+            let markdown = md_lines.join("\n");
+
+            let result = json!({
+                "target_id": from_str,
+                "to_id": to_str,
+                "direction": "path",
+                "depth": path_nodes.len().saturating_sub(1),
+                "chain": chain_json,
+                "markdown": markdown,
+                "truncated": bounded.truncated,
+                "frontier": bounded.frontier_ids.into_iter().map(|id| id.0).collect::<Vec<String>>(),
+            });
+            return render_trace_budget(db, result, budget, project, start_instant);
+        } else {
+            let result = json!({
+                "target_id": from_str,
+                "to_id": to_str,
+                "direction": "path",
+                "depth": 0,
+                "chain": [],
+                "markdown": format!("No causal path found between `{from_str}` and `{to_str}`."),
+                "reason": "no_causal_path",
+                "truncated": bounded.truncated,
+                "frontier": bounded.frontier_ids.into_iter().map(|id| id.0).collect::<Vec<String>>(),
+            });
+            return render_trace_budget(db, result, budget, project, start_instant);
+        }
+    }
+
     if let Some(from) = object.get("from").and_then(Value::as_str) {
         let mut lineage = params.clone();
         if let Value::Object(ref mut map) = lineage {
@@ -122,6 +253,9 @@ fn render_trace_budget(
         "truncated": is_truncated,
         "estimate_tokens": estimate_tokens(markdown),
     });
+    if let Some(to_id) = result.get("to_id") {
+        response["to_id"] = to_id.clone();
+    }
     if let Some(frontier) = result.get("frontier") {
         response["frontier"] = frontier.clone();
     }

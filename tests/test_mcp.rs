@@ -1194,3 +1194,197 @@ fn test_check_guardrails_project_isolation() {
     assert_eq!(val.get("decision_count").unwrap(), 0, "No decisions should be found in Project B scope");
 }
 
+#[test]
+fn test_context_view_contract_validation() {
+    let db = KnoxDb::open_memory().unwrap();
+    knox::storage::nodes::insert_project(&db, &knox::core::types::Project {
+        id: knox::core::ids::ProjectId("demo".to_string()),
+        name: "Demo".to_string(),
+        path: "d:/dummy/demo".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    }).unwrap();
+
+    // 1. view = "file" without file_path or files must fail
+    let err_file = dispatch("knox_context", json!({
+        "project": "demo",
+        "view": "file"
+    }), &db);
+    assert!(err_file.error.is_some());
+    assert!(err_file.error.unwrap().message.contains("requires 'file_path' or 'files'"));
+
+    // 2. view = "file" with file_path succeeds
+    let ok_file = dispatch("knox_context", json!({
+        "project": "demo",
+        "view": "file",
+        "file_path": "src/main.rs",
+        "format": "markdown"
+    }), &db);
+    assert!(ok_file.error.is_none());
+    let res = ok_file.result.unwrap();
+    assert_eq!(res["view"], "file");
+    assert!(res["markdown"].as_str().unwrap().contains("Context for `src/main.rs`"));
+
+    // 3. view = "symbol" without symbols must fail
+    let err_sym = dispatch("knox_context", json!({
+        "project": "demo",
+        "view": "symbol",
+        "symbols": []
+    }), &db);
+    assert!(err_sym.error.is_some());
+    assert!(err_sym.error.unwrap().message.contains("requires non-empty 'symbols'"));
+
+    // 4. view = "symbol" with symbols succeeds
+    let ok_sym = dispatch("knox_context", json!({
+        "project": "demo",
+        "view": "symbol",
+        "symbols": ["MyStruct"],
+        "format": "markdown"
+    }), &db);
+    assert!(ok_sym.error.is_none());
+    let res = ok_sym.result.unwrap();
+    assert_eq!(res["view"], "symbol");
+    assert!(res["markdown"].as_str().unwrap().contains("Symbol Context for `MyStruct`"));
+
+    // 5. view = "query" without query must fail
+    let err_query = dispatch("knox_context", json!({
+        "project": "demo",
+        "view": "query"
+    }), &db);
+    assert!(err_query.error.is_some());
+    assert!(err_query.error.unwrap().message.contains("requires non-empty 'query'"));
+
+    // 6. view = "query" with empty string must fail
+    let err_query_empty = dispatch("knox_context", json!({
+        "project": "demo",
+        "view": "query",
+        "query": "   "
+    }), &db);
+    assert!(err_query_empty.error.is_some());
+
+    // 7. view = "query" with query succeeds
+    let ok_query = dispatch("knox_context", json!({
+        "project": "demo",
+        "view": "query",
+        "query": "parser",
+        "format": "markdown"
+    }), &db);
+    assert!(ok_query.error.is_none());
+    let res = ok_query.result.unwrap();
+    assert_eq!(res["view"], "query");
+    assert!(res["markdown"].as_str().unwrap().contains("Query Context for `parser`"));
+
+    // 8. Invalid view must fail
+    let err_invalid = dispatch("knox_context", json!({
+        "project": "demo",
+        "view": "bogus"
+    }), &db);
+    assert!(err_invalid.error.is_some());
+    assert!(err_invalid.error.unwrap().message.contains("Invalid view 'bogus'"));
+}
+
+#[test]
+fn test_trace_from_and_to_path_between() {
+    let db = KnoxDb::open_memory().unwrap();
+    knox::storage::nodes::insert_project(&db, &knox::core::types::Project {
+        id: knox::core::ids::ProjectId("demo".to_string()),
+        name: "Demo".to_string(),
+        path: "d:/dummy/demo".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    }).unwrap();
+
+    let act1 = knox::core::types::KnoxAction {
+        id: ActionId::from("act-root"),
+        actor: "lead".to_string(),
+        action_type: "plan".to_string(),
+        summary: "Root architecture plan".to_string(),
+        files: vec!["plan.md".to_string()],
+        timestamp: chrono::Utc::now(),
+        project_id: Some(knox::core::ids::ProjectId("demo".to_string())),
+        ..Default::default()
+    };
+    let act2 = knox::core::types::KnoxAction {
+        id: ActionId::from("act-child"),
+        actor: "engineer".to_string(),
+        action_type: "write".to_string(),
+        summary: "Implement parser based on plan".to_string(),
+        files: vec!["src/parser.rs".to_string()],
+        timestamp: chrono::Utc::now(),
+        parent_action_id: Some(act1.id.clone()),
+        project_id: Some(knox::core::ids::ProjectId("demo".to_string())),
+        ..Default::default()
+    };
+    let act_unrelated = knox::core::types::KnoxAction {
+        id: ActionId::from("act-unrelated"),
+        actor: "reviewer".to_string(),
+        action_type: "note".to_string(),
+        summary: "Unrelated note".to_string(),
+        files: vec!["notes.txt".to_string()],
+        timestamp: chrono::Utc::now(),
+        project_id: Some(knox::core::ids::ProjectId("demo".to_string())),
+        ..Default::default()
+    };
+
+    knox::storage::nodes::insert_action(&db, &act1).unwrap();
+    knox::storage::nodes::insert_action(&db, &act2).unwrap();
+    knox::storage::nodes::insert_action(&db, &act_unrelated).unwrap();
+
+    // Insert causal edge from act2 to act1 (act2 caused_by act1)
+    knox::storage::edges::insert_edge(&db, &knox::core::types::Edge {
+        id: "edge-1".to_string(),
+        from_action_id: act2.id.clone(),
+        to_id: act1.id.as_str().to_string(),
+        edge_type: "caused_by".to_string(),
+        created_at: chrono::Utc::now(),
+        label: None,
+        provenance: None,
+        note: None,
+    }).unwrap();
+
+    // 1. Trace from root to child
+    let res = dispatch("knox_trace", json!({
+        "from": "act-root",
+        "to": "act-child"
+    }), &db);
+    assert!(res.error.is_none());
+    let val = res.result.unwrap();
+    assert_eq!(val["direction"], "path");
+    assert_eq!(val["to_id"], "act-child");
+    let chain = val["chain"].as_array().unwrap();
+    assert_eq!(chain.len(), 2);
+    assert_eq!(chain[0]["id"], "act-root");
+    assert_eq!(chain[1]["id"], "act-child");
+
+    // 2. Trace from child to root (reverse direction discovered)
+    let res_rev = dispatch("knox_trace", json!({
+        "from": "act-child",
+        "to": "act-root"
+    }), &db);
+    assert!(res_rev.error.is_none());
+    let val_rev = res_rev.result.unwrap();
+    assert_eq!(val_rev["direction"], "path");
+    let chain_rev = val_rev["chain"].as_array().unwrap();
+    assert_eq!(chain_rev.len(), 2);
+
+    // 3. Trace between disconnected actions
+    let res_disc = dispatch("knox_trace", json!({
+        "from": "act-root",
+        "to": "act-unrelated"
+    }), &db);
+    assert!(res_disc.error.is_none());
+    let val_disc = res_disc.result.unwrap();
+    assert_eq!(val_disc["reason"], "no_causal_path");
+    assert_eq!(val_disc["chain"].as_array().unwrap().len(), 0);
+
+    // 4. Trace with nonexistent action
+    let res_none = dispatch("knox_trace", json!({
+        "from": "act-root",
+        "to": "act-nonexistent"
+    }), &db);
+    assert!(res_none.error.is_none());
+    let val_none = res_none.result.unwrap();
+    assert_eq!(val_none["reason"], "to_not_found");
+}
+
+

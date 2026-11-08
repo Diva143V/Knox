@@ -84,7 +84,7 @@ fn tool_context() -> ToolDescription {
             "type": "object",
             "properties": {
                 "project": { "type": "string" },
-                "view": { "type": "string", "description": "context, file, symbol, or query" },
+                "view": { "type": "string", "enum": ["context", "file", "symbol", "query"] },
                 "file_path": { "type": "string" },
                 "files": { "type": "array", "items": { "type": "string" } },
                 "symbols": { "type": "array", "items": { "type": "string" } },
@@ -123,6 +123,7 @@ fn tool_trace() -> ToolDescription {
             "type": "object",
             "properties": {
                 "from": {"type": "string"},
+                "to": {"type": "string"},
                 "file_path": {"type": "string"},
                 "depth": {"type": "integer", "minimum": 1, "default": 10},
                 "max_nodes": {"type": "integer", "minimum": 1, "default": 200},
