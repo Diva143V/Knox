@@ -35,24 +35,29 @@ pub async fn update_config(
     global_mode: Option<bool>,
     kg_path: Option<String>,
 ) -> Result<ConfigDto, String> {
-    let mut cfg = state.config.lock().await;
-    if let Some(timeout) = session_timeout_seconds {
-        cfg.session_timeout = std::time::Duration::from_secs(timeout);
-    }
-    if let Some(mode) = global_mode {
-        cfg.global_mode = mode;
-    }
-    if let Some(path_str) = kg_path.as_deref().filter(|s| !s.trim().is_empty()) {
-        cfg.kg_path = PathBuf::from(path_str.trim());
-    }
-    if let Err(e) = cfg.save_default() {
-        tracing::warn!("Failed to persist config to default file: {e}");
-    }
-    Ok(ConfigDto {
-        kg_path: cfg.kg_path.display().to_string(),
-        session_timeout_seconds: cfg.session_timeout.as_secs(),
-        global_mode: cfg.global_mode,
+    let cfg_arc = state.config.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut cfg = cfg_arc.blocking_lock();
+        if let Some(timeout) = session_timeout_seconds {
+            cfg.session_timeout = std::time::Duration::from_secs(timeout);
+        }
+        if let Some(mode) = global_mode {
+            cfg.global_mode = mode;
+        }
+        if let Some(path_str) = kg_path.as_deref().filter(|s| !s.trim().is_empty()) {
+            cfg.kg_path = PathBuf::from(path_str.trim());
+        }
+        if let Err(e) = cfg.save_default() {
+            tracing::warn!("Failed to persist config to default file: {e}");
+        }
+        Ok(ConfigDto {
+            kg_path: cfg.kg_path.display().to_string(),
+            session_timeout_seconds: cfg.session_timeout.as_secs(),
+            global_mode: cfg.global_mode,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Explicitly saves the entire Knox configuration DTO.
@@ -73,25 +78,41 @@ pub async fn save_config(
 /// Fetches storage and health telemetry (size, WAL size, counts, schema version).
 #[tauri::command]
 pub async fn get_db_stats(state: State<'_, AppState>) -> Result<StorageStats, String> {
-    let cfg = state.config.lock().await;
-    let db = state.db.lock().await;
-    db.get_storage_stats(Some(&cfg.kg_path))
-        .map_err(|e| e.to_string())
+    let cfg_arc = state.config.clone();
+    let db_arc = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let cfg = cfg_arc.blocking_lock();
+        let db = db_arc.blocking_lock();
+        db.get_storage_stats(Some(&cfg.kg_path))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Executes a SQLite PRAGMA integrity_check against the active database.
 #[tauri::command]
 pub async fn run_db_integrity(state: State<'_, AppState>) -> Result<String, String> {
-    let db = state.db.lock().await;
-    db.integrity_check().map_err(|e| e.to_string())
+    let db_arc = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db_arc.blocking_lock();
+        db.integrity_check().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Reclaims unused disk space and defragments SQLite pages via VACUUM.
 #[tauri::command]
 pub async fn run_db_vacuum(state: State<'_, AppState>) -> Result<String, String> {
-    let db = state.db.lock().await;
-    db.vacuum().map_err(|e| e.to_string())?;
-    Ok("Database vacuum completed successfully.".to_string())
+    let db_arc = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db_arc.blocking_lock();
+        db.vacuum().map_err(|e| e.to_string())?;
+        Ok("Database vacuum completed successfully.".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Reveals the SQLite database folder in the OS file explorer.

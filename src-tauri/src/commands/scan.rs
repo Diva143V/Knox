@@ -14,10 +14,14 @@ pub async fn scan_staged(
     state: State<'_, AppState>,
     project: Option<String>,
 ) -> Result<ScanReport, String> {
-    let db = state.db.lock().await;
     let path = project
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-
-    cmd_scan(&path, &db).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        cmd_scan(&path, &db).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

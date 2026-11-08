@@ -443,6 +443,29 @@ pub fn timeout_stale_sessions(db: &KnoxDb, max_idle: Duration) -> KnoxResult<Vec
     Ok(timed_out)
 }
 
+/// Prunes closed sessions older than `max_age_days` days to prevent unbounded database growth.
+/// Clears foreign key references on associated actions before deleting session rows.
+pub fn prune_sessions(db: &KnoxDb, max_age_days: i64) -> KnoxResult<usize> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days);
+    let cutoff_str = cutoff.to_rfc3339();
+    db.with_tx(|conn| {
+        conn.execute(
+            "UPDATE actions SET session_id = NULL
+             WHERE session_id IN (
+                 SELECT id FROM sessions
+                 WHERE is_open = 0 AND (ended_at < ?1 OR (ended_at IS NULL AND started_at < ?1))
+             )",
+            params![cutoff_str],
+        )?;
+        let deleted = conn.execute(
+            "DELETE FROM sessions
+             WHERE is_open = 0 AND (ended_at < ?1 OR (ended_at IS NULL AND started_at < ?1))",
+            params![cutoff_str],
+        )?;
+        Ok(deleted)
+    })
+}
+
 /// Retrieves a session record by its identifier.
 pub fn get_session(db: &KnoxDb, session_id: &SessionId) -> KnoxResult<Option<Session>> {
     let conn = db.conn();

@@ -98,11 +98,9 @@ pub struct LabeledPair {
     pub description: &'static str,
 }
 
-/// 50 labeled pairs representative of real architectural proposals, ADR alternatives,
-/// partial restatements, negations, distractors, and homonyms.
-pub fn calibration_dataset() -> Vec<LabeledPair> {
+/// 25 true violation pairs representing real architectural proposals and restatements.
+pub fn calibration_violation_pairs() -> Vec<LabeledPair> {
     vec![
-        // --- 25 True Violations (should trigger guardrail) ---
         LabeledPair {
             proposal: "Migrate primary database to DuckDB embedded analytics database",
             alternative: "DuckDB embedded analytics database",
@@ -253,8 +251,12 @@ pub fn calibration_dataset() -> Vec<LabeledPair> {
             is_true_violation: true,
             description: "Partial restatement: 4/5 tokens = 80% overlap",
         },
+    ]
+}
 
-        // --- 25 Non-Violations (Negations, partial distractors, unrelated) ---
+/// 25 non-violation pairs representing negations, partial distractors, and unrelated proposals.
+pub fn calibration_non_violation_pairs() -> Vec<LabeledPair> {
+    vec![
         LabeledPair {
             proposal: "We must avoid DuckDB embedded analytics database due to locking",
             alternative: "DuckDB embedded analytics database",
@@ -406,6 +408,14 @@ pub fn calibration_dataset() -> Vec<LabeledPair> {
             description: "Distractor: 'architecture' matches 1/5 tokens (20% coverage)",
         },
     ]
+}
+
+/// 50 labeled pairs representative of real architectural proposals, ADR alternatives,
+/// partial restatements, negations, distractors, and homonyms.
+pub fn calibration_dataset() -> Vec<LabeledPair> {
+    let mut pairs = calibration_violation_pairs();
+    pairs.extend(calibration_non_violation_pairs());
+    pairs
 }
 
 /// Runs empirical precision and recall calibration across candidate thresholds.

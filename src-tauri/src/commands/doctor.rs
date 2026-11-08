@@ -11,7 +11,12 @@ pub async fn run_doctor(
     state: State<'_, AppState>,
     project: Option<String>,
 ) -> Result<DoctorReport, String> {
-    let db = state.db.lock().await;
-    cmd_doctor(&db, project.as_deref()).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        cmd_doctor(&db, project.as_deref()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 

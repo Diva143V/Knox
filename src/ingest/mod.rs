@@ -42,6 +42,9 @@ pub fn all_mappers() -> Vec<Box<dyn TranscriptMapper>> {
     ]
 }
 
+/// Maximum allowed file size for transcript ingestion (50 MB).
+pub const MAX_INGEST_FILE_BYTES: u64 = 50 * 1024 * 1024;
+
 /// Automatically detects the appropriate mapper for a transcript file and maps it into actions.
 pub fn ingest_file(path: &Path) -> KnoxResult<Vec<KnoxAction>> {
     let (_, actions) = ingest_file_with_tool(path)?;
@@ -50,12 +53,27 @@ pub fn ingest_file(path: &Path) -> KnoxResult<Vec<KnoxAction>> {
 
 /// Automatically detects the appropriate mapper for a transcript file, returning tool name and actions.
 pub fn ingest_file_with_tool(path: &Path) -> KnoxResult<(String, Vec<KnoxAction>)> {
+    let metadata = std::fs::metadata(path)?;
+    if metadata.len() > MAX_INGEST_FILE_BYTES {
+        return Err(KnoxError::InvalidInput(format!(
+            "Transcript file size ({} bytes) exceeds maximum ingestion limit of {} bytes (50 MB)",
+            metadata.len(),
+            MAX_INGEST_FILE_BYTES
+        )));
+    }
     let bytes = std::fs::read(path)?;
     ingest_bytes_with_tool(&bytes)
 }
 
 /// Maps in-memory raw transcript bytes using the first suitable mapper, returning tool name and actions.
 pub fn ingest_bytes_with_tool(bytes: &[u8]) -> KnoxResult<(String, Vec<KnoxAction>)> {
+    if bytes.len() as u64 > MAX_INGEST_FILE_BYTES {
+        return Err(KnoxError::InvalidInput(format!(
+            "Transcript content size ({} bytes) exceeds maximum ingestion limit of {} bytes (50 MB)",
+            bytes.len(),
+            MAX_INGEST_FILE_BYTES
+        )));
+    }
     for mapper in all_mappers() {
         if mapper.can_parse(bytes) {
             let tool = mapper.tool_name().to_string();
@@ -201,5 +219,13 @@ mod tests {
         assert_eq!(actions.len(), 2);
         assert_eq!(actions[0].summary, "Build feature");
         assert_eq!(actions[1].summary, "Feature built");
+    }
+
+    #[test]
+    fn test_ingest_content_size_limit_rejection() {
+        let oversized = vec![0u8; (MAX_INGEST_FILE_BYTES + 1) as usize];
+        let res = ingest_bytes_with_tool(&oversized);
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), KnoxError::InvalidInput(_)));
     }
 }

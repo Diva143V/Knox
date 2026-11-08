@@ -447,7 +447,7 @@ export const OnboardingTourModal: React.FC = () => {
               </div>
 
               <div className="w-12 h-px bg-border relative">
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] font-mono text-muted-foreground">
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-3xs font-mono text-muted-foreground">
                   memory
                 </span>
               </div>
@@ -460,7 +460,7 @@ export const OnboardingTourModal: React.FC = () => {
               </div>
 
               <div className="w-12 h-px bg-border relative">
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] font-mono text-muted-foreground">
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-3xs font-mono text-muted-foreground">
                   shapes
                 </span>
               </div>
@@ -529,19 +529,19 @@ export const OnboardingTourModal: React.FC = () => {
             <div className="flex items-center justify-center gap-5 my-auto">
               <div className="size-16 rounded-full border-2 border-warning/80 bg-warning/20 shadow-[0_0_25px_rgba(245,158,11,0.4)] flex flex-col items-center justify-center text-center ">
                 <Scale className="size-5 text-warning" />
-                <span className="text-[9px] font-mono font-bold text-warning">ADR</span>
+                <span className="text-3xs font-mono font-bold text-warning">ADR</span>
               </div>
               <div className="size-14 rounded-full border-2 border-emerald-400/80 bg-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.35)] flex flex-col items-center justify-center text-center">
                 <Zap className="size-5 text-emerald-300" />
-                <span className="text-[9px] font-mono font-bold text-emerald-300">Write</span>
+                <span className="text-3xs font-mono font-bold text-emerald-300">Write</span>
               </div>
               <div className="size-14 rounded-full border-2 border-cyan-400/80 bg-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.35)] flex flex-col items-center justify-center text-center">
                 <Compass className="size-5 text-cyan-300" />
-                <span className="text-[9px] font-mono font-bold text-cyan-300">Plan</span>
+                <span className="text-3xs font-mono font-bold text-cyan-300">Plan</span>
               </div>
               <div className="size-12 rounded-full border-2 border-rose-400/80 bg-rose-500/20 shadow-[0_0_18px_rgba(239,68,68,0.35)] flex flex-col items-center justify-center text-center">
                 <Bug className="size-4 text-rose-300" />
-                <span className="text-[8px] font-mono font-bold text-rose-300">Debug</span>
+                <span className="text-3xs font-mono font-bold text-rose-300">Debug</span>
               </div>
             </div>
             <div className="flex items-center gap-2 mt-4">

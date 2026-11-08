@@ -112,50 +112,67 @@ pub async fn query_actions(
     significance: Option<String>,
     is_resolved: Option<bool>,
 ) -> Result<QueryResult, String> {
-    let db = state.db.lock().await;
-    let max_limit = limit.unwrap_or(50).clamp(1, 500);
-    let parsed_since = parse_since_timestamp(since.as_deref());
-    let current_only_flag = current_only.unwrap_or(true);
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        let max_limit = limit.unwrap_or(50).clamp(1, 500);
+        let parsed_since = parse_since_timestamp(since.as_deref());
+        let current_only_flag = current_only.unwrap_or(true);
 
-    if let Some(ref q) = search {
-        let trimmed = q.trim();
-        let no_extra_filters = file_path.is_none()
-            && actor.is_none()
-            && action_type.is_none()
-            && project.is_none()
-            && parsed_since.is_none()
-            && significance.is_none()
-            && is_resolved.is_none();
-        if !trimmed.is_empty() && no_extra_filters {
-            return search_via_fts(&db, trimmed, max_limit, current_only_flag);
+        if let Some(ref q) = search {
+            let trimmed = q.trim();
+            let no_extra_filters = file_path.is_none()
+                && actor.is_none()
+                && action_type.is_none()
+                && project.is_none()
+                && parsed_since.is_none()
+                && significance.is_none()
+                && is_resolved.is_none();
+            if !trimmed.is_empty() && no_extra_filters {
+                return search_via_fts(&db, trimmed, max_limit, current_only_flag);
+            }
         }
-    }
 
-    let clean_action_type = action_type.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
-    let clean_search = search.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
-    let clean_project = project.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+        let clean_action_type = action_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let clean_search = search
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let clean_project = project
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
 
-    let filter = QueryFilter {
-        file_path: file_path.filter(|s| !s.trim().is_empty()),
-        actor: actor.filter(|s| !s.trim().is_empty()),
-        action_type: clean_action_type.clone(),
-        query: clean_search.clone(),
-        project: clean_project,
-        since: parsed_since,
-        current_only: current_only_flag,
-        limit: max_limit,
-        ..Default::default()
-    };
+        let filter = QueryFilter {
+            file_path: file_path.filter(|s| !s.trim().is_empty()),
+            actor: actor.filter(|s| !s.trim().is_empty()),
+            action_type: clean_action_type.clone(),
+            query: clean_search.clone(),
+            project: clean_project,
+            since: parsed_since,
+            current_only: current_only_flag,
+            limit: max_limit,
+            ..Default::default()
+        };
 
-    let mut result = db_query_actions(&db, &filter).map_err(|e| e.to_string())?;
-    apply_in_memory_filters(
-        &mut result,
-        clean_action_type.as_deref(),
-        clean_search.as_deref(),
-        significance.as_deref(),
-        is_resolved,
-    );
-    Ok(result)
+        let mut result = db_query_actions(&db, &filter).map_err(|e| e.to_string())?;
+        apply_in_memory_filters(
+            &mut result,
+            clean_action_type.as_deref(),
+            clean_search.as_deref(),
+            significance.as_deref(),
+            is_resolved,
+        );
+        Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Retrieves a single KnoxAction by its ID.
@@ -164,8 +181,13 @@ pub async fn get_action(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Option<KnoxAction>, String> {
-    let db = state.db.lock().await;
-    db_get_action(&db, &ActionId::from(id)).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        db_get_action(&db, &ActionId::from(id)).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Retrieves code deltas associated with an action.
@@ -174,9 +196,14 @@ pub async fn get_action_deltas(
     state: State<'_, AppState>,
     action_id: String,
 ) -> Result<Vec<knox::core::types::ActionDelta>, String> {
-    let db = state.db.lock().await;
-    knox::storage::nodes::get_deltas_by_action(&db, &ActionId::from(action_id))
-        .map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        knox::storage::nodes::get_deltas_by_action(&db, &ActionId::from(action_id))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

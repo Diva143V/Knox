@@ -259,6 +259,20 @@ pub fn set_ingest_offset(
     Ok(())
 }
 
+/// Prunes ingest log entries older than `max_age_days` days to prevent unbounded database growth.
+pub fn prune_ingest_log(db: &KnoxDb, max_age_days: i64) -> KnoxResult<usize> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days);
+    let cutoff_str = cutoff.to_rfc3339();
+    let deleted = db.conn().execute(
+        "DELETE FROM ingest_log
+         WHERE action_id IS NULL
+            OR action_id IN (SELECT id FROM actions WHERE timestamp < ?1)
+            OR action_id NOT IN (SELECT id FROM actions)",
+        params![cutoff_str],
+    )?;
+    Ok(deleted)
+}
+
 /// Core helper to persist parsed actions, link follows edges, and record session metrics.
 /// If `active_session_id` is provided, actions are associated with it; otherwise an ingestion
 /// session is created and ended.

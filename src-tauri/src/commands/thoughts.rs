@@ -126,8 +126,13 @@ pub async fn record_quick_thought(
     files: Option<Vec<String>>,
     project: Option<String>,
 ) -> Result<String, String> {
-    let db = state.db.lock().await;
-    record_quick_thought_impl(&db, summary, category, actor, context_summary, files, project)
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        record_quick_thought_impl(&db, summary, category, actor, context_summary, files, project)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Resolves an open doubt in the knowledge graph.
@@ -138,8 +143,13 @@ pub async fn resolve_doubt(
     resolution_note: String,
     resolver_action_id: Option<String>,
 ) -> Result<bool, String> {
-    let db = state.db.lock().await;
-    resolve_doubt_impl(&db, doubt_id, resolution_note, resolver_action_id)
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        resolve_doubt_impl(&db, doubt_id, resolution_note, resolver_action_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

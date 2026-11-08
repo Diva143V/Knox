@@ -195,11 +195,15 @@ const KNOWN_APPS: &[KnownAppDef] = &[
 /// Scans standard predefined directories for known IDE and application MCP configs.
 #[tauri::command]
 pub async fn detect_mcp_configs(app: tauri::AppHandle) -> Result<Vec<DetectedMcpApp>, String> {
-    detect_mcp_configs_impl(Some(&app)).await
+    tokio::task::spawn_blocking(move || {
+        detect_mcp_configs_impl(Some(&app))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Internal implementation of detect_mcp_configs allowing optional AppHandle for tests.
-pub async fn detect_mcp_configs_impl(
+pub fn detect_mcp_configs_impl(
     app: Option<&tauri::AppHandle>,
 ) -> Result<Vec<DetectedMcpApp>, String> {
     emit_scan_log(
@@ -274,11 +278,15 @@ pub async fn detect_mcp_configs_impl(
 /// or files containing MCP server definitions, with smart skip filters.
 #[tauri::command]
 pub async fn deep_scan_mcp_configs(app: tauri::AppHandle) -> Result<Vec<DetectedMcpApp>, String> {
-    deep_scan_mcp_configs_impl(Some(&app)).await
+    tokio::task::spawn_blocking(move || {
+        deep_scan_mcp_configs_impl(Some(&app))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Internal implementation of deep_scan_mcp_configs allowing optional AppHandle for tests.
-pub async fn deep_scan_mcp_configs_impl(
+pub fn deep_scan_mcp_configs_impl(
     app: Option<&tauri::AppHandle>,
 ) -> Result<Vec<DetectedMcpApp>, String> {
     emit_scan_log(
@@ -303,7 +311,7 @@ pub async fn deep_scan_mcp_configs_impl(
     let mut visited_paths = HashSet::new();
 
     // Include already detected standard apps to avoid duplicates
-    if let Ok(standard) = detect_mcp_configs_impl(app).await {
+    if let Ok(standard) = detect_mcp_configs_impl(app) {
         for app_item in standard {
             if app_item.exists {
                 visited_paths.insert(app_item.file_path.clone());
@@ -475,25 +483,29 @@ fn scan_directory_recursive(
 /// Inspects a custom file path provided by user.
 #[tauri::command]
 pub async fn inspect_custom_mcp_config(file_path: String) -> Result<DetectedMcpApp, String> {
-    let path = PathBuf::from(&file_path);
-    let (exists, is_configured, format, last_modified) = inspect_mcp_file(&path);
+    tokio::task::spawn_blocking(move || {
+        let path = PathBuf::from(&file_path);
+        let (exists, is_configured, format, last_modified) = inspect_mcp_file(&path);
 
-    let name = path
-        .file_name()
-        .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_else(|| "Custom App".to_string());
+        let name = path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Custom App".to_string());
 
-    Ok(DetectedMcpApp {
-        id: format!("custom-{}", chrono::Utc::now().timestamp_millis()),
-        name,
-        category: "custom".to_string(),
-        file_path,
-        exists,
-        is_configured,
-        format,
-        last_modified,
-        is_custom: true,
+        Ok(DetectedMcpApp {
+            id: format!("custom-{}", chrono::Utc::now().timestamp_millis()),
+            name,
+            category: "custom".to_string(),
+            file_path,
+            exists,
+            is_configured,
+            format,
+            last_modified,
+            is_custom: true,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Injects Knox MCP stdio configuration into the target JSON file.
@@ -504,132 +516,140 @@ pub async fn inject_mcp_config(
     file_path: String,
     use_system_command: Option<bool>,
 ) -> Result<bool, String> {
-    let path = PathBuf::from(&file_path);
+    tokio::task::spawn_blocking(move || {
+        let path = PathBuf::from(&file_path);
 
-    // Create parent directories if missing
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directories: {e}"))?;
-    }
+        // Create parent directories if missing
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directories: {e}"))?;
+        }
 
-    // Create a backup copy before writing
-    if path.exists() {
-        let backup_path = path.with_extension("bak");
-        fs::copy(&path, &backup_path)
-            .map_err(|e| format!("Failed to create backup at {}: {e}", backup_path.display()))?;
-    }
+        // Create a backup copy before writing
+        if path.exists() {
+            let backup_path = path.with_extension("bak");
+            fs::copy(&path, &backup_path)
+                .map_err(|e| format!("Failed to create backup at {}: {e}", backup_path.display()))?;
+        }
 
-    let mut json_val: serde_json::Value = if path.exists() {
-        let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {e}"))?;
-        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
-    } else {
-        serde_json::json!({})
-    };
+        let mut json_val: serde_json::Value = if path.exists() {
+            let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {e}"))?;
+            serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
 
-    if !json_val.is_object() {
-        json_val = serde_json::json!({});
-    }
+        if !json_val.is_object() {
+            json_val = serde_json::json!({});
+        }
 
-    let cmd = if use_system_command.unwrap_or(false) {
-        "knox".to_string()
-    } else {
-        get_knox_executable_path()
-    };
+        let cmd = if use_system_command.unwrap_or(false) {
+            "knox".to_string()
+        } else {
+            get_knox_executable_path()
+        };
 
-    let knox_server_entry = serde_json::json!({
-        "command": cmd,
-        "args": ["serve", "--stdio"]
-    });
+        let knox_server_entry = serde_json::json!({
+            "command": cmd,
+            "args": ["serve", "--stdio"]
+        });
 
-    let root_obj = json_val
-        .as_object_mut()
-        .ok_or_else(|| "Root JSON is not an object".to_string())?;
-
-    // Check schema format
-    if root_obj.contains_key("context_servers") {
-        // Zed schema
-        let cs = root_obj
-            .entry("context_servers")
-            .or_insert_with(|| serde_json::json!({}))
+        let root_obj = json_val
             .as_object_mut()
-            .ok_or_else(|| "context_servers is not an object".to_string())?;
-        cs.insert("knox".to_string(), knox_server_entry);
-    } else if root_obj.contains_key("mcp") {
-        // Nested mcp schema: { "mcp": { "servers": { ... } } }
-        let mcp_obj = root_obj
-            .entry("mcp")
-            .or_insert_with(|| serde_json::json!({}))
-            .as_object_mut()
-            .ok_or_else(|| "mcp is not an object".to_string())?;
-        let servers_obj = mcp_obj
-            .entry("servers")
-            .or_insert_with(|| serde_json::json!({}))
-            .as_object_mut()
-            .ok_or_else(|| "servers is not an object".to_string())?;
-        servers_obj.insert("knox".to_string(), knox_server_entry);
-    } else {
-        // Standard schema: { "mcpServers": { ... } }
-        let mcp_servers = root_obj
-            .entry("mcpServers")
-            .or_insert_with(|| serde_json::json!({}))
-            .as_object_mut()
-            .ok_or_else(|| "mcpServers is not an object".to_string())?;
-        mcp_servers.insert("knox".to_string(), knox_server_entry);
-    }
+            .ok_or_else(|| "Root JSON is not an object".to_string())?;
 
-    let formatted = serde_json::to_string_pretty(&json_val)
-        .map_err(|e| format!("Failed to format JSON: {e}"))?;
+        // Check schema format
+        if root_obj.contains_key("context_servers") {
+            // Zed schema
+            let cs = root_obj
+                .entry("context_servers")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .ok_or_else(|| "context_servers is not an object".to_string())?;
+            cs.insert("knox".to_string(), knox_server_entry);
+        } else if root_obj.contains_key("mcp") {
+            // Nested mcp schema: { "mcp": { "servers": { ... } } }
+            let mcp_obj = root_obj
+                .entry("mcp")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .ok_or_else(|| "mcp is not an object".to_string())?;
+            let servers_obj = mcp_obj
+                .entry("servers")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .ok_or_else(|| "servers is not an object".to_string())?;
+            servers_obj.insert("knox".to_string(), knox_server_entry);
+        } else {
+            // Standard schema: { "mcpServers": { ... } }
+            let mcp_servers = root_obj
+                .entry("mcpServers")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .ok_or_else(|| "mcpServers is not an object".to_string())?;
+            mcp_servers.insert("knox".to_string(), knox_server_entry);
+        }
 
-    fs::write(&path, formatted).map_err(|e| format!("Failed to write configuration: {e}"))?;
+        let formatted = serde_json::to_string_pretty(&json_val)
+            .map_err(|e| format!("Failed to format JSON: {e}"))?;
 
-    Ok(true)
+        fs::write(&path, formatted).map_err(|e| format!("Failed to write configuration: {e}"))?;
+
+        Ok(true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Removes Knox MCP stdio configuration from the target JSON file.
 #[tauri::command]
 pub async fn remove_mcp_config(file_path: String) -> Result<bool, String> {
-    let path = PathBuf::from(&file_path);
-    if !path.exists() {
-        return Ok(true);
-    }
-
-    // Create a backup copy before writing
-    let backup_path = path.with_extension("bak");
-    fs::copy(&path, &backup_path)
-        .map_err(|e| format!("Failed to create backup at {}: {e}", backup_path.display()))?;
-
-    let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {e}"))?;
-    let mut json_val: serde_json::Value =
-        serde_json::from_str(&content).map_err(|e| format!("Invalid JSON: {e}"))?;
-
-    if let Some(root_obj) = json_val.as_object_mut() {
-        if let Some(mcp_servers) = root_obj
-            .get_mut("mcpServers")
-            .and_then(|v| v.as_object_mut())
-        {
-            mcp_servers.remove("knox");
+    tokio::task::spawn_blocking(move || {
+        let path = PathBuf::from(&file_path);
+        if !path.exists() {
+            return Ok(true);
         }
-        if let Some(servers) = root_obj
-            .get_mut("mcp")
-            .and_then(|v| v.as_object_mut())
-            .and_then(|mcp| mcp.get_mut("servers"))
-            .and_then(|v| v.as_object_mut())
-        {
-            servers.remove("knox");
+
+        // Create a backup copy before writing
+        let backup_path = path.with_extension("bak");
+        fs::copy(&path, &backup_path)
+            .map_err(|e| format!("Failed to create backup at {}: {e}", backup_path.display()))?;
+
+        let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {e}"))?;
+        let mut json_val: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| format!("Invalid JSON: {e}"))?;
+
+        if let Some(root_obj) = json_val.as_object_mut() {
+            if let Some(mcp_servers) = root_obj
+                .get_mut("mcpServers")
+                .and_then(|v| v.as_object_mut())
+            {
+                mcp_servers.remove("knox");
+            }
+            if let Some(servers) = root_obj
+                .get_mut("mcp")
+                .and_then(|v| v.as_object_mut())
+                .and_then(|mcp| mcp.get_mut("servers"))
+                .and_then(|v| v.as_object_mut())
+            {
+                servers.remove("knox");
+            }
+            if let Some(cs) = root_obj
+                .get_mut("context_servers")
+                .and_then(|v| v.as_object_mut())
+            {
+                cs.remove("knox");
+            }
         }
-        if let Some(cs) = root_obj
-            .get_mut("context_servers")
-            .and_then(|v| v.as_object_mut())
-        {
-            cs.remove("knox");
-        }
-    }
 
-    let formatted = serde_json::to_string_pretty(&json_val)
-        .map_err(|e| format!("Failed to format JSON: {e}"))?;
+        let formatted = serde_json::to_string_pretty(&json_val)
+            .map_err(|e| format!("Failed to format JSON: {e}"))?;
 
-    fs::write(&path, formatted).map_err(|e| format!("Failed to write configuration: {e}"))?;
+        fs::write(&path, formatted).map_err(|e| format!("Failed to write configuration: {e}"))?;
 
-    Ok(true)
+        Ok(true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
@@ -746,9 +766,7 @@ mod tests {
 
     #[test]
     fn test_detect_mcp_configs_impl_runs_without_app() {
-        let res = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(detect_mcp_configs_impl(None));
+        let res = detect_mcp_configs_impl(None);
         assert!(res.is_ok());
         let apps = res.unwrap();
         assert!(!apps.is_empty());

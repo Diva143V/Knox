@@ -28,6 +28,25 @@ pub struct EmptyBreakdown {
     pub out_of_scope: usize,
 }
 
+/// Staleness and tool census diagnostics for workspace `knox.md`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KnoxMdStatus {
+    /// Whether `knox.md` was discovered in the project or workspace directory.
+    pub exists: bool,
+    /// Absolute or relative path to the inspected `knox.md` file.
+    pub path: Option<String>,
+    /// Tool count parsed from the header or body (or census of known tools).
+    pub tool_count: usize,
+    /// Number of expected tools registered in the runtime (`TOOL_COUNT = 7`).
+    pub expected_tool_count: usize,
+    /// Tools listed in `LISTED_TOOL_NAMES` that are missing from `knox.md`.
+    pub missing_tools: Vec<String>,
+    /// Whether the file is missing tools or out of date.
+    pub is_stale: bool,
+    /// Human-readable diagnostic status message.
+    pub message: String,
+}
+
 /// Comprehensive health and operational report for Knox.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DoctorReport {
@@ -55,15 +74,99 @@ pub struct DoctorReport {
     pub schema_version: i32,
     /// Known or active agent/model bindings in the database or project.
     pub bound_models: Vec<String>,
+    /// Status and staleness check of workspace `knox.md` protocol instructions.
+    #[serde(default)]
+    pub knox_md_status: Option<KnoxMdStatus>,
+}
+
+/// Checks the workspace `knox.md` file for tool census and staleness against current crate definitions.
+pub fn check_knox_md(project: Option<&str>) -> KnoxMdStatus {
+    let candidate_paths = {
+        let mut paths = Vec::new();
+        if let Some(p) = project {
+            let pb = std::path::PathBuf::from(p);
+            paths.push(pb.join("knox.md"));
+            paths.push(pb.clone());
+        }
+        if let Ok(cur) = std::env::current_dir() {
+            paths.push(cur.join("knox.md"));
+        }
+        paths.push(std::path::PathBuf::from("knox.md"));
+        paths
+    };
+
+    let target = candidate_paths.into_iter().find(|p| p.is_file());
+
+    let Some(path) = target else {
+        return KnoxMdStatus {
+            exists: false,
+            path: None,
+            tool_count: 0,
+            expected_tool_count: crate::mcp::tools::TOOL_COUNT,
+            missing_tools: crate::mcp::tools::LISTED_TOOL_NAMES
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            is_stale: false,
+            message: "No knox.md protocol reference found in workspace.".to_string(),
+        };
+    };
+
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut missing_tools = Vec::new();
+    let mut found_tools = Vec::new();
+
+    for &tool in &crate::mcp::tools::LISTED_TOOL_NAMES {
+        if content.contains(tool) {
+            found_tools.push(tool.to_string());
+        } else {
+            missing_tools.push(tool.to_string());
+        }
+    }
+
+    let is_stale = !missing_tools.is_empty() || content.contains("6 tools");
+    let message = if is_stale {
+        format!(
+            "knox.md is stale: missing {} tool(s) {:?}. Run 'knox init' to refresh.",
+            missing_tools.len(),
+            missing_tools
+        )
+    } else {
+        "knox.md protocol reference is up to date (7 tools).".to_string()
+    };
+
+    KnoxMdStatus {
+        exists: true,
+        path: Some(path.display().to_string()),
+        tool_count: found_tools.len(),
+        expected_tool_count: crate::mcp::tools::TOOL_COUNT,
+        missing_tools,
+        is_stale,
+        message,
+    }
 }
 
 /// Runs operational diagnostics and computes a `DoctorReport`.
 pub fn cmd_doctor(db: &KnoxDb, project: Option<&str>) -> KnoxResult<DoctorReport> {
-    // Retention sweeps: prune telemetry (90d), idempotency keys (14d), edge rejections (30d), and action deltas (90d)
-    let _ = crate::storage::prune_query_log(db, 90)?;
-    let _ = crate::storage::prune_idempotency_keys(db, 14)?;
-    let _ = crate::storage::prune_edge_rejections(db, 30)?;
-    let _ = crate::storage::prune_action_deltas(db, 90)?;
+    // Retention sweeps: best-effort pruning across append-only tables
+    if let Err(e) = crate::storage::prune_query_log(db, 90) {
+        tracing::warn!(error = %e, "Retention sweep: query_log prune failed");
+    }
+    if let Err(e) = crate::storage::prune_idempotency_keys(db, 14) {
+        tracing::warn!(error = %e, "Retention sweep: idempotency_keys prune failed");
+    }
+    if let Err(e) = crate::storage::prune_edge_rejections(db, 30) {
+        tracing::warn!(error = %e, "Retention sweep: edge_rejections prune failed");
+    }
+    if let Err(e) = crate::storage::prune_action_deltas(db, 90) {
+        tracing::warn!(error = %e, "Retention sweep: action_deltas prune failed");
+    }
+    if let Err(e) = crate::storage::prune_sessions(db, 90) {
+        tracing::warn!(error = %e, "Retention sweep: sessions prune failed");
+    }
+    if let Err(e) = crate::commands::ingest::prune_ingest_log(db, 30) {
+        tracing::warn!(error = %e, "Retention sweep: ingest_log prune failed");
+    }
 
     let stats = crate::storage::get_query_log_stats(db, project)?;
     let zombie_sessions = crate::storage::get_zombie_session_count(db)?;
@@ -151,6 +254,7 @@ pub fn cmd_doctor(db: &KnoxDb, project: Option<&str>) -> KnoxResult<DoctorReport
         integrity_check,
         schema_version: storage.schema_version,
         bound_models,
+        knox_md_status: Some(check_knox_md(project)),
     })
 }
 
@@ -222,6 +326,21 @@ pub fn format_doctor_report(report: &DoctorReport) -> String {
         out.push_str(&format!("  - {}\n", m));
     }
 
+    if let Some(ref md_status) = report.knox_md_status {
+        out.push_str("\nProtocol Reference (knox.md):\n");
+        out.push_str(&format!(
+            "  Status: {}\n",
+            if md_status.is_stale {
+                "STALE"
+            } else if md_status.exists {
+                "UP TO DATE"
+            } else {
+                "NOT FOUND"
+            }
+        ));
+        out.push_str(&format!("  {}\n", md_status.message));
+    }
+
     out
 }
 
@@ -289,6 +408,33 @@ mod tests {
         assert!(text.contains("Edge Type Promotion Candidates"));
         assert!(text.contains("WARNING: Rejected edge type 'fixes' reached 10 rejection(s)"));
         assert!(text.contains("Documented promotion path for 'fixes'"));
+    }
+
+    #[test]
+    fn test_knox_md_staleness_and_tool_census() {
+        let temp = tempfile::tempdir().unwrap();
+        let knox_md_path = temp.path().join("knox.md");
+
+        // 1. Stale knox.md with only 6 tools (missing knox_ask)
+        let stale_content = "# Protocol\nKnox exposes 6 tools:\n- knox_begin\n- knox_context\n- knox_check\n- knox_trace\n- knox_record\n- knox_handoff\n";
+        std::fs::write(&knox_md_path, stale_content).unwrap();
+
+        let status = check_knox_md(Some(temp.path().to_str().unwrap()));
+        assert!(status.exists);
+        assert!(status.is_stale);
+        assert_eq!(status.tool_count, 6);
+        assert!(status.missing_tools.contains(&"knox_ask".to_string()));
+        assert!(status.message.contains("missing 1 tool(s)"));
+
+        // 2. Fresh knox.md with all 7 tools
+        let fresh_content = "# Protocol\nKnox exposes 7 tools:\n- knox_begin\n- knox_context\n- knox_check\n- knox_trace\n- knox_record\n- knox_handoff\n- knox_ask\n";
+        std::fs::write(&knox_md_path, fresh_content).unwrap();
+
+        let status_fresh = check_knox_md(Some(temp.path().to_str().unwrap()));
+        assert!(status_fresh.exists);
+        assert!(!status_fresh.is_stale);
+        assert_eq!(status_fresh.tool_count, 7);
+        assert!(status_fresh.missing_tools.is_empty());
     }
 }
 

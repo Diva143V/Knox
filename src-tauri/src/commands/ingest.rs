@@ -16,14 +16,18 @@ pub async fn ingest_transcript(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<IngestReport, String> {
-    let db = state.db.lock().await;
     let path_buf = PathBuf::from(path);
-
     if !path_buf.exists() {
         return Err(format!("File does not exist: {}", path_buf.display()));
     }
 
-    cmd_ingest(&path_buf, &db, false).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        cmd_ingest(&path_buf, &db, false).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Ingests raw transcript content (JSON, JSONL, Markdown, or plain text) directly.
@@ -33,8 +37,13 @@ pub async fn ingest_raw_transcript(
     content: String,
     actor_override: Option<String>,
 ) -> Result<IngestReport, String> {
-    let db = state.db.lock().await;
-    cmd_ingest_raw(&content, &db, actor_override.as_deref(), false).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        cmd_ingest_raw(&content, &db, actor_override.as_deref(), false).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Generates a dry-run preview of a transcript file or raw text before committing to SQLite.
@@ -44,10 +53,14 @@ pub async fn preview_transcript(
     path: Option<String>,
     content: Option<String>,
 ) -> Result<IngestPreview, String> {
-    let db = state.db.lock().await;
     let path_buf = path.map(PathBuf::from);
-
-    cmd_preview(path_buf.as_deref(), content.as_deref(), &db).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        cmd_preview(path_buf.as_deref(), content.as_deref(), &db).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Ingests commit history from a local Git repository.
@@ -57,9 +70,7 @@ pub async fn ingest_git_history(
     project_path: String,
     max_commits: Option<usize>,
 ) -> Result<IngestReport, String> {
-    let db = state.db.lock().await;
     let path_buf = PathBuf::from(project_path);
-
     if !path_buf.exists() {
         return Err(format!(
             "Project directory does not exist: {}",
@@ -67,7 +78,13 @@ pub async fn ingest_git_history(
         ));
     }
 
-    cmd_ingest_git(&path_buf, max_commits.unwrap_or(50), &db).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        cmd_ingest_git(&path_buf, max_commits.unwrap_or(50), &db).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Scans local directories and active workspace for discoverable agent transcripts.
@@ -77,5 +94,9 @@ pub async fn detect_local_transcripts(
     project_path: Option<String>,
 ) -> Result<Vec<DetectedTranscript>, String> {
     let path_buf = project_path.map(PathBuf::from);
-    Ok(detect_transcripts_core(path_buf.as_deref()))
+    tokio::task::spawn_blocking(move || {
+        Ok(detect_transcripts_core(path_buf.as_deref()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

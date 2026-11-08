@@ -20,7 +20,15 @@ pub const DEFAULT_TIMEOUT_CHECK_INTERVAL: Duration = Duration::from_secs(60);
 pub const DEFAULT_SESSION_MAX_IDLE: Duration = Duration::from_secs(1800);
 
 /// Starts the MCP server on standard input/output with the given database handle.
+/// Respects `KNOX_SESSION_TIMEOUT` configured via environment or configuration files,
+/// falling back to [`DEFAULT_SESSION_MAX_IDLE`] (1800s).
 pub async fn run_mcp_server(db: KnoxDb) -> KnoxResult<()> {
+    let config = crate::core::config::KnoxConfig::from_env();
+    let max_idle = if config.session_timeout.is_zero() {
+        DEFAULT_SESSION_MAX_IDLE
+    } else {
+        config.session_timeout
+    };
     let stdin = tokio::io::BufReader::new(tokio::io::stdin());
     let stdout = tokio::io::stdout();
     run_mcp_server_loop(
@@ -28,7 +36,7 @@ pub async fn run_mcp_server(db: KnoxDb) -> KnoxResult<()> {
         stdin,
         stdout,
         DEFAULT_TIMEOUT_CHECK_INTERVAL,
-        DEFAULT_SESSION_MAX_IDLE,
+        max_idle,
     )
     .await
 }

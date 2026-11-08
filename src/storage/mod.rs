@@ -37,8 +37,8 @@ pub use registry::{
 };
 pub use sessions::{
     end_session, find_open_session, get_session, is_project_egress_allowed, list_recent_sessions,
-    resolve_or_create_project, resolve_project_identifier, set_project_egress, start_session,
-    timeout_stale_sessions,
+    prune_sessions, resolve_or_create_project, resolve_project_identifier, set_project_egress,
+    start_session, timeout_stale_sessions,
 };
 pub use telemetry::{
     QueryTelemetryStats, determine_empty_reason, get_action_duplicate_stats, get_query_latencies,

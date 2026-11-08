@@ -338,7 +338,7 @@ export const GraphToolbars: React.FC<GraphToolbarsProps> = ({
                           className="text-3xs px-1 py-0"
                         />
                         {match.action.significance === "major" && (
-                          <span className="text-[9px] font-mono uppercase bg-warning/15 text-warning px-1 rounded-xs border border-warning/30">
+                          <span className="text-3xs font-mono uppercase bg-warning/15 text-warning px-1 rounded-xs border border-warning/30">
                             ADR
                           </span>
                         )}

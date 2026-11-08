@@ -197,7 +197,7 @@ export const CircleNode = memo(({ data }: { data: CircleNodeData }) => {
         {/* Small badge for relations or files count */}
         {action && action.relations && action.relations.length > 0 && (
           <span
-            className="absolute -top-1 -right-1 size-3.5 rounded-full bg-primary text-primary-foreground text-[8px] font-mono font-medium flex items-center justify-center border border-background"
+            className="absolute -top-1 -right-1 size-3.5 rounded-full bg-primary text-primary-foreground text-3xs font-mono font-medium flex items-center justify-center border border-background"
             title={`${action.relations.length} relations`}
           >
             {action.relations.length}
@@ -205,7 +205,7 @@ export const CircleNode = memo(({ data }: { data: CircleNodeData }) => {
         )}
 
         {kind === "project" && (
-          <span className="absolute -bottom-1 -right-1 px-1 rounded-xs bg-muted text-foreground text-[8px] font-mono border border-border">
+          <span className="absolute -bottom-1 -right-1 px-1 rounded-xs bg-muted text-foreground text-3xs font-mono border border-border">
             PKG
           </span>
         )}
@@ -223,7 +223,7 @@ export const CircleNode = memo(({ data }: { data: CircleNodeData }) => {
           {title}
         </span>
         {subtitle && (
-          <span className="text-[9px] font-mono text-muted-foreground truncate max-w-[110px] mt-0.5">
+          <span className="text-3xs font-mono text-muted-foreground truncate max-w-[110px] mt-0.5">
             {subtitle}
           </span>
         )}

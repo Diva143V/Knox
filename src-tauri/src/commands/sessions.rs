@@ -17,8 +17,13 @@ pub async fn start_session(
     actor: String,
     project: Option<String>,
 ) -> Result<Session, String> {
-    let db = state.db.lock().await;
-    db_start_session(&db, &actor, project.as_deref()).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        db_start_session(&db, &actor, project.as_deref()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Ends an active session in Knox.
@@ -27,8 +32,13 @@ pub async fn end_session(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<Session, String> {
-    let db = state.db.lock().await;
-    db_end_session(&db, &SessionId::from(session_id)).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        db_end_session(&db, &SessionId::from(session_id)).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Lists open and recent sessions in Knox.
@@ -37,7 +47,12 @@ pub async fn get_sessions(
     state: State<'_, AppState>,
     limit: Option<usize>,
 ) -> Result<Vec<Session>, String> {
-    let db = state.db.lock().await;
     let max_limit = limit.unwrap_or(20).clamp(1, 100);
-    db_list_recent_sessions(&db, max_limit).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        db_list_recent_sessions(&db, max_limit).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
