@@ -1,440 +1,144 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Knox &mdash; Unified Implementation Plan</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=Azeret+Mono:wght@400;600&display=swap" rel="stylesheet">
-<style>
-*,*::before,*::after{box-sizing:border-box}
-:root{
-  --bg:#fdf6e3; --card:#fffcf2; --tint:#f2ead6; --rule:#e0d7c0;
-  --ink:#073642; --ink2:#586e75; --ink3:#93a1a1;
-  --blue:#268bd2; --cyan:#2aa198; --green:#859900; --orange:#cb4b16;
-  --red:#dc322f; --violet:#6c71c4; --yellow:#b58900;
-  --mono:'Azeret Mono','SF Mono',Consolas,monospace;
-  --disp:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;
-  --body:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;
-}
-@media (prefers-color-scheme:dark){
-  :root{
-    --bg:#002b36; --card:#073642; --tint:#0b3f4d; --rule:#12505f;
-    --ink:#eee8d5; --ink2:#93a1a1; --ink3:#657b83;
-    --blue:#5fa8d3; --cyan:#4fc3b8; --green:#b5c93f; --orange:#e07a4a;
-    --red:#ef6b64; --violet:#9a9ee0; --yellow:#d9b25a;
-  }
-}
-html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;
-  line-height:1.6;overflow-wrap:break-word}
-h1,h2,h3{font-family:var(--disp);letter-spacing:-.02em}
-code{font-family:var(--mono);font-size:.84em;background:var(--tint);padding:1px 4px;border-radius:2px;color:var(--ink)}
-.wrap{display:grid;grid-template-columns:206px minmax(0,1fr);gap:44px;max-width:1240px;margin:0 auto;padding:0 30px 90px}
-header{grid-column:1/-1;padding:50px 0 24px;border-bottom:2px solid var(--ink)}
-.kick{font-family:var(--mono);font-size:9.5px;letter-spacing:2.2px;text-transform:uppercase;color:var(--blue);margin-bottom:16px}
-h1{font-size:clamp(30px,4.2vw,46px);line-height:1.04;margin:0 0 14px;max-width:26ch;font-weight:700}
-.dek{font-size:17px;color:var(--ink2);max-width:70ch;margin:0 0 18px;line-height:1.55}
-.meta{display:flex;flex-wrap:wrap;gap:8px 24px;font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
-.meta b{color:var(--ink2);font-weight:400}
-.plan{grid-column:1/-1;margin:22px 0 0;border:1px solid var(--rule);border-left:3px solid var(--blue);
-  background:var(--card);padding:16px 20px;font-family:var(--mono);font-size:11px;line-height:1.8;
-  white-space:pre-wrap;color:var(--ink2);overflow-x:auto}
-.plan b{color:var(--blue);font-weight:600}
-aside{position:sticky;top:20px;align-self:start;padding-top:26px}
-.nl{font-family:var(--mono);font-size:8.5px;letter-spacing:1.8px;text-transform:uppercase;color:var(--ink3);
-  padding-bottom:8px;border-bottom:1px solid var(--rule);margin-bottom:9px}
-nav a{display:flex;gap:8px;padding:4px 0 4px 9px;font-size:12.4px;color:var(--ink2);text-decoration:none;
-  border-left:2px solid transparent;margin-left:-11px;transition:.15s}
-nav a:hover{color:var(--blue);border-left-color:var(--orange)}
-nav a span{font-family:var(--mono);font-size:9px;color:var(--ink3);padding-top:2px}
-main{min-width:0;padding-top:26px}
-section{padding:30px 0 8px;border-bottom:1px solid var(--rule)}
-section:last-of-type{border-bottom:none}
-h2{font-size:25px;line-height:1.14;margin:0 0 6px;display:flex;align-items:baseline;gap:11px;font-weight:700}
-h2 em{font-family:var(--mono);font-size:9.5px;font-style:normal;letter-spacing:1.6px;color:var(--orange);padding-top:4px}
-h3{font-size:16.5px;margin:22px 0 7px;font-weight:700}
-h4{font-family:var(--mono);font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink3);margin:18px 0 6px}
-.lede{font-size:16px;color:var(--ink2);max-width:76ch;margin:0 0 16px}
-p{margin:0 0 11px;max-width:80ch}
-ul,ol{margin:0 0 13px;padding-left:1.3em} li{margin-bottom:6px;max-width:78ch}
-li::marker{color:var(--orange)}
-.tw{overflow-x:auto;border:1px solid var(--rule);background:var(--card);margin:16px 0}
-table{width:100%;border-collapse:collapse;font-size:13px}
-thead th{background:var(--tint);font-family:var(--mono);font-size:8.6px;letter-spacing:1.1px;text-transform:uppercase;
-  color:var(--ink2);text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule);white-space:nowrap}
-tbody td{padding:8px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
-tbody tr:last-child td{border-bottom:none}
-tbody tr:hover{background:rgba(38,139,210,.05)}
-td code{background:transparent;padding:0;font-size:11.4px}
-.num{font-family:var(--mono);font-size:11.4px;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
-.id{font-family:var(--mono);font-size:10.4px;color:var(--blue);white-space:nowrap}
-.pill{font-family:var(--mono);font-size:8.2px;letter-spacing:.6px;text-transform:uppercase;padding:2px 5px;border-radius:2px;white-space:nowrap}
-.pill--ok{background:rgba(133,153,0,.16);color:var(--green)}
-.pill--warn{background:rgba(181,137,0,.16);color:var(--yellow)}
-.pill--bad{background:rgba(220,50,47,.14);color:var(--red)}
-.pill--new{background:rgba(38,139,210,.14);color:var(--blue)}
-.pill--keep{background:rgba(42,161,152,.14);color:var(--cyan)}
-pre{font-family:var(--mono);font-size:11.4px;line-height:1.65;background:var(--tint);border:1px solid var(--rule);
-  border-left:3px solid var(--cyan);padding:12px 14px;overflow-x:auto;margin:0 0 13px;white-space:pre;color:var(--ink)}
-pre .c{color:var(--ink3)} pre .k{color:var(--violet);font-weight:600} pre .s{color:var(--green)} pre .n{color:var(--orange)}
-.note{border:1px solid var(--rule);border-left:3px solid var(--c,var(--blue));background:var(--card);padding:13px 16px;margin:15px 0}
-.note--warn{--c:var(--yellow)} .note--bad{--c:var(--red)} .note--ok{--c:var(--green)}
-.note__t{font-family:var(--mono);font-size:8.6px;letter-spacing:1.3px;text-transform:uppercase;color:var(--ink3);margin-bottom:5px}
-.note p:last-child{margin-bottom:0}
-.pull{font-family:var(--disp);font-weight:700;font-size:20px;line-height:1.32;border-top:1px solid var(--rule);
-  border-bottom:1px solid var(--rule);padding:16px 0;margin:22px 0;max-width:52ch;color:var(--blue)}
-footer{grid-column:1/-1;padding:24px 0 0;border-top:1px solid var(--rule);font-family:var(--mono);font-size:10px;
-  color:var(--ink3);margin-top:26px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
-@media (max-width:980px){
-  .wrap{grid-template-columns:1fr;gap:0;padding:0 18px 60px}
-  aside{position:sticky;top:0;z-index:20;background:var(--bg);padding:9px 18px;margin:0 -18px;border-bottom:1px solid var(--rule)}
-  nav{display:flex;gap:15px;overflow-x:auto} .nl{display:none}
-  nav a{white-space:nowrap;border-left:none;border-bottom:2px solid transparent;padding:3px 0;margin:0}
-  main{padding-top:16px}
-}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}html{scroll-behavior:auto}}
-</style>
-</head>
-<body>
-<div class="wrap">
-<header>
-<div class="kick">Unified implementation plan &middot; Knox v1.2.1 &rarr; v2.0</div>
-<h1>The buildable plan</h1>
-<p class="dek">One document that merges the two proposals into tasks you can start on Monday: the schema shape and guardrail model from Claude&rsquo;s plan, the measured baseline and phase order from the source review, and the corrections that only reading the code could produce.</p>
-<div class="meta"><span><b>Baseline</b> main @ v1.2.1 &middot; schema v5 &middot; 21 tools &middot; 177 tests</span><span><b>Target</b> 6 tools &middot; schema v6 &middot; budgeted reads</span><span><b>Effort</b> 28 working days + 2 buffer</span></div>
-</header>
-<div class="plan"><b>OBJECTIVE</b>     Deliver a token-budgeted, scope-safe engineering memory in six phases, each shipping something usable.
-<b>METRIC</b>        tools/list tokens &middot; tokens per read &middot; round trips per workflow &middot; isolation leaks &middot; duplicate rate &middot; empty-result rate &middot; recall@5
-<b>BASELINE</b>      3,412 tok definitions &middot; 21 tools &middot; 13 unscoped &middot; 0 budgets &middot; 2.4 calls/question (all measured)
-<b>DECOMPOSITION</b>  read cost = definitions + payload + duplicated payload + irrelevant items; savings = hit_rate &times; re-derivation avoided
-<b>PLAN</b>           1 lock decisions 2 modules 3 types 4 schema 5 migration 6 tools 7 retrieval 8 guardrails 9 writes 10 ingest 11 compat 12 tests 13 bench 14 schedule 15 risks
-<b>NEXT ACTION</b>    Phase 0 task P0-1: stand up the harness and reproduce 3,412
-</div>
-<aside><div class="nl">Contents</div><nav>
-<a href="#s01"><span>01</span>Decisions</a>
-<a href="#s02"><span>02</span>Architecture</a>
-<a href="#s03"><span>03</span>Core types</a>
-<a href="#s04"><span>04</span>Schema v6</a>
-<a href="#s05"><span>05</span>Migration</a>
-<a href="#s06"><span>06</span>Tool surface</a>
-<a href="#s07"><span>07</span>Retrieval</a>
-<a href="#s08"><span>08</span>Guardrails</a>
-<a href="#s09"><span>09</span>Writes & sessions</a>
-<a href="#s10"><span>10</span>Ingestion</a>
-<a href="#s11"><span>11</span>Compatibility</a>
-<a href="#s12"><span>12</span>Tests</a>
-<a href="#s13"><span>13</span>Benchmark</a>
-<a href="#s14"><span>14</span>Schedule</a>
-<a href="#s15"><span>15</span>Risks</a>
-</nav></aside><main>
-<section id="s01"><h2><em>01</em>Decisions locked</h2>
-<p class="lede">Ten decisions taken from the comparison. Everything downstream assumes these; if one changes, the phases that depend on it are named in the last column.</p>
-<div class="tw"><table><colgroup><col style="width:5%"><col style="width:38%"><col style="width:39%"><col style="width:18%"></colgroup><thead><tr><th>#</th><th>Decision</th><th>Rationale</th><th>Affects</th></tr></thead><tbody><tr><td>D1</td><td>Six agent tools: <code>begin</code>, <code>context</code>, <code>check</code>, <code>trace</code>, <code>record</code>, <code>handoff</code></td><td>Claude&rsquo;s surface; staleness becomes an attribute, not a tool</td><td>P3, P4</td></tr><tr><td>D2</td><td>Schema v6, additive from live v5 (not v3)</td><td>v5 already adds <code>project_id</code> and <code>timestamp_ms</code>; a v3 migration collides with user databases</td><td>P2</td></tr><tr><td>D3</td><td>Guardrails as <code>rule</code> rows with pattern kind and severity</td><td>Constraints become queryable and testable objects rather than prose re-parsed per call</td><td>P2, P3</td></tr><tr><td>D4</td><td><code>entry_state</code> table updated inside the write transaction, no triggers</td><td>Unit-testable, fast to read, no hidden behaviour in the schema</td><td>P2, P4</td></tr><tr><td>D5</td><td><code>dedupe_key</code> + 24h merge window + <code>seen_count</code></td><td>Preserves frequency as a ranking signal; duplicates stop being noise and become weight</td><td>P2, P4</td></tr><tr><td>D6</td><td>Budgets: context 1200 (max 4000), check 600, trace 800, begin 1200, handoff 800, record ack &le;150</td><td>Claude&rsquo;s defaults with a hard ceiling; tune down against the benchmark</td><td>P1, P3, P4</td></tr><tr><td>D7</td><td><code>follows</code> edge type, never traversed by default</td><td>Temporal order must not pollute causality</td><td>P2, P3</td></tr><tr><td>D8</td><td>Project-local DB default, with <code>knox export</code>/<code>import</code> in the same phase</td><td>Isolation by construction; the escape hatch makes the trade acceptable</td><td>P4</td></tr><tr><td>D9</td><td>Reads never return the same fact in two shapes</td><td>The duplication measured in 10 of 21 handlers</td><td>P1, P3</td></tr><tr><td>D10</td><td>Legacy tool names stay callable but unlisted for two releases</td><td>Agents migrate on their own schedule; configs keep working</td><td>P3&ndash;P5</td></tr></tbody></table></div>
-<div class="note note--warn"><div class="note__t">One decision still open &mdash; needed before P4</div><p><b>Is the desktop GUI in scope?</b> It is 18,411 lines of TypeScript against 16,555 of Rust, and it reads the schema directly through Tauri commands. The plan below keeps it working via the compatibility views and one command-layer refactor (P2-T5), but does not extend it. If the GUI is in scope, add 3 days to P3 for the graph view to read <code>entry</code> and <code>edge</code>.</p></div>
-</section>
-<section id="s02"><h2><em>02</em>Target architecture</h2>
-<p class="lede">The five existing layers stay. Two are added, and the rule that keeps them honest: MCP handlers parse, call one command, render. Nothing else lives in a handler.</p>
-<pre><span class="c">// target module tree — new dirs marked +, renamed marked ~</span>
-src/core/        types.rs  scope.rs  budget.rs  error.rs            <span class="c">// + scope, budget</span>
-src/storage/     db.rs  migrations/  entry_repo.rs  edge_repo.rs    <span class="c">// + 3 repos</span>
-                 rule_repo.rs  ref_repo.rs  fts.rs
-src/retrieval/   views.rs  rank.rs  pack.rs  tokens.rs  render.rs   <span class="c">// + whole dir</span>
-                 cursor.rs
-src/guard/       rules.rs  matcher.rs  confidence.rs                 <span class="c">// + whole dir</span>
-src/graph/       traverse.rs                                          <span class="c">// ~ loader+traversal</span>
-src/ingest/      segment.rs  classify.rs  coalesce.rs  dedupe.rs    <span class="c">// ~ summary+group</span>
-                 log.rs
-src/commands/    begin.rs  context.rs  record.rs  check.rs            <span class="c">// + 6 commands</span>
-                 trace.rs  handoff.rs  ingest.rs  scan.rs
-src/mcp/         server.rs  tools.rs  dispatch.rs  adapters.rs        <span class="c">// + adapters</span>
-                 errors.rs</pre>
-<p>Dependency rule, enforced by a CI check on <code>use</code> statements: <code>core</code> imports nothing from the crate; <code>storage</code> imports <code>core</code>; <code>retrieval</code> and <code>guard</code> import <code>core</code> + <code>storage</code>; <code>commands</code> import all of them; <code>mcp</code> imports only <code>commands</code>. A handler that reaches into <code>storage</code> is a build failure, which is what stops the current sprawl from returning.</p>
-<h3>What moves, concretely</h3>
-<div class="tw"><table><colgroup><col style="width:36%"><col style="width:40%"><col style="width:24%"></colgroup><thead><tr><th>Today</th><th>Becomes</th><th>Action</th></tr></thead><tbody><tr><td><code>mcp/handlers/*.rs</code> (23 files)</td><td><code>commands/*.rs</code> (8 files) + <code>mcp/adapters.rs</code></td><td class="pill pill--bad">split</td></tr><tr><td><code>storage/nodes.rs</code> + <code>queries.rs</code> (1,525 lines)</td><td><code>entry_repo.rs</code>, <code>edge_repo.rs</code>, <code>ref_repo.rs</code></td><td class="pill pill--bad">split</td></tr><tr><td><code>graph/loader.rs</code> + <code>traversal.rs</code></td><td><code>graph/traverse.rs</code></td><td class="pill pill--warn">merge</td></tr><tr><td><code>ingest/action_group.rs</code> + <code>summary.rs</code></td><td><code>segment.rs</code>, <code>classify.rs</code>, <code>coalesce.rs</code></td><td class="pill pill--bad">split</td></tr><tr><td><code>mcp/handlers/check_guardrails.rs</code> (300 lines)</td><td><code>guard/</code> + <code>commands/check.rs</code></td><td class="pill pill--bad">split</td></tr><tr><td><code>storage/migrations.rs</code> (330 lines, 5 versions)</td><td><code>storage/migrations/</code> one file per version</td><td class="pill pill--warn">split</td></tr></tbody></table></div>
-</section>
-<section id="s03"><h2><em>03</em>Core types</h2>
-<p class="lede">Five enums and two structs replace the 23-field <code>KnoxAction</code>. If a field is not needed by a view, a filter or a renderer, it does not belong here.</p>
-<pre><span class="k">pub enum</span> Kind { Action, Decision, Doubt, Plan, Outcome }
-<span class="k">pub enum</span> State { Current, Superseded, Resolved, Open }
-<span class="k">pub enum</span> EdgeType { CausedBy, Supersedes, Resolves, Contradicts,
-                      DependsOn, Implements, Verifies, Reverts, RelatesTo, Follows }
-<span class="k">pub enum</span> Source { Agent, Human, Ingest, Git }
-<span class="k">pub enum</span> PatternKind { Path, Symbol, Phrase }
+Remediation plan · storage, models, graph usage
+Four places where the app knows something the user cannot see
+Every shortcoming in this plan is the same shape: the mechanism is correct and the user is not told. A mode switch that silently changes which database you are in, a model layer with no panel, a graph counter that measures the wrong table. Ten days, four phases.
 
-<span class="k">pub struct</span> Scope { <span class="c">// every read and write carries this</span>
-    <span class="k">pub</span> project_id: ProjectId,
-    <span class="k">pub</span> session_id: Option&lt;SessionId&gt;,
-    <span class="k">pub</span> actor: String,
-}
+Evidence StorageTab, McpTab, db.rs, config.rs
+Scope 4 phases · 19 tasks
+Effort 10 days
+New UI 1 settings tab · new IPC 1 command · new MCP tools 0
+01
+The four gaps, stated plainly
+Before the objectives, the four sentences a user would say. Every phase below exists to make one of them untrue.
 
-<span class="k">pub struct</span> Entry {
-    <span class="k">pub</span> id: EntryId, <span class="k">pub</span> kind: Kind, <span class="k">pub</span> state: State,
-    <span class="k">pub</span> summary: String,   <span class="c">// &le;300 chars, enforced at write</span>
-    <span class="k">pub</span> why: Option&lt;String&gt;, <span class="c">// &le;1000 chars</span>
-    <span class="k">pub</span> confidence: f32, <span class="k">pub</span> source: Source,
-    <span class="k">pub</span> refs: Vec&lt;Ref&gt;, <span class="k">pub</span> seen: u32,
-    <span class="k">pub</span> created_at: i64,   <span class="c">// epoch ms — ordering is numeric</span>
-}</pre>
-<p>Two deliberate omissions. There is no <code>is_current</code> flag on the entry &mdash; state lives in <code>entry_state</code> and is derived from edges (D4). And there is no <code>significance</code> column: it defaulted to <code>"major"</code> on every write path, which made it a constant; importance is now expressed by the kind and by <code>seen_count</code>.</p>
-<h3>Error codes</h3>
-<div class="tw"><table><colgroup><col style="width:24%"><col style="width:38%"><col style="width:12%"><col style="width:26%"></colgroup><thead><tr><th>Code</th><th>When</th><th>Retryable</th><th>Agent should</th></tr></thead><tbody><tr><td><code>SCOPE_AMBIGUOUS</code></td><td>Project resolution matched several candidates</td><td class="pill pill--bad">no</td><td>pass an explicit workspace path</td></tr><tr><td><code>NO_SCOPE</code></td><td>A tool was called without a resolved project</td><td class="pill pill--bad">no</td><td>call <code>begin</code></td></tr><tr><td><code>DB_BUSY</code></td><td>Write lock not acquired within <code>busy_timeout</code></td><td class="pill pill--ok">yes</td><td>retry once</td></tr><tr><td><code>IDEM_CONFLICT</code></td><td>Same idempotency key, different payload</td><td class="pill pill--bad">no</td><td>new key</td></tr><tr><td><code>BUDGET_TOO_SMALL</code></td><td>Budget below the minimum viable item cost</td><td class="pill pill--bad">no</td><td>raise budget</td></tr><tr><td><code>NO_ATTRIBUTION</code></td><td>Trace could not map a line to an entry</td><td class="pill pill--warn">maybe</td><td>trace by file, not line</td></tr><tr><td><code>OVERSIZE_INPUT</code></td><td>Field exceeded its documented cap</td><td class="pill pill--bad">no</td><td>shorten; never silently truncated</td></tr></tbody></table></div>
-</section>
-<section id="s04"><h2><em>04</em>Schema v6</h2>
-<p class="lede">Eleven tables, all additive. Every foreign key that matters is declared, every index matches a query the views actually run, and every CHECK closes a vocabulary.</p>
-<pre><span class="k">CREATE TABLE</span> project (id TEXT PRIMARY KEY, root TEXT <span class="k">NOT NULL UNIQUE</span>,
-  remote TEXT, name TEXT, created_at INTEGER <span class="k">NOT NULL</span>);
+#	The gap, in the user’s words	Phase
+1	“There are two storage modes and I don’t know which one I’m in.” — one database, always, and the toggle is gone	Phase 1 — remove the choice
+2	“I can’t turn on the AI features. There’s no model panel — nine tabs and none of them is for models.”	Phase 2 — the missing tab
+3	“It says RELATIONS: 0. Is the graph broken, or is my agent just not using it?”	Phase 3 — graph visibility
+4	“The WAL is 2 MB and the database is 156 KB. Vacuum didn’t help.”	Phase 4 — storage hygiene
+Gap 2 is the largest and the least visible
+The LLM layer — embeddings, re-ranking, knox_ask, contradiction detection — is fully built and reachable only through four environment variables. There is no model panel in Preferences: nine tabs, and McpTab.tsx contains zero references to model, profile, endpoint or ollama. A user who works only in the GUI cannot enable any of it. That is four days of Phase 2, and it is the phase that unlocks the most capability for the least new code.
 
-<span class="k">CREATE TABLE</span> session (id TEXT PRIMARY KEY,
-  project_id TEXT <span class="k">NOT NULL</span> <span class="k">REFERENCES</span> project(id),
-  actor TEXT <span class="k">NOT NULL</span>, started_at INTEGER <span class="k">NOT NULL</span>,
-  last_seen INTEGER <span class="k">NOT NULL</span>, ended_at INTEGER, parent_session TEXT);
+02
+The decision: one database, always
+Global mode becomes the only mode. The toggle is removed from the UI, and every project shares one file — isolation comes from the project_id column and remote-based identity, not from separate databases.
 
-<span class="k">CREATE TABLE</span> entry (
-  id TEXT PRIMARY KEY,              <span class="c">-- ULID, kind-prefixed: a_ d_ q_ p_ o_</span>
-  project_id TEXT <span class="k">NOT NULL</span> <span class="k">REFERENCES</span> project(id),
-  session_id TEXT <span class="k">REFERENCES</span> session(id),
-  kind TEXT <span class="k">NOT NULL</span> <span class="k">CHECK</span>(kind <span class="k">IN</span> ('action','decision','doubt','plan','outcome')),
-  summary TEXT <span class="k">NOT NULL</span>, why TEXT,
-  confidence REAL <span class="k">NOT NULL DEFAULT</span> 0.7,
-  source TEXT <span class="k">NOT NULL</span> <span class="k">CHECK</span>(source <span class="k">IN</span> ('agent','human','ingest','git')),
-  provenance TEXT,                 <span class="c">-- json: transcript hash+offset, commit sha, rule id</span>
-  dedupe_key TEXT <span class="k">NOT NULL</span>, seen_count INTEGER <span class="k">NOT NULL DEFAULT</span> 1,
-  created_at INTEGER <span class="k">NOT NULL</span>);
+Why	Detail
+Isolation already exists without it	Every action carries project_id; every read filters by it; clones and worktrees resolve to one project by git remote. Separate files were never the isolation mechanism
+Two modes created the worst failure in this plan	A user can be looking at one database while their agent writes to another, with nothing on screen saying so
+The MCP server resolves from its own cwd	In project-local mode, an agent launched outside the repo writes to a different file than the app shows — and there is no way to notice
+A global file is what the product is for	Memory that survives a repo move, a clone, or a second machine checkout is the point of an external memory layer
+Cost of removal is small and known	8 files reference global_mode; two of them are UI surfaces
+The risk removal creates, and the only way to take it safely
+Anyone already running project-local has data in <repo>/.knox/knox.db. Remove the mode without a consolidation path and their memory becomes invisible — the exact data-trust failure Phase 1 was written to fix. So the toggle comes out in the same release that adds detection and import of existing project-local databases. Not before.
 
-<span class="k">CREATE INDEX</span> entry_scope  <span class="k">ON</span> entry(project_id, kind, created_at);
-<span class="k">CREATE INDEX</span> entry_dedupe <span class="k">ON</span> entry(project_id, dedupe_key, created_at);
+03
+Objective, and what fixed looks like
+Not “add features”. Make the four existing subsystems legible to a user who never opens a terminal.
 
-<span class="k">CREATE TABLE</span> entry_ref (entry_id TEXT <span class="k">REFERENCES</span> entry(id) <span class="k">ON DELETE CASCADE</span>,
-  type TEXT <span class="k">NOT NULL</span> <span class="k">CHECK</span>(type <span class="k">IN</span> ('file','symbol','requirement','defect','tag')),
-  value TEXT <span class="k">NOT NULL</span>, role TEXT <span class="k">NOT NULL DEFAULT</span> 'changed',
-  <span class="k">PRIMARY KEY</span>(entry_id, type, value));
-<span class="k">CREATE INDEX</span> ref_lookup <span class="k">ON</span> entry_ref(type, value);
+Objective	Done when
+Storage mode is never a silent switch	Changing mode names both databases and their row counts before it happens, and offers to move the data
+Models are configurable without a shell	A user enables a local model, tests it, and asks a question — three clicks, no env vars
+Graph usage is visible	The panel shows edges and relations separately, and explains a zero
+Storage maintenance does what the button says	Vacuum returns the WAL to near zero and the number stops looking alarming
+04
+The shortcomings, decomposed
+ID	Shortcoming	Evidence	Cost to user	Class
+S1	Mode switch changes the database with no warning and no migration	StorageTab.tsx writes global_mode; resolve_db_path returns a different file	31 actions appear to vanish	data trust
+S2	Project-local needs knox init per repo, or an empty DB is created wherever cwd is	find_project_db_path falls back to cwd/.knox/knox.db	Memory scattered across stray databases	data trust
+S3	The MCP server resolves from its own cwd; nothing reports which DB a session uses	run_mcp_server takes a KnoxDb, logs no path	Agent writes somewhere you are not looking	data trust
+M1	No model panel in Preferences	9 tabs exported in settings/index.ts; McpTab has 0 model references	GUI user cannot enable LLM features at all	unreachable
+M2	Cloud egress needs two keys; neither is visible in the UI	allow_cloud_egress + projects.egress	Cloud is either impossible or accidentally on	unreachable
+M3	No way to test a model from the app	knox model test exists, CLI only	Broken config discovered by an agent mid-task	unreachable
+G1	“RELATIONS” counts action_relations, not edges	db.rs:177	Shows 0 while the graph may hold parent edges	misleading
+G2	Zero relations is shown with no explanation	No hint when actions > 0 and edges = 0	User cannot tell if the graph works	invisible
+W1	Vacuum does not checkpoint the WAL	vacuum() is called alone	2.16 MB WAL against a 156 KB DB looks broken	misleading
+The three that can lose data, ranked above the rest
+S1, S2 and S3 are not usability issues. Each one means a user can be looking at a different database than the one their agent is writing to, with no indication. Everything else in this plan is a feature nobody can reach; these three are memory nobody can find.
 
-<span class="k">CREATE TABLE</span> edge (src TEXT <span class="k">REFERENCES</span> entry(id) <span class="k">ON DELETE CASCADE</span>,
-  dst TEXT <span class="k">REFERENCES</span> entry(id) <span class="k">ON DELETE CASCADE</span>,
-  type TEXT <span class="k">NOT NULL</span>, confidence REAL <span class="k">NOT NULL DEFAULT</span> 1.0,
-  created_at INTEGER <span class="k">NOT NULL</span>, <span class="k">PRIMARY KEY</span>(src, dst, type));
+05
+Phase 1 — Enforce Global Storage and Consolidate Legacy Databases
+Phase 1 · 3 days
+One database, one place it lives, and legacy project databases imported rather than stranded
+Task	Files	Change	Acceptance
+T1.1	ui/src/components/modals/settings/StorageTab.tsx	Delete the Global Mode / Project-Local toggle (lines 150–184). Replace with a read-only identity card: global path, action count, project count, and a Relocate button invoking openFolderDialog and relocate_database	No mode toggle remains; the panel states active global database path and storage metrics
+T1.2	ui/src/components/views/WorkspaceView.tsx	Delete the mode switch modal and its state (isModeModalOpen, setIsModeModalOpen); replace mode button with a read-only global database indicator badge	Mode switch entry point removed; workspace reflects single global database state
+T1.3	src/core/config.rs, src/commands/init.rs, src/cli/dispatch.rs	Unify resolve_db_path() and resolve_db_path_for() to always return default_global_db_path(). global_mode remains parseable in KnoxConfig but logs a deprecation warning (tracing::warn!) when set to false	KNOX_GLOBAL_MODE=false logs deprecation warning and routes to global DB; knox init never creates isolated databases
+T1.4	src/core/config.rs	Refactor find_project_db_path into detect_project_db(start: &Path) -> Option<PathBuf> used exclusively by consolidation detection	Path resolver and legacy detector are separated with explicit caller boundaries
+T1.5	src/commands/migrate.rs, src/cli/args.rs, src/cli/dispatch.rs	Add subcommand MigrationAction::Consolidate { path: PathBuf } (knox migrate consolidate <path>). Consolidation engine uses SQLite ATTACH DATABASE, copies records across all 11 tables with project/session foreign key remapping, and dedupes on dedupe_key (or timestamp/summary/actor when null)	Importing the same SQLite file twice moves zero rows on the second pass
+T1.6	src-tauri/src/commands/config.rs, src-tauri/src/lib.rs, ui/src/components/modals/settings/StorageTab.tsx, ui/src/services/api.ts	Query known project roots via SELECT DISTINCT path FROM projects. Persist stray_db_prompted: bool in KnoxConfig. Expose IPC commands scan_stray_databases() and consolidate_stray_database() with before/after counts	First launch prompts once if stray project-local databases exist, offering automatic consolidation
+T1.7	src/mcp/server.rs	Log resolved DB path and schema version at startup via eprintln! or tracing::info! directed to stderr only	Agent logs answer which database session is active without corrupting JSON-RPC stdio stream
+Release Sequencing Requirements
+Consolidation tools (T1.5, T1.6) must ship concurrently with toggle deprecation (T1.1–T1.3). Deprecating the storage toggle prior to consolidation availability causes existing project-local databases to become inaccessible.
 
-<span class="k">CREATE TABLE</span> entry_state (entry_id TEXT PRIMARY KEY <span class="k">REFERENCES</span> entry(id) <span class="k">ON DELETE CASCADE</span>,
-  state TEXT <span class="k">NOT NULL</span> <span class="k">CHECK</span>(state <span class="k">IN</span> ('current','superseded','resolved','open')),
-  by_entry TEXT);
+06
+Phase 2 — Model Configuration Settings Panel
+Phase 2 · 4 days
+Surfacing LLM configurations (embeddings, re-ranking, knox_ask) in the desktop preferences interface
+Task	Files	Change	Acceptance
+T2.1	ui/src/components/modals/settings/ModelTab.tsx (new), ui/src/components/modals/settings/index.ts, ui/src/components/modals/SettingsModal.tsx, ui/src/types/knox.ts	Add "model" to SettingsTabId; add Model Category to CATEGORIES in SettingsModal.tsx; provide profile select (off / mock / local / cloud), endpoint, embedding and chat model fields, and masked API key with Option<String> update contract	All model fields in KnoxConfig can be configured from UI; masked keys preserve existing secrets
+T2.2	src-tauri/src/commands/config.rs, ui/src/services/api.ts, ui/src/types/knox.ts	Extend ConfigDto, KnoxConfig, and updateConfig API to round-trip model configuration fields to ~/.knox/config.json	Model settings persist across desktop restarts
+T2.3	src-tauri/src/commands/model.rs (new), src-tauri/src/lib.rs, ui/src/services/api.ts	Implement test_model_connection(draft: ModelSettingsDto) -> Result<ModelTestResultDto, String> reusing cmd_model_test; register in tauri::generate_handler![...]	UI displays connection latency and resolved model names on success, or explicit error details on failure
+T2.4	ui/src/components/modals/settings/ModelTab.tsx	Cloud profile validates presence of allow_cloud_egress and projects.egress; includes project selector for egress authorization	Cloud profile cannot be activated without complete egress verification
+T2.5	ui/src/components/modals/settings/ModelTab.tsx	Display resolved runtime state: effective endpoint, active model identifiers, and semantic embedding availability	UI reflects live knox model status output
+Architecture Note
+Backend configuration schemas and testing commands already exist (KnoxConfig, save_config, knox model test). Implementation is restricted to frontend controls, DTO extensions, and IPC command registration.
 
-<span class="k">CREATE TABLE</span> rule (id TEXT PRIMARY KEY, entry_id TEXT <span class="k">NOT NULL REFERENCES</span> entry(id),
-  project_id TEXT <span class="k">NOT NULL</span>, pattern_kind TEXT <span class="k">NOT NULL</span>,
-  pattern TEXT <span class="k">NOT NULL</span>, severity TEXT <span class="k">NOT NULL</span>,
-  active INTEGER <span class="k">NOT NULL DEFAULT</span> 1);
+07
+Phase 3 — Graph Relationship Visibility
+Phase 3 · 2 days
+Distinct edge/relation counters and contextual diagnostic hints
+Task	Files	Change	Acceptance
+T3.1	src/storage/db.rs, ui/src/types/knox.ts, ui/src/components/modals/settings/StorageTab.tsx	Add total_edges: usize to StorageStats and DbStats populated by SELECT COUNT(*) FROM edges; label edges and relations distinctly in StorageTab	Edge count and relation count visible and rendered independently
+T3.2	ui/src/components/modals/settings/StorageTab.tsx	When actions > 0 and edges = 0, render contextual diagnostic warning: "{action_count} actions recorded, 0 relations — knox_trace has no edges to walk. Verify agent relation emission." Link to knox.md	Fresh database with actions explains lack of graph connectivity
+T3.3	src/commands/init.rs	Update DEFAULT_KNOX_MD template body to show a concrete relations code snippet and relation schema example	Body and frontmatter both document relations
+T3.4	src/commands/doctor.rs	Report relation coverage percentage metric: SELECT CAST(COUNT(DISTINCT a.id) AS REAL) / MAX(COUNT(*), 1) FROM actions a LEFT JOIN edges e ON (a.id = e.from_action_id OR a.id = e.to_action_id)	knox doctor outputs verifiable relation coverage percentage
+Design Rationale & Observability Scope
+This phase introduces observability metrics without modifying core graph traversal logic. Relation coverage metrics (T3.4) provide the baseline data required to evaluate automated relation extraction.
 
-<span class="k">CREATE TABLE</span> delta (hash TEXT PRIMARY KEY, entry_id TEXT <span class="k">NOT NULL</span>,
-  file TEXT <span class="k">NOT NULL</span>, change TEXT <span class="k">NOT NULL</span>, body BLOB);
+08
+Phase 4 — Storage Hygiene & WAL Maintenance
+Phase 4 · 1 day
+Ensure storage maintenance buttons execute complete truncation and display proportional metrics
+Task	Files	Change	Acceptance
+T4.1	src/storage/db.rs	db.vacuum() executes PRAGMA wal_checkpoint(TRUNCATE) with busy-retry loop up to TX_MAX_RETRIES, followed by VACUUM	WAL file truncates to 0 bytes following vacuum completion
+T4.2	ui/src/components/modals/settings/StorageTab.tsx	Render WAL size as percentage of total database size; display warning indicator when WAL exceeds 50% or 50 MB	UI displays relative WAL ratio and highlights elevated WAL states
+T4.3	src/storage/db.rs, src-tauri/src/lib.rs, src-tauri/src/main.rs	Define checkpoint_truncate(&self) -> KnoxResult<()> on KnoxDb; hook into Tauri tray quit handler and RunEvent::ExitRequested	WAL file is checkpointed cleanly upon application termination
 
-<span class="k">CREATE TABLE</span> ingest_log (source_hash TEXT <span class="k">NOT NULL</span>, offset INTEGER <span class="k">NOT NULL</span>,
-  outcome TEXT <span class="k">NOT NULL</span>, rule_id TEXT, reason TEXT, entry_id TEXT,
-  <span class="k">PRIMARY KEY</span>(source_hash, offset));
+09
+Sequence and effort
+Phase	Days	Depends on	Ships independently
+1 · Enforce global storage + consolidate	3	—	Only with T1.5–T1.6 in the same release
+2 · Model configuration panel	4	—	Yes
+3 · Graph relationship visibility	2	Phase 1 (StorageTab)	Yes
+4 · Storage hygiene & WAL maintenance	1	Phase 3 (StorageTab)	Yes
+Total estimated duration: 10 working days. Phase 1 is prioritized to eliminate database fragmentation and data isolation risk. Phase 2 unblocks existing model management capabilities. Phases 3 and 4 share component scope within the Storage tab consolidated in Phase 1.
 
-<span class="k">CREATE VIRTUAL TABLE</span> entry_fts <span class="k">USING</span> fts5(summary, why, content='entry');
-<span class="k">CREATE TABLE</span> schema_migrations (version INTEGER PRIMARY KEY,
-  checksum TEXT <span class="k">NOT NULL</span>, applied_at INTEGER <span class="k">NOT NULL</span>);</pre>
-<h3>Derived state, applied in the same transaction as the edge</h3>
-<pre><span class="k">fn</span> apply_edge(tx: &amp;<span class="k">Transaction</span>, e: &amp;Edge) -&gt; Result&lt;()&gt; {
-    <span class="k">match</span> e.ty {
-        EdgeType::Supersedes =&gt; set_state(tx, &amp;e.dst, State::Superseded, Some(&amp;e.src))?,
-        EdgeType::Resolves   =&gt; set_state(tx, &amp;e.dst, State::Resolved,   Some(&amp;e.src))?,
-        _ =&gt; {}
-    }
-    insert_edge(tx, e)
-}</pre>
-<p>No triggers (D4). The state table is written by the same code path that writes the edge, so a test can call <code>apply_edge</code> directly and assert the state change without standing up a database transaction log.</p>
-<h3>Dedupe</h3>
-<pre><span class="c">// dedupe_key = blake3(project | kind | normalized_summary | sorted file refs)</span>
-<span class="c">// normalized = lowercase, strip punctuation, collapse whitespace</span>
+10
+Automated Verification Matrix
+Subsystem	Target Scenario	Verification Method	Success Criteria
+Database Resolution	Deprecate KNOX_GLOBAL_MODE	cargo test --test test_config test_resolve_db_path_always_global	Returns default_global_db_path() regardless of flag; logs warning
+Consolidation Engine	Idempotent database import	cargo test --test test_migrate test_consolidate_idempotency	Second import pass of identical SQLite file moves 0 rows
+Consolidation Remap	Foreign key remapping	cargo test --test test_migrate test_consolidate_foreign_keys	Imported actions remapped to global project UUID; no orphaned edges
+Model Preferences	ModelTab UI & SettingsModal	pnpm --dir ui test	SettingsModal renders ModelTab; updateConfig dispatches model DTO
+Model IPC Connection	test_model_connection IPC	cargo test -p knox-desktop test_model_connection_ipc	Returns latency & model names or formatted error
+Graph Observability	Edge & relation counters	cargo test --test test_storage test_storage_stats_edges	StorageStats returns separate counts for edges and relations
+Doctor Coverage	Relation coverage calculation	cargo test --test test_trust test_doctor_relation_coverage	knox doctor outputs valid percentage coverage
+Storage Truncation	WAL checkpoint truncation	cargo test --test test_storage test_vacuum_wal_truncate	WAL drops to 0 bytes after db.vacuum()
 
-<span class="k">on</span> record(item):
-    <span class="k">if</span> existing = find(project, dedupe_key, within = 24h):
-        existing.seen_count += 1          <span class="c">// frequency is signal, not noise</span>
-        <span class="k">return</span> Deduped { id: existing.id, n: existing.seen_count }
-    <span class="k">if</span> near = find(kind, same_files, jaccard &gt;= 0.8, within = 24h):
-        near.seen_count += 1
-        <span class="k">return</span> Deduped { id: near.id, n: near.seen_count }</pre>
-</section>
-<section id="s05"><h2><em>05</em>Migration v5 &rarr; v6</h2>
-<p class="lede">One command, four verbs, a backup before every write, and a validation block that fails the whole migration rather than committing a guess.</p>
-<pre>knox migrate --check    <span class="c"># report only: counts, orphans, unresolved projects</span>
-knox migrate --apply    <span class="c"># backup, migrate in one tx, validate, commit</span>
-knox migrate --restore  <span class="c"># restore the newest backup, verify integrity</span>
-knox migrate --split    <span class="c"># one DB per project; original left untouched</span></pre>
-<div class="tw"><table><colgroup><col style="width:30%"><col style="width:26%"><col style="width:44%"></colgroup><thead><tr><th>v5 source</th><th>v6 target</th><th>Note</th></tr></thead><tbody><tr><td><code>actions.action_type</code></td><td><code>entry.kind</code></td><td><code>decide</code>&rarr;decision, <code>doubt</code>/<code>question</code>&rarr;doubt, <code>plan</code>&rarr;plan, <code>write|change|debug|review|read</code>&rarr;action</td></tr><tr><td><code>actions.is_resolved</code></td><td><code>resolves</code> edge + state</td><td>resolved doubt gets a synthetic resolves edge to its <code>resolution_note</code> action when one exists</td></tr><tr><td><code>actions.parent_action_id</code></td><td><code>caused_by</code> edge</td><td>direction reversed: child &rarr; parent</td></tr><tr><td><code>action_relations</code></td><td><code>edge</code></td><td>type mapped 1:1; <code>relates_to</code> kept</td></tr><tr><td><code>actions.superseded_by</code></td><td><code>supersedes</code> edge + state</td><td>newer &rarr; older</td></tr><tr><td><code>action_relations</code> of type follows</td><td><code>follows</code> edge</td><td>excluded from traversal (D7)</td></tr><tr><td><code>actions.rationale</code></td><td><code>entry.why</code></td><td>capped at 1000 chars, overflow kept in <code>provenance</code> as a truncation marker</td></tr><tr><td><code>actions.rejected_alternatives</code></td><td><code>rule</code> rows</td><td>pattern_kind=phrase, severity=advisory, flagged <code>needs_review=1</code></td></tr><tr><td><code>action_files</code>, <code>action_symbols</code></td><td><code>entry_ref</code></td><td>type file / symbol</td></tr><tr><td><code>actions.timestamp_ms</code></td><td><code>entry.created_at</code></td><td>already epoch ms since v5 &mdash; no re-parsing</td></tr><tr><td><code>action_deltas</code></td><td><code>delta</code></td><td>keyed by content hash</td></tr><tr><td>row with no resolvable project</td><td><code>project 'unscoped'</code> + report line</td><td>quarantined, never guessed</td></tr></tbody></table></div>
-<h4>Validation, inside the transaction</h4>
-<pre><span class="c">-- 1. every entry has a project that exists</span>
-<span class="k">SELECT</span> count(*) <span class="k">FROM</span> entry e <span class="k">LEFT JOIN</span> project p <span class="k">ON</span> p.id = e.project_id
- <span class="k">WHERE</span> p.id <span class="k">IS NULL</span>;                       <span class="c">-- must be 0</span>
+11
+What this plan deliberately excludes
+Automatic migration on mode switch: Excluded to prevent unintended data corruption or destructive overwrites.
+Per-project model configuration: Deferred; single-workspace global profile satisfies current single-user architecture.
+Vector index: Deferred until total embeddings exceed the 50,000-vector threshold specified in embeddings.rs (current telemetry: 31 actions).
+New MCP tools: Scope is constrained to the existing 8 MCP tools to prevent agent tool-selection latency and token overhead.
 
-<span class="c">-- 2. no orphan edges</span>
-<span class="k">SELECT</span> count(*) <span class="k">FROM</span> edge g <span class="k">LEFT JOIN</span> entry e <span class="k">ON</span> e.id = g.src
- <span class="k">WHERE</span> e.id <span class="k">IS NULL</span>;                        <span class="c">-- must be 0</span>
+12
+Methodology and audit limits
+Codebase audit performed against the main branch: src/core/config.rs (path resolution), src-tauri/src/commands/config.rs (settings IPC persistence), ui/src/components/modals/settings/index.ts (tab registry), src/storage/db.rs (metrics and vacuum implementation), and src/cli/args.rs (CLI routing).
 
-<span class="c">-- 3. state agrees with the supersession chain</span>
-<span class="k">SELECT</span> count(*) <span class="k">FROM</span> entry_state s
- <span class="k">WHERE</span> s.state = 'superseded'
-   <span class="k">AND NOT EXISTS</span> (<span class="k">SELECT</span> 1 <span class="k">FROM</span> edge g
-                    <span class="k">WHERE</span> g.dst = s.entry_id <span class="k">AND</span> g.type = 'supersedes');  <span class="c">-- must be 0</span>
+Telemetry baselines (31 actions, 0 relations, 156 KB DB, 2.16 MB WAL) were extracted from provided UI artifacts. In src/storage/db.rs:177, relation metrics query action_relations directly, which may undercount implicit graph edges; T3.1 introduces an explicit edge counter rather than altering existing relation calculations.
 
-<span class="c">-- 4. FTS in sync</span>
-<span class="k">SELECT</span> (count(*) <span class="k">FROM</span> entry) - (count(*) <span class="k">FROM</span> entry_fts);  <span class="c">-- must be 0</span></pre>
-<p>Plus a row-count diff per kind and a 20-row field-by-field sample. Any failed check rolls back and prints the failing query with its count &mdash; a migration that cannot say why it failed is not debuggable at 2am.</p>
-<div class="note note--bad"><div class="note__t">Non-negotiable</div><p>The backup is taken before the transaction opens, named <code>knox.db.bak-v5-&lt;timestamp&gt;</code>, and <code>--restore</code> is tested in CI against a deliberately corrupted migration. Silent partial migration of a memory product is unrecoverable.</p></div>
-</section>
-<section id="s06"><h2><em>06</em>Tool surface</h2>
-<p class="lede">Six tools, ~840 tokens of definitions against 3,412 today. Each row is the contract: inputs, budget, and what the response is allowed to contain.</p>
-<div class="tw"><table><colgroup><col style="width:17%"><col style="width:14%"><col style="width:26%"><col style="width:8%"><col style="width:35%"></colgroup><thead><tr><th>Tool</th><th>Required</th><th>Optional</th><th>Budget</th><th>Returns</th></tr></thead><tbody><tr><td><code>knox_begin</code></td><td>workspace</td><td>actor, task, budget</td><td class="num">1200</td><td>scope, constraints, open doubts, recent, migration hint</td></tr><tr><td><code>knox_context</code></td><td>view or refs</td><td>files, symbols, query, budget, cursor, history, evidence</td><td class="num">1200</td><td>header (used/omitted/next) + item lines</td></tr><tr><td><code>knox_check</code></td><td>files</td><td>intent, symbols, mode, budget</td><td class="num">600</td><td>verdict + violations with confidence, evidence id, matched_on</td></tr><tr><td><code>knox_trace</code></td><td>from</td><td>dir, to, depth, budget</td><td class="num">800</td><td>chain lines with edge type + one-line summaries, truncated flag</td></tr><tr><td><code>knox_record</code></td><td>entries[]</td><td>idem, auto_diff, dry_run</td><td class="num">150</td><td>ids map, deduped[], warnings (max 5)</td></tr><tr><td><code>knox_handoff</code></td><td>&mdash;</td><td>budget</td><td class="num">800</td><td>open doubts touched, constraints touched, last 5 outcomes, unresolved plans</td></tr></tbody></table></div>
-<h3>The two shapes that matter</h3>
-<pre><span class="c">// knox_context — request</span>
-{ <span class="s">"view"</span>: <span class="s">"task"</span>, <span class="s">"files"</span>: [<span class="s">"src/storage/db.rs"</span>],
-  <span class="s">"symbols"</span>: [<span class="s">"with_tx"</span>], <span class="s">"budget"</span>: 1200, <span class="s">"cursor"</span>: null }
+Verification Limits: Findings reflect static code analysis and EGM review swarm evaluation. Duration estimates reflect baseline engineering projections rather than historical team velocity.
 
-<span class="c">// response — 912 tokens used, 7 omitted, cursor present. No prose wrapper.</span>
-ctx view=task used=912/1200 omitted=7 next=eyJ2IjoxLCJzIjoiLi4uIn0
-d_01HX DECISION cur .90 src/storage/db.rs | WAL + BEGIN IMMEDIATE | prohibits: autocommit multi-stmt writes
-q_01HY DOUBT open .70 src/mcp/guard.rs | Does strict mode block advisory rules?
-a_01HZ ACTION cur .80 src/mcp/guard.rs x3 | Switched to word-boundary matching</pre>
-<pre><span class="c">// knox_record — one transaction, local refs, dedupe reported not raised</span>
-{ <span class="s">"idem"</span>: <span class="s">"turn-42"</span>, <span class="s">"entries"</span>: [
-    { <span class="s">"ref"</span>: <span class="s">"e1"</span>, <span class="s">"kind"</span>: <span class="s">"decision"</span>, <span class="s">"summary"</span>: <span class="s">"retry with jitter, cap 3"</span>,
-      <span class="s">"why"</span>: <span class="s">"busy timeout alone stalls the stdio loop"</span>,
-      <span class="s">"files"</span>: [<span class="s">"src/storage/db.rs"</span>],
-      <span class="s">"prohibits"</span>: [{ <span class="s">"kind"</span>: <span class="s">"phrase"</span>, <span class="s">"pattern"</span>: <span class="s">"unbounded retry"</span>, <span class="s">"severity"</span>: <span class="s">"strict"</span> }] },
-    { <span class="s">"ref"</span>: <span class="s">"e2"</span>, <span class="s">"kind"</span>: <span class="s">"action"</span>, <span class="s">"summary"</span>: <span class="s">"implemented with_tx backoff"</span>,
-      <span class="s">"rel"</span>: [{ <span class="s">"type"</span>: <span class="s">"implements"</span>, <span class="s">"to"</span>: <span class="s">"e1"</span> }] } ] }
-
-<span class="c">// response</span>
-{ <span class="s">"ids"</span>: { <span class="s">"e1"</span>: <span class="s">"d_01J0"</span>, <span class="s">"e2"</span>: <span class="s">"a_01J1"</span> }, <span class="s">"deduped"</span>: [], <span class="s">"warnings"</span>: [] }</pre>
-<div class="note note--ok"><div class="note__t">Budget contract, testable as a property</div><p>For every read tool and every budget from 100 to 6000: <code>tokens(response) &le; budget</code>. When items are dropped, <code>omitted</code> is non-zero and <code>next</code> is a valid cursor. When <code>omitted</code> is zero, <code>next</code> is null. A response that violates this fails CI.</p></div>
-</section>
-<section id="s07"><h2><em>07</em>Retrieval</h2>
-<p class="lede">Hard filters, then a score, then clustering, then greedy packing. Four small functions, each with its own test file.</p>
-<h3>Score</h3>
-<div class="tw"><table><colgroup><col style="width:20%"><col style="width:10%"><col style="width:70%"></colgroup><thead><tr><th>Component</th><th>Weight</th><th>Definition</th></tr></thead><tbody><tr><td>ref match</td><td class="num">0.30</td><td>exact file 1.0 &middot; symbol 0.8 &middot; same directory 0.4 &middot; none 0</td></tr><tr><td>kind prior</td><td class="num">0.20</td><td>decision 1.0 &middot; open doubt 0.8 &middot; action 0.5 &middot; outcome 0.5 &middot; plan 0.4</td></tr><tr><td>text</td><td class="num">0.15</td><td>BM25 normalised within the result set; 0 when no query</td></tr><tr><td>recency</td><td class="num">0.10</td><td><code>exp(-age/half_life)</code>: decision 180d &middot; doubt 30d &middot; action 14d &middot; plan 14d</td></tr><tr><td>confidence</td><td class="num">0.10</td><td>stored value</td></tr><tr><td>graph</td><td class="num">0.10</td><td>1.0 if one hop from a matched entry via depends_on / implements / caused_by</td></tr><tr><td>unresolved</td><td class="num">0.05</td><td>1.0 if an open doubt</td></tr></tbody></table></div>
-<pre><span class="k">fn</span> rank(c: &amp;[Candidate], f: &amp;Focus) -&gt; Vec&lt;Scored&gt; {
-    <span class="k">let mut</span> v: Vec&lt;Scored&gt; = c.iter().map(|e| Scored {
-        score: <span class="n">0.30</span>*ref_match(e, f) + <span class="n">0.20</span>*kind_prior(e) + <span class="n">0.15</span>*text(e, f)
-             + <span class="n">0.10</span>*recency(e)    + <span class="n">0.10</span>*e.confidence + <span class="n">0.10</span>*graph(e, f)
-             + <span class="n">0.05</span>*unresolved(e),
-        id: e.id.clone(),
-    }).collect();
-    <span class="c">// stable ties: score desc, then id asc — byte-identical output across runs</span>
-    v.sort_by(|a, b| b.score.partial_cmp(&amp;a.score).unwrap_or(Equal)
-                       .then_with(|| a.id.cmp(&amp;b.id)));
-    v
-}</pre>
-<h3>Pack</h3>
-<pre><span class="k">fn</span> pack(ranked: Vec&lt;Scored&gt;, budget: u32, view: View) -&gt; Packed {
-    <span class="k">let mut</span> used = header_cost(view);        <span class="c">// ~20 tokens</span>
-    <span class="k">let mut</span> out = Vec::new(); <span class="k">let mut</span> omitted = 0;
-    <span class="c">// one constraint is reserved before anything else — the only non-greedy rule</span>
-    <span class="k">if let</span> Some(c) = ranked.iter().find(|s| is_constraint(s)) {
-        used += tokens(render(c)); out.push(c.clone());
-    }
-    <span class="k">for</span> s <span class="k">in</span> ranked {
-        <span class="k">if</span> out.contains(&amp;s) { <span class="k">continue</span> }
-        <span class="k">let</span> cost = tokens(render(&amp;s));
-        <span class="k">if</span> used + cost &lt;= budget { used += cost; out.push(s) }
-        <span class="k">else</span> { omitted += 1 }
-    }
-    Packed { items: out, used, omitted, next: cursor(view, &amp;ranked, omitted) }
-}</pre>
-<p>The reserved constraint is the one deliberate exception to pure greedy packing: an agent that gets twelve recent actions and no constraints has been given the least useful part of the answer. <code>rank_constraint_reserved</code> is a named test for exactly this.</p>
-<h3>Item rendering</h3>
-<pre><span class="c">// one line, &le;28 tokens, every field carries information the others do not</span>
-d_01HX DECISION cur .90 src/storage/db.rs | WAL + BEGIN IMMEDIATE | prohibits: autocommit writes
-<span class="c">^id     ^kind    ^state ^conf ^scope             ^summary (&le;80)  ^rule hint</span></pre>
-<p>No field repeats another. <code>state</code> replaces a separate <code>superseded_by</code> pointer; <code>seen</code> appears only when above 1 (<code>x3</code>); evidence bodies are omitted unless <code>evidence: true</code>, which is the one place a caller can ask for more than a line.</p>
-</section>
-<section id="s08"><h2><em>08</em>Guardrails</h2>
-<p class="lede">A rule is a row, not a sentence. That is what makes the check explainable, testable, and cheap enough to run before every edit.</p>
-<pre><span class="k">CREATE TABLE</span> rule (id TEXT PRIMARY KEY, entry_id TEXT <span class="k">NOT NULL</span>,
-  project_id TEXT <span class="k">NOT NULL</span>,
-  pattern_kind TEXT <span class="k">CHECK</span>(pattern_kind <span class="k">IN</span> ('path','symbol','phrase')),
-  pattern TEXT <span class="k">NOT NULL</span>, severity TEXT <span class="k">CHECK</span>(severity <span class="k">IN</span> ('strict','advisory')),
-  active INTEGER <span class="k">DEFAULT</span> 1);
-
-<span class="c">-- a decision that prohibits something creates its rule rows in the same transaction</span>
-<span class="c">-- pattern_kind=path  -> glob against touched files</span>
-<span class="c">-- pattern_kind=symbol-> exact symbol match</span>
-<span class="c">-- pattern_kind=phrase-> word-boundary match against intent, &ge;2 distinct tokens</span></pre>
-<h3>Confidence ladder</h3>
-<div class="tw"><table><colgroup><col style="width:34%"><col style="width:14%"><col style="width:24%"><col style="width:28%"></colgroup><thead><tr><th>Evidence</th><th>Confidence</th><th>Reported</th><th>Blocks in strict</th></tr></thead><tbody><tr><td>Scope match <b>and</b> phrase match</td><td class="num">0.95</td><td class="pill pill--ok">yes</td><td class="pill pill--ok">yes</td></tr><tr><td>Scope match only (path or symbol)</td><td class="num">0.80</td><td class="pill pill--ok">yes</td><td class="pill pill--ok">yes</td></tr><tr><td>Phrase match with file overlap</td><td class="num">0.60</td><td class="pill pill--warn">yes</td><td class="pill pill--bad">no</td></tr><tr><td>Phrase match, no scope overlap</td><td class="num">&mdash;</td><td class="pill pill--bad">no</td><td class="pill pill--bad">no</td></tr><tr><td>FTS-only overlap</td><td class="num">0.30</td><td class="pill pill--warn">advisory only</td><td class="pill pill--bad">no</td></tr></tbody></table></div>
-<p>Strict blocks only on a strict-severity rule at confidence &ge; 0.8, which is the same threshold the previous matcher had &mdash; but the evidence that produces the number is now a table row, so <code>guard_conf_levels</code> can assert each band instead of hoping.</p>
-<pre><span class="c">// response</span>
-check verdict=BLOCK budget=600 used=418
-VIOLATION .95 strict rule=r_7f2a entry=d_01HX matched_on=file+phrase
-  "BEGIN IMMEDIATE" on src/storage/db.rs contradicts: autocommit multi-stmt writes
-ADVISORY .60 phrase entry=q_01HY matched_on=phrase
-  open doubt: does strict mode block advisory rules?</pre>
-<div class="note note--warn"><div class="note__t">What replaces the old matcher</div><p>The current implementation tokenises and applies a coverage threshold with negation handling. That was a real improvement over substring matching, but it still compares prose to prose. The rule table makes the comparison structural: a path rule matches a path, a symbol rule matches a symbol, and only phrase rules need text similarity &mdash; which is why the ladder can be honest about the 0.30 FTS band.</p></div>
-</section>
-<section id="s09"><h2><em>09</em>Writes and sessions</h2>
-<p class="lede">One transaction per call, one idempotency key per turn, and a handoff digest that is the only thing the next session needs to read.</p>
-<div class="tw"><table><colgroup><col style="width:22%"><col style="width:56%"><col style="width:22%"></colgroup><thead><tr><th>Rule</th><th>Behaviour</th><th>Error</th></tr></thead><tbody><tr><td>Atomicity</td><td>The whole batch commits or nothing does; fault injection on statement N</td><td>&mdash;</td></tr><tr><td>Local refs</td><td><code>rel[].to</code> may reference another entry in the same batch by <code>ref</code></td><td>unknown ref &rarr; <code>INVALID_REF</code></td></tr><tr><td>Cross-project</td><td>An edge to an entry in another project is rejected, not silently allowed</td><td><code>CROSS_PROJECT</code></td></tr><tr><td>Cycles</td><td>A <code>caused_by</code> chain that would close a cycle is rejected</td><td><code>CYCLE</code></td></tr><tr><td>Idempotency</td><td>Same <code>idem</code> + same payload hash returns the original ack</td><td>different payload &rarr; <code>IDEM_CONFLICT</code></td></tr><tr><td>Oversize</td><td>summary &gt;300 or why &gt;1000 is an error, never truncated</td><td><code>OVERSIZE_INPUT</code></td></tr><tr><td>Amendments</td><td>No UPDATE of summary or why exists; a correction is a new entry with <code>supersedes</code></td><td>&mdash;</td></tr><tr><td>Low value</td><td>An action with no files and no symbols returns a <code>low_value</code> warning but still writes</td><td>&mdash;</td></tr><tr><td>Decision without rule</td><td>A decision with no <code>prohibits</code> returns <code>no_guardrail</code> warning</td><td>&mdash;</td></tr></tbody></table></div>
-<h3>Sessions</h3>
-<pre><span class="c">// begin: resolve, resume or create — and return what the session needs</span>
-knox_begin { workspace: <span class="s">"/home/diva/work/knox"</span>, actor: <span class="s">"claude"</span>, task: <span class="s">"wire budget into context"</span> }
-  -&gt; { scope: { project: p_01H, name: <span class="s">"knox"</span>, session: s_01K, resumed: true },
-       constraints: [...], open_doubts: [...], recent: [...], note: <span class="s">"migration v6 pending"</span> }
-
-<span class="c">// resume rule: same project AND actor, not ended, last_seen within KNOX_TIMEOUT</span>
-<span class="c">// otherwise new session with parent_session = the previous one</span></pre>
-<p><code>knox_handoff</code> closes the session and returns the digest: open doubts touched, constraints touched, last five outcomes, unresolved plans. That digest is what <code>begin</code> surfaces first on the next resume, which closes the loop the product vision describes &mdash; &ldquo;what context should be carried into a new session&rdquo; &mdash; with one object instead of a search.</p>
-<h3>Database layout</h3>
-<pre>&lt;repo&gt;/.knox/knox.db        <span class="c">// default: project-local, gitignored by init</span>
-~/.knox/registry.db           <span class="c">// project index: root, remote, name, last_seen</span>
-~/.knox/global.db             <span class="c">// optional: cross-project preferences</span>
-KNOX_PATH=/tmp/x.db           <span class="c">// overrides everything; keeps tests and CI simple</span>
-
-knox export --project . &gt; memory.jsonl
-knox import memory.jsonl          <span class="c">// the escape hatch that makes project-local safe</span></pre>
-</section>
-<section id="s10"><h2><em>10</em>Ingestion</h2>
-<p class="lede">Ten ordered rules, every outcome logged with its reason, and a dry run that writes nothing. The classifier stops being a heuristic and becomes a decision table you can read.</p>
-<div class="tw"><table><colgroup><col style="width:8%"><col style="width:42%"><col style="width:38%"><col style="width:12%"></colgroup><thead><tr><th>Rule</th><th>Condition</th><th>Outcome</th><th>Confidence</th></tr></thead><tbody><tr><td>R01</td><td>Tool call writes or edits a file</td><td>action, files from arguments</td><td class="num">0.90</td></tr><tr><td>R02</td><td>Test or build fails, then passes after an edit</td><td>outcome, caused_by the edit</td><td class="num">0.80</td></tr><tr><td>R03</td><td>Shell or tool call only reads or lists</td><td>excluded: <code>read_only</code></td><td class="num">&mdash;</td></tr><tr><td>R04</td><td>User imperative with a task verb and an object</td><td>plan; consecutive plans on one topic merged</td><td class="num">0.60</td></tr><tr><td>R05</td><td>Explicit decision phrasing</td><td>decision 0.50, raised to 0.80 if a nearby file change touches the refs</td><td class="num">0.50&ndash;0.80</td></tr><tr><td>R06</td><td>Question</td><td>doubt only if unanswered within 6 turns or at segment end</td><td class="num">0.70</td></tr><tr><td>R07</td><td>Acknowledgement, greeting, &lt;15 chars, no refs</td><td>excluded: <code>chatter</code></td><td class="num">&mdash;</td></tr><tr><td>R08</td><td>Same-file edits in consecutive turns</td><td>coalesced into one action</td><td class="num">&mdash;</td></tr><tr><td>R09</td><td>Assistant restates an earlier entry</td><td>merged by dedupe</td><td class="num">&mdash;</td></tr><tr><td>R10</td><td>Error output with exit code or stack</td><td>debug action referencing the traced file</td><td class="num">0.60</td></tr></tbody></table></div>
-<pre>knox ingest --explain transcript.jsonl     <span class="c"># prints every decision and why</span>
-knox ingest transcript.jsonl --apply       <span class="c"># writes; logs each offset</span>
-
-<span class="c">// ingest_log row per turn — this is what makes re-ingest a no-op</span>
-<span class="c">// source_hash | offset | outcome | rule_id | reason | entry_id</span></pre>
-<p>The GUI&rsquo;s ingestion preview lists excluded and merged items with their reasons, so nothing is dropped silently &mdash; which is the difference between a classifier and a filter.</p>
-</section>
-<section id="s11"><h2><em>11</em>Compatibility</h2>
-<p class="lede">Old names stay callable for two releases, implemented as thin adapters over the new commands &mdash; not the old code paths kept alive.</p>
-<div class="tw"><table><colgroup><col style="width:38%"><col style="width:44%"><col style="width:18%"></colgroup><thead><tr><th>Legacy tool</th><th>Adapter</th><th>Unlisted from</th></tr></thead><tbody><tr><td><code>start_session</code>, <code>end_session</code></td><td><code>begin</code>, <code>handoff</code></td><td>P4</td></tr><tr><td><code>record_action</code>, <code>record_decision</code>, <code>record_doubt</code>, <code>record_batch</code>, <code>update_action</code>, <code>resolve_doubt</code></td><td><code>record</code> with a translated kind; <code>update_action</code> becomes a supersedes amendment</td><td>P4</td></tr><tr><td><code>get_context</code>, <code>get_history</code>, <code>search</code>, <code>list_stale</code></td><td><code>context</code> with a fixed view</td><td>P3</td></tr><tr><td><code>get_lineage</code>, <code>get_impact</code>, <code>get_path</code>, <code>blame_causal</code></td><td><code>trace</code> with a fixed direction</td><td>P3</td></tr><tr><td><code>check_guardrails</code></td><td><code>check</code></td><td>P3</td></tr><tr><td><code>scan_staged</code>, <code>ingest</code></td><td>CLI + <code>ingest</code> command; MCP aliases until P5</td><td>P5</td></tr><tr><td><code>verify_drift</code>, <code>diff_inspect</code></td><td>CLI only; staleness becomes an attribute on context items</td><td>P5</td></tr></tbody></table></div>
-<p>Every adapter response carries <code>deprecated: "use knox_context"</code>. The deprecation is also stated in <code>initialize.instructions</code>, which is the one channel that reaches the model without user configuration.</p>
-<h3>GUI</h3>
-<p>The Tauri command layer keeps working through <code>v_action_legacy</code>, a view that projects <code>entry</code> back into the old shape. One refactor task (P2-T5) points the GUI at the command layer instead of the repositories; the view is dropped in P5.</p>
-</section>
-<section id="s12"><h2><em>12</em>Tests</h2>
-<p class="lede">Every test below either fails against today&rsquo;s code or covers a capability that does not exist yet. That is the selection criterion &mdash; a test that passes today is not in this table.</p>
-<div class="tw"><table><colgroup><col style="width:12%"><col style="width:28%"><col style="width:48%"><col style="width:12%"></colgroup><thead><tr><th>Area</th><th>Test</th><th>Assertion</th><th>Phase</th></tr></thead><tbody><tr><td>Isolation</td><td><code>iso_interleaved_projects</code></td><td>5 interleaved projects, 10k randomised ops, 0 leaked ids</td><td>P2</td></tr><tr><td>Isolation</td><td><code>iso_nested_repo_ambiguous</code></td><td>nested repos &rarr; <code>SCOPE_AMBIGUOUS</code> with candidates</td><td>P1</td></tr><tr><td>Isolation</td><td><code>iso_no_scope_fails</code></td><td>any read/write without a project &rarr; <code>NO_SCOPE</code>, 0 rows written</td><td>P1</td></tr><tr><td>Dedupe</td><td><code>dedupe_exact</code></td><td>same payload twice &rarr; one row, <code>seen_count=2</code></td><td>P4</td></tr><tr><td>Dedupe</td><td><code>dedupe_near</code></td><td>Jaccard 0.85 within 24h merges; at 48h does not</td><td>P4</td></tr><tr><td>Dedupe</td><td><code>reingest_idempotent</code></td><td>second ingest of the same file adds 0 rows</td><td>P5</td></tr><tr><td>Budget</td><td><code>budget_never_exceeded</code></td><td>property test, budgets 100&ndash;6000, 200 random queries</td><td>P1</td></tr><tr><td>Budget</td><td><code>cursor_no_overlap</code></td><td>page 1 + page 2 share no ids; union is stable</td><td>P1</td></tr><tr><td>Ranking</td><td><code>rank_constraint_reserved</code></td><td>a constraint outranks 20 newer actions at budget 400</td><td>P3</td></tr><tr><td>Ranking</td><td><code>rank_tie_stable</code></td><td>same input twice &rarr; byte-identical output</td><td>P3</td></tr><tr><td>Ranking</td><td><code>rank_recall_labeled</code></td><td>recall@5 &ge; baseline on 40 labelled queries</td><td>P3</td></tr><tr><td>Causality</td><td><code>trace_causal_only</code></td><td><code>follows</code> and <code>relates_to</code> never appear in a why/impact chain</td><td>P3</td></tr><tr><td>Causality</td><td><code>trace_cycle_safe</code></td><td>a 3-cycle terminates and returns each node once</td><td>P3</td></tr><tr><td>Guardrails</td><td><code>guard_word_boundary</code></td><td><code>auth</code> rule does not fire on <code>author</code></td><td>P1</td></tr><tr><td>Guardrails</td><td><code>guard_conf_levels</code></td><td>each band of the ladder produces its documented confidence</td><td>P3</td></tr><tr><td>Guardrails</td><td><code>guard_stale_ignored</code></td><td>a superseded decision contributes no rule</td><td>P1</td></tr><tr><td>Guardrails</td><td><code>guard_cross_project</code></td><td>a rule from another project is never returned</td><td>P1</td></tr><tr><td>Rollback</td><td><code>tx_fail_nth_statement</code></td><td>fault injection at statement 3 of 7 leaves 0 rows</td><td>P1</td></tr><tr><td>Atomicity</td><td><code>record_batch_atomic</code></td><td>invalid 3rd entry &rarr; 0 rows, no ids returned</td><td>P4</td></tr><tr><td>Atomicity</td><td><code>record_local_refs</code></td><td><code>to: "e1"</code> resolves to the committed id</td><td>P4</td></tr><tr><td>Ingest</td><td><code>ingest_answered_question</code></td><td>a question answered in 3 turns produces 0 doubts</td><td>P5</td></tr><tr><td>Ingest</td><td><code>ingest_labeled_precision</code></td><td>keep-precision &ge; 0.85 on 5 labelled transcripts</td><td>P5</td></tr><tr><td>Protocol</td><td><code>mcp_stdout_clean</code></td><td>no non-JSON-RPC byte on stdout in any test</td><td>P1</td></tr><tr><td>Protocol</td><td><code>mcp_unknown_tool</code></td><td><code>isError: true</code> + retryable hint</td><td>P3</td></tr><tr><td>Migration</td><td><code>migrate_fixtures</code></td><td>v5 fixture &rarr; v6, 0 unresolved rows, counts match</td><td>P2</td></tr><tr><td>Migration</td><td><code>migrate_restore</code></td><td>corrupted migration &rarr; restore &rarr; integrity ok</td><td>P2</td></tr></tbody></table></div>
-<div class="note"><div class="note__t">CI gates</div><p>Windows and Linux matrix, <code>cargo test --workspace</code>, clippy <code>-D warnings</code>, UI typecheck, plus a nightly benchmark job that comments the metric deltas on every PR. A PR that regresses <code>budget_never_exceeded</code> or any isolation test fails regardless of what else it improves.</p></div>
-</section>
-<section id="s13"><h2><em>13</em>Benchmark</h2>
-<p class="lede">Built in Phase 0, run after every phase, and committed as JSON so the numbers are reproducible rather than asserted.</p>
-<div class="tw"><table><colgroup><col style="width:16%"><col style="width:44%"><col style="width:40%"></colgroup><thead><tr><th>Fixture</th><th>Contents</th><th>Proves</th></tr></thead><tbody><tr><td>F1 small</td><td>30 entries, 6 files</td><td>ranking correctness is debuggable by eye</td></tr><tr><td>F2 large</td><td>5,000 entries, 50 files, 20% duplicates</td><td>budget and dedupe under realistic load</td></tr><tr><td>F3 projects</td><td>five interleaved projects, overlapping paths</td><td>isolation</td></tr><tr><td>F4 transcripts</td><td>five labelled transcripts, two deliberately noisy</td><td>ingest precision and recall</td></tr><tr><td>F5 traps</td><td>guardrail traps: substring, stale, other-project, unrelated file</td><td>guardrail precision</td></tr></tbody></table></div>
-<div class="tw"><table><colgroup><col style="width:22%"><col style="width:38%"><col style="width:16%"><col style="width:24%"></colgroup><thead><tr><th>Metric</th><th>Formula</th><th>Baseline</th><th>Target</th></tr></thead><tbody><tr><td>tools/list tokens</td><td>serialised definitions / 4</td><td class="num">3,412</td><td class="num">&le;850</td></tr><tr><td>W1 round trips</td><td>tools/call to orient on a file</td><td class="num">2&ndash;3</td><td class="num">1</td></tr><tr><td>Median read tokens</td><td>tokens(result) per read call</td><td class="num">unbounded</td><td class="num">&le;1200</td></tr><tr><td>recall@5</td><td>top-5 hits / expected ids</td><td class="num">unmeasured</td><td class="num">&ge; baseline</td></tr><tr><td>nDCG@5</td><td>binary-label nDCG over top 5</td><td class="num">unmeasured</td><td class="num">&ge;0.75</td></tr><tr><td>Duplicate rate</td><td>redundant rows / total after F4 + repeats</td><td class="num">unmeasured</td><td class="num">&lt;2%</td></tr><tr><td>Keep-precision</td><td>useful kept / kept</td><td class="num">unmeasured</td><td class="num">&ge;0.85</td></tr><tr><td>Isolation leaks</td><td>cross-project ids in 10k ops</td><td class="num">unmeasured</td><td class="num">0</td></tr><tr><td>Empty-result rate</td><td>reads returning 0 items / all reads</td><td class="num">unmeasured</td><td class="num">tracked</td></tr></tbody></table></div>
-<p>The report is a fill-in table committed at each phase &mdash; baseline, after P1, after P3, after P4, final &mdash; so a phase that made things worse is visible before the next one starts.</p>
-</section>
-<section id="s14"><h2><em>14</em>Schedule</h2>
-<p class="lede">Six phases, 28 working days plus 2 of buffer. Every phase ends with something an agent can use, and the system is shippable after any of them.</p>
-<div class="tw"><table><colgroup><col style="width:20%"><col style="width:46%"><col style="width:7%"><col style="width:27%"></colgroup><thead><tr><th>Phase</th><th>Tasks</th><th>Days</th><th>Exit gate</th></tr></thead><tbody><tr><td><b>P0 &middot; Baseline</b></td><td>P0-1 harness and token counter &middot; P0-2 fixtures F1&ndash;F5 &middot; P0-3 40 labelled queries &middot; P0-4 reproduce 3,412 and commit baseline JSON</td><td class="num">3</td><td>Baseline committed; every later claim measurable</td></tr><tr><td><b>P1 &middot; Safety + retrieval engine</b></td><td>P1-1 audit the 11 safety items against main &middot; P1-2 ship the gaps &middot; P1-3 <code>retrieval/</code> as pure modules &middot; P1-4 budget on existing get_context</td><td class="num">5</td><td><code>budget_never_exceeded</code> and isolation suites green; no regression</td></tr><tr><td><b>P2 &middot; Schema + migration</b></td><td>P2-1 DDL v6 &middot; P2-2 backfill &middot; P2-3 validation + restore &middot; P2-4 <code>--split</code> &middot; P2-5 GUI onto command layer</td><td class="num">4</td><td>v5 fixture migrates with 0 unresolved; restore drill passes</td></tr><tr><td><b>P3 &middot; Read surface</b></td><td>P3-1 <code>context</code> + views &middot; P3-2 <code>trace</code> &middot; P3-3 <code>check</code> + rules &middot; P3-4 adapters for 9 read tools</td><td class="num">6</td><td>6 tools listed; recall@5 &ge; baseline; guard precision &ge; 0.90</td></tr><tr><td><b>P4 &middot; Writes + sessions</b></td><td>P4-1 <code>record</code> &middot; P4-2 <code>begin</code>/<code>handoff</code> &middot; P4-3 project-local DB + registry + export/import &middot; P4-4 adapters for 8 legacy tools (6 write, 2 session)</td><td class="num">5</td><td>Fault injection leaves 0 rows; duplicate rate &lt;2%; two-process soak clean</td></tr><tr><td><b>P5 &middot; Ingest + cutover</b></td><td>P5-1 rule table R01&ndash;R10 &middot; P5-2 <code>ingest_log</code> + <code>--explain</code> &middot; P5-3 remove legacy &middot; P5-4 docs and 2.0.0</td><td class="num">5</td><td>Keep-precision &ge; 0.85; 6 tools; installer smoke-tested with Cursor and Claude Code</td></tr></tbody></table></div>
-<p><b>Minimum viable path: P0&ndash;P3, about 18 days.</b> That delivers the budgeted read surface, the six-tool catalogue and the measured token win; writes and ingest then migrate onto the same model without changing the agent-facing contract.</p>
-</section>
-<section id="s15"><h2><em>15</em>Risks and what would change the plan</h2>
-<div class="tw"><table><colgroup><col style="width:30%"><col style="width:12%"><col style="width:12%"><col style="width:46%"></colgroup><thead><tr><th>Risk</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th></tr></thead><tbody><tr><td>Agents do not call <code>record</code></td><td class="pill pill--bad">high</td><td class="pill pill--bad">high</td><td>one-call batch, &le;150-token ack, plus automatic capture via git hook and transcript ingest so the memory is useful even for an agent that never learns the protocol</td></tr><tr><td>Migration corrupts a user database</td><td class="pill pill--ok">low</td><td class="pill pill--bad">high</td><td>backup before tx, validation block, restore drill in CI, quarantine instead of guessing</td></tr><tr><td>Project-local DB lost on clone or move</td><td class="pill pill--warn">medium</td><td class="pill pill--warn">medium</td><td><code>export</code>/<code>import</code> ship in P4, not later; registry records the remote URL as an alias</td></tr><tr><td>Ranking is worse than recency</td><td class="pill pill--warn">medium</td><td class="pill pill--warn">medium</td><td>benchmark gate at P3; weights are data, not code; the <code>recent</code> view is the fallback</td></tr><tr><td>Budget cuts the constraint the agent needed</td><td class="pill pill--warn">medium</td><td class="pill pill--bad">high</td><td>one constraint reserved before greedy packing; <code>rank_constraint_reserved</code> is a gate</td></tr><tr><td>Windows path edge cases</td><td class="pill pill--warn">medium</td><td class="pill pill--warn">medium</td><td>normaliser tests for UNC, drive-letter case, verbatim prefix, symlinks</td></tr><tr><td>Scope creep into embeddings</td><td class="pill pill--warn">medium</td><td class="pill pill--warn">medium</td><td>non-goal; revisit only if the benchmark shows a recall gap FTS cannot close</td></tr></tbody></table></div>
-<h3>What I could not verify</h3>
-<p>There is no Rust toolchain in my environment. Nothing in this plan has been compiled, no migration has been run, and the 3,412-token figure comes from serialising the schemas in source rather than from a live <code>tools/list</code>. The design is grounded in 16,555 lines read and three measured surfaces; the code samples are contracts to implement, not code that already builds. Phase 0 exists to replace that gap with numbers.</p>
-<div class="pull">Ship the budget before the migration, measure the empty-result rate before tuning a single weight, and never let a read return a confident empty answer.</div>
-</section>
-</main>
-<footer><span>Unified implementation plan &middot; 3 November 2026</span><span>6 tools &middot; schema v6 &middot; 28 days &middot; baseline measured from source</span></footer>
-</div>
-</body>
-</html>
+Remediation plan · 12 November 2026
+4 phases · 19 tasks · 10 days · 0 new tools

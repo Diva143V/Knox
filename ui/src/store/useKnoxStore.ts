@@ -153,6 +153,13 @@ export interface KnoxStore {
     sessionTimeoutSeconds?: number;
     globalMode?: boolean;
     kgPath?: string;
+    modelProfile?: string;
+    modelEndpoint?: string | null;
+    modelApiKey?: string | null;
+    embeddingModel?: string | null;
+    chatModel?: string | null;
+    allowCloudEgress?: boolean;
+    strayDbPrompted?: boolean;
   }) => Promise<KnoxConfig>;
   refreshData: () => Promise<void>;
 }

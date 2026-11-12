@@ -163,13 +163,11 @@ export const WorkspaceView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [config, setConfig] = useState<KnoxConfig | null>(null);
 
-  // Config interaction state (Timeout & Global Mode modals)
+  // Config interaction state (Timeout modal)
   const [isTimeoutModalOpen, setIsTimeoutModalOpen] = useState(false);
-  const [isModeModalOpen, setIsModeModalOpen] = useState(false);
   const [selectedTimeout, setSelectedTimeout] = useState<number>(1800);
   const [customTimeoutInput, setCustomTimeoutInput] = useState<string>("1800");
   const [isCustomTimeout, setIsCustomTimeout] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<boolean>(true);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   const checkStatus = useCallback(async (path: string, autoAdvance = false) => {
@@ -242,7 +240,6 @@ export const WorkspaceView: React.FC = () => {
           setConfig(cfg);
           setSelectedTimeout(cfg.session_timeout_seconds);
           setCustomTimeoutInput(String(cfg.session_timeout_seconds));
-          setSelectedMode(cfg.global_mode);
         }
       })
       .catch(() => {
@@ -568,32 +565,13 @@ export const WorkspaceView: React.FC = () => {
                 </span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedMode(config.global_mode);
-                  setIsModeModalOpen(true);
-                }}
-                className={cn(
-                  "group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
-                  config.global_mode
-                    ? "bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25"
-                    : "bg-muted/70 text-foreground border border-border hover:bg-accent",
-                  "transition-all cursor-pointer shadow-xs",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                )}
-                title="Click to switch database storage mode"
+              <div
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-primary/15 text-primary border border-primary/30 shadow-xs"
+                title="Knox operates on a unified global knowledge graph"
               >
-                {config.global_mode ? (
-                  <Globe className="size-3 text-primary shrink-0" />
-                ) : (
-                  <Folder className="size-3 text-muted-foreground shrink-0" />
-                )}
-                <span>{config.global_mode ? "global mode" : "project mode"}</span>
-                <span className="text-3xs opacity-70 uppercase tracking-wide ml-0.5">
-                  switch
-                </span>
-              </button>
+                <Globe className="size-3 text-primary shrink-0" />
+                <span>global storage</span>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1080,125 +1058,6 @@ export const WorkspaceView: React.FC = () => {
                 }}
               >
                 {isSavingConfig ? "Saving..." : "Save Timeout"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Database Mode Modal */}
-      {isModeModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150">
-          <div className="w-full max-w-lg bg-card border border-border rounded-xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-border/60 pb-3">
-              <div className="flex items-center gap-2">
-                <Database className="size-4 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">
-                  Knox Database Storage Mode
-                </h3>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={() => setIsModeModalOpen(false)}
-                aria-label="Close modal"
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Choose how Knox stores knowledge graph records, architectural decisions, and agent activity history across your machine.
-            </p>
-
-            <div className="space-y-3">
-              {/* Option 1: Global Mode */}
-              <div
-                onClick={() => setSelectedMode(true)}
-                className={cn(
-                  "p-3.5 rounded-lg border cursor-pointer transition-all space-y-1.5",
-                  selectedMode
-                    ? "bg-primary/10 border-primary text-foreground ring-1 ring-primary/40"
-                    : "bg-card/40 border-border hover:border-border-hover text-muted-foreground"
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Globe className="size-4 text-primary" />
-                    <span className="font-semibold text-xs text-foreground">
-                      Global Shared Mode (Recommended)
-                    </span>
-                  </div>
-                  <Badge variant="default" className="text-3xs">
-                    Cross-Project
-                  </Badge>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed pl-6">
-                  Stores all knowledge in a centralized database (<code className="font-mono text-2xs text-primary">~/.knox/knox.db</code>). AI agents share architecture insights across workspaces without re-indexing common patterns.
-                </p>
-              </div>
-
-              {/* Option 2: Isolated Project Mode */}
-              <div
-                onClick={() => setSelectedMode(false)}
-                className={cn(
-                  "p-3.5 rounded-lg border cursor-pointer transition-all space-y-1.5",
-                  !selectedMode
-                    ? "bg-primary/10 border-primary text-foreground ring-1 ring-primary/40"
-                    : "bg-card/40 border-border hover:border-border-hover text-muted-foreground"
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Folder className="size-4 text-primary" />
-                    <span className="font-semibold text-xs text-foreground">
-                      Isolated Project Mode
-                    </span>
-                  </div>
-                  <Badge variant="outline" className="text-3xs">
-                    Isolated
-                  </Badge>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed pl-6">
-                  Confines knowledge records strictly to individual repository roots (<code className="font-mono text-2xs text-foreground">.knox/knox.db</code>). Ideal for sensitive client repos where data must never leave the workspace.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border/60">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsModeModalOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                disabled={isSavingConfig}
-                onClick={async () => {
-                  try {
-                    setIsSavingConfig(true);
-                    const updated = await updateConfig({ globalMode: selectedMode });
-                    setConfig(updated);
-                    showToast(
-                      `Switched to ${selectedMode ? "Global Shared Mode" : "Isolated Project Mode"}`,
-                      "success"
-                    );
-                    setIsModeModalOpen(false);
-                  } catch (err) {
-                    showToast(String(err), true);
-                  } finally {
-                    setIsSavingConfig(false);
-                  }
-                }}
-              >
-                {isSavingConfig ? "Saving..." : "Apply Mode"}
               </Button>
             </div>
           </div>

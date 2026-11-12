@@ -305,3 +305,63 @@ fn test_storage_project_crud_and_idempotency() {
     let list = list_projects(&db).unwrap();
     assert_eq!(list.len(), 1);
 }
+
+#[test]
+fn test_storage_stats_edges() {
+    let db = KnoxDb::open_memory().unwrap();
+    let stats_before = db.get_storage_stats(None).unwrap();
+    assert_eq!(stats_before.total_edges, 0);
+
+    let session = start_session(&db, "test", None).unwrap();
+    let a1 = KnoxAction {
+        id: ActionId::new(),
+        actor: "test".to_string(),
+        action_type: "plan".to_string(),
+        summary: "Action 1".to_string(),
+        session_id: Some(session.id.clone()),
+        ..Default::default()
+    };
+    let a2 = KnoxAction {
+        id: ActionId::new(),
+        actor: "test".to_string(),
+        action_type: "write".to_string(),
+        summary: "Action 2".to_string(),
+        session_id: Some(session.id),
+        parent_action_id: Some(a1.id.clone()),
+        ..Default::default()
+    };
+    insert_action(&db, &a1).unwrap();
+    insert_action(&db, &a2).unwrap();
+
+    let stats_after = db.get_storage_stats(None).unwrap();
+    assert_eq!(stats_after.total_edges, 1);
+    assert_eq!(stats_after.total_relations, 0);
+}
+
+#[test]
+fn test_vacuum_wal_truncate() {
+    let temp = tempfile::tempdir().unwrap();
+    let db_path = temp.path().join("knox.db");
+    let db = KnoxDb::open(&db_path).unwrap();
+
+    let session = start_session(&db, "test", None).unwrap();
+    for i in 0..50 {
+        let a = KnoxAction {
+            id: ActionId::new(),
+            actor: "test".to_string(),
+            action_type: "write".to_string(),
+            summary: format!("Action {i}"),
+            session_id: Some(session.id.clone()),
+            ..Default::default()
+        };
+        insert_action(&db, &a).unwrap();
+    }
+
+    let wal_path = temp.path().join("knox.db-wal");
+    // Run vacuum, which must truncate WAL to 0 bytes
+    db.vacuum().unwrap();
+    if wal_path.exists() {
+        let wal_len = std::fs::metadata(&wal_path).unwrap().len();
+        assert_eq!(wal_len, 0);
+    }
+}

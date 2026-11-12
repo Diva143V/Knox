@@ -17,6 +17,10 @@ import type {
   McpScanLog,
   UpdateActionPayload,
   ActionDelta,
+  StrayDatabaseDto,
+  ConsolidationReport,
+  ModelSettingsDto,
+  ModelTestResultDto,
 } from "@/types/knox";
 
 export const mockActions: KnoxAction[] = [
@@ -295,6 +299,13 @@ export const DemoAPI = {
       kg_path: "~/.knox/knox.db",
       session_timeout_seconds: 1800,
       global_mode: true,
+      model_profile: "off",
+      model_endpoint: null,
+      model_api_key_masked: null,
+      embedding_model: null,
+      chat_model: null,
+      allow_cloud_egress: false,
+      stray_db_prompted: false,
     };
   },
 
@@ -302,16 +313,72 @@ export const DemoAPI = {
     sessionTimeoutSeconds?: number;
     globalMode?: boolean;
     kgPath?: string;
+    modelProfile?: string;
+    modelEndpoint?: string | null;
+    modelApiKey?: string | null;
+    embeddingModel?: string | null;
+    chatModel?: string | null;
+    allowCloudEgress?: boolean;
+    strayDbPrompted?: boolean;
   }): Promise<KnoxConfig> {
     return {
       kg_path: params.kgPath ?? "~/.knox/knox.db",
       session_timeout_seconds: params.sessionTimeoutSeconds ?? 1800,
       global_mode: params.globalMode ?? true,
+      model_profile: params.modelProfile ?? "off",
+      model_endpoint: params.modelEndpoint ?? null,
+      model_api_key_masked: params.modelApiKey ? "••••••••" : null,
+      embedding_model: params.embeddingModel ?? null,
+      chat_model: params.chatModel ?? null,
+      allow_cloud_egress: params.allowCloudEgress ?? false,
+      stray_db_prompted: params.strayDbPrompted ?? false,
     };
   },
 
   async saveConfig(config: KnoxConfig): Promise<KnoxConfig> {
     return config;
+  },
+
+  async scanStrayDatabases(): Promise<StrayDatabaseDto[]> {
+    return [];
+  },
+
+  async consolidateStrayDatabase(path: string): Promise<ConsolidationReport> {
+    return {
+      source_path: path,
+      target_path: "~/.knox/knox.db",
+      projects_moved: 1,
+      sessions_moved: 1,
+      actions_moved: 5,
+      actions_skipped: 0,
+      edges_moved: 3,
+    };
+  },
+
+  async relocateDatabase(newDir: string): Promise<KnoxConfig> {
+    return {
+      kg_path: `${newDir}/knox.db`,
+      session_timeout_seconds: 1800,
+      global_mode: true,
+      model_profile: "off",
+      model_endpoint: null,
+      model_api_key_masked: null,
+      embedding_model: null,
+      chat_model: null,
+      allow_cloud_egress: false,
+      stray_db_prompted: true,
+    };
+  },
+
+  async testModelConnection(draft: ModelSettingsDto): Promise<ModelTestResultDto> {
+    return {
+      success: true,
+      latency_ms: 45,
+      embedding_ok: true,
+      embedding_dim: 384,
+      answer_preview: `[Demo] Connection operational with profile ${draft.profile}`,
+      error: null,
+    };
   },
 
   async getDbStats(): Promise<DbStats> {
@@ -323,7 +390,8 @@ export const DemoAPI = {
       total_actions: 42,
       total_sessions: 5,
       total_relations: 18,
-      schema_version: 8,
+      total_edges: 24,
+      schema_version: 11,
     };
   },
 

@@ -72,6 +72,10 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "quit" => {
+                if let Some(state) = app.try_state::<AppState>() {
+                    let db = state.db.blocking_lock();
+                    let _ = db.checkpoint_truncate();
+                }
                 app.exit(0);
             }
             _ => {}
@@ -197,6 +201,10 @@ pub fn run() {
             commands::config::run_db_integrity,
             commands::config::run_db_vacuum,
             commands::config::reveal_db_folder,
+            commands::config::scan_stray_databases,
+            commands::config::consolidate_stray_database,
+            commands::config::relocate_database,
+            commands::model::test_model_connection,
             commands::dialog::open_file_dialog,
             commands::dialog::open_folder_dialog,
             commands::dialog::reveal_in_explorer,
@@ -212,11 +220,23 @@ pub fn run() {
         .setup(setup_tray)
         .on_window_event(handle_window_event);
 
-    if let Err(e) = builder.run(tauri::generate_context!()) {
-        let msg = format!("Error while running Knox Tauri application: {e}");
-        write_fatal_error(&msg);
-        std::process::exit(1);
-    }
+    let app = match builder.build(tauri::generate_context!()) {
+        Ok(app) => app,
+        Err(e) => {
+            let msg = format!("Error while building Knox Tauri application: {e}");
+            write_fatal_error(&msg);
+            std::process::exit(1);
+        }
+    };
+
+    app.run(|app_handle, event| {
+        if let (tauri::RunEvent::ExitRequested { .. }, Some(state)) =
+            (event, app_handle.try_state::<AppState>())
+        {
+            let db = state.db.blocking_lock();
+            let _ = db.checkpoint_truncate();
+        }
+    });
 }
 
 #[cfg(test)]

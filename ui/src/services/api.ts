@@ -18,6 +18,10 @@ import type {
   McpScanLog,
   UpdateActionPayload,
   ActionDelta,
+  StrayDatabaseDto,
+  ConsolidationReport,
+  ModelSettingsDto,
+  ModelTestResultDto,
 } from "@/types/knox";
 
 const isTauri =
@@ -302,19 +306,62 @@ export const KnoxAPI = {
     sessionTimeoutSeconds?: number;
     globalMode?: boolean;
     kgPath?: string;
+    modelProfile?: string;
+    modelEndpoint?: string | null;
+    modelApiKey?: string | null;
+    embeddingModel?: string | null;
+    chatModel?: string | null;
+    allowCloudEgress?: boolean;
+    strayDbPrompted?: boolean;
   }): Promise<KnoxConfig> {
     if (isDemo) {
       return (await getDemoApi()).updateConfig(params);
     }
     ensureRuntime("updateConfig");
     return invoke<KnoxConfig>("update_config", {
-      sessionTimeoutSeconds: params.sessionTimeoutSeconds,
       session_timeout_seconds: params.sessionTimeoutSeconds,
-      globalMode: params.globalMode,
       global_mode: params.globalMode,
-      kgPath: params.kgPath,
       kg_path: params.kgPath,
+      model_profile: params.modelProfile,
+      model_endpoint: params.modelEndpoint,
+      model_api_key: params.modelApiKey,
+      embedding_model: params.embeddingModel,
+      chat_model: params.chatModel,
+      allow_cloud_egress: params.allowCloudEgress,
+      stray_db_prompted: params.strayDbPrompted,
     });
+  },
+
+  async scanStrayDatabases(): Promise<StrayDatabaseDto[]> {
+    if (isDemo) {
+      return (await getDemoApi()).scanStrayDatabases();
+    }
+    ensureRuntime("scanStrayDatabases");
+    return invoke<StrayDatabaseDto[]>("scan_stray_databases");
+  },
+
+  async consolidateStrayDatabase(path: string): Promise<ConsolidationReport> {
+    if (isDemo) {
+      return (await getDemoApi()).consolidateStrayDatabase(path);
+    }
+    ensureRuntime("consolidateStrayDatabase");
+    return invoke<ConsolidationReport>("consolidate_stray_database", { path });
+  },
+
+  async relocateDatabase(newDir: string): Promise<KnoxConfig> {
+    if (isDemo) {
+      return (await getDemoApi()).relocateDatabase(newDir);
+    }
+    ensureRuntime("relocateDatabase");
+    return invoke<KnoxConfig>("relocate_database", { newDir, new_dir: newDir });
+  },
+
+  async testModelConnection(draft: ModelSettingsDto): Promise<ModelTestResultDto> {
+    if (isDemo) {
+      return (await getDemoApi()).testModelConnection(draft);
+    }
+    ensureRuntime("testModelConnection");
+    return invoke<ModelTestResultDto>("test_model_connection", { draft });
   },
 
   async saveConfig(config: KnoxConfig): Promise<KnoxConfig> {

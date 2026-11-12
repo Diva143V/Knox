@@ -126,6 +126,13 @@ export interface KnoxConfig {
   kg_path: string;
   session_timeout_seconds: number;
   global_mode: boolean;
+  model_profile: string;
+  model_endpoint?: string | null;
+  model_api_key_masked?: string | null;
+  embedding_model?: string | null;
+  chat_model?: string | null;
+  allow_cloud_egress: boolean;
+  stray_db_prompted: boolean;
 }
 
 export interface DbStats {
@@ -136,12 +143,14 @@ export interface DbStats {
   total_actions: number;
   total_sessions: number;
   total_relations: number;
+  total_edges: number;
   schema_version: number;
 }
 
 export type SettingsTabId =
   | "general"
   | "storage"
+  | "model"
   | "graph"
   | "mcp"
   | "scanner"
@@ -149,6 +158,40 @@ export type SettingsTabId =
   | "system"
   | "shortcuts"
   | "about";
+
+export interface StrayDatabaseDto {
+  project_path: string;
+  db_path: string;
+  action_count: number;
+}
+
+export interface ConsolidationReport {
+  source_path: string;
+  target_path: string;
+  projects_moved: number;
+  sessions_moved: number;
+  actions_moved: number;
+  actions_skipped: number;
+  edges_moved: number;
+}
+
+export interface ModelSettingsDto {
+  profile: string;
+  endpoint?: string | null;
+  api_key?: string | null;
+  embedding_model?: string | null;
+  chat_model?: string | null;
+  allow_cloud_egress: boolean;
+}
+
+export interface ModelTestResultDto {
+  success: boolean;
+  latency_ms: number;
+  embedding_ok: boolean;
+  embedding_dim: number;
+  answer_preview?: string | null;
+  error?: string | null;
+}
 
 export interface UserSettings {
   // Appearance
