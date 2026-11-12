@@ -10,6 +10,7 @@ use rusqlite::params;
 use crate::core::error::{KnoxError, KnoxResult};
 use crate::core::types::{IngestPreview, IngestReport, KnoxAction};
 use crate::ingest::{ingest_bytes_with_tool, ingest_file_with_tool, rules};
+use crate::models::router::ModelRouter;
 use crate::storage::db::KnoxDb;
 use crate::storage::edges::link_follows;
 use crate::storage::nodes::insert_action;
@@ -306,6 +307,13 @@ pub fn persist_actions_to_db(
         None
     };
 
+    let config = crate::core::config::KnoxConfig::from_env();
+    let router = ModelRouter::for_project(
+        &config,
+        Some(db),
+        project_id.as_ref().map(|p| p.as_str()),
+    );
+
     for (offset, action) in actions.iter_mut().enumerate() {
         let source_hash = ingest_source_hash(
             &tool_detected,
@@ -361,6 +369,17 @@ pub fn persist_actions_to_db(
 
         let current_id = insert_action(db, action)?;
         actions_imported += 1;
+
+        if router.is_enabled() {
+            if let Ok(vec) = router.embed(&action.summary) {
+                let _ = crate::storage::embeddings::insert_embedding_conn(
+                    conn,
+                    &current_id,
+                    &vec,
+                    &router.profile.embedding_model,
+                );
+            }
+        }
         conn.execute(
             "INSERT OR REPLACE INTO ingest_log
              (source_hash, source_offset, outcome, rule_id, reason, action_id)

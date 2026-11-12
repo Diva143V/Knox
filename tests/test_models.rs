@@ -555,3 +555,69 @@ fn test_cross_project_embedding_isolation_in_ask() {
     }
 }
 
+#[test]
+fn test_ingest_generates_embeddings_when_model_enabled() {
+    let db = KnoxDb::open_memory().unwrap();
+    let proj = knox::core::types::Project {
+        id: knox::core::ids::ProjectId::new(),
+        name: "Ingest Model Test".to_string(),
+        path: "D:\\Workspace\\test".to_string(),
+        remote: None,
+        created_at: chrono::Utc::now(),
+    };
+    knox::storage::insert_project(&db, &proj).unwrap();
+
+    let config = KnoxConfig {
+        model_profile: "mock".to_string(),
+        ..Default::default()
+    };
+    let router = ModelRouter::from_config(&config);
+    assert!(router.is_enabled());
+
+    let actions = vec![
+        KnoxAction {
+            id: ActionId::new(),
+            actor: "human".to_string(),
+            action_type: "decide".to_string(),
+            summary: "Standardize on PostgreSQL for user records".to_string(),
+            project_id: Some(proj.id.clone()),
+            is_current: true,
+            ..Default::default()
+        },
+        KnoxAction {
+            id: ActionId::new(),
+            actor: "agent".to_string(),
+            action_type: "write".to_string(),
+            summary: "Implement database migrations for user table".to_string(),
+            project_id: Some(proj.id.clone()),
+            is_current: true,
+            ..Default::default()
+        },
+    ];
+
+    unsafe {
+        std::env::set_var("KNOX_MODEL_PROFILE", "mock");
+    }
+    let report = knox::commands::ingest::persist_actions_to_db(
+        actions,
+        "claude".to_string(),
+        Some(proj.id.as_str()),
+        None,
+        &db,
+    )
+    .unwrap();
+    unsafe {
+        std::env::remove_var("KNOX_MODEL_PROFILE");
+    }
+
+    assert_eq!(report.actions_imported, 2);
+
+    let count = knox::storage::count_embeddings(&db, Some(proj.id.as_str())).unwrap();
+    assert_eq!(count, 2, "Both ingested actions must have embeddings generated");
+
+    let query_vector = router.embed("PostgreSQL migration").unwrap();
+    let matches = find_similar_actions(&db, Some(proj.id.as_str()), &query_vector, 5, 0.0).unwrap();
+    assert_eq!(matches.len(), 2);
+}
+
+
