@@ -13,6 +13,7 @@ pub mod record;
 pub mod trace;
 pub mod prompts;
 pub mod resources;
+pub mod update;
 
 pub use ask::handle_ask;
 pub use begin::handle_begin;
@@ -24,6 +25,7 @@ pub use record::handle_record;
 pub use trace::handle_trace;
 pub use prompts::{handle_prompts_get, handle_prompts_list};
 pub use resources::{handle_resources_list, handle_resources_read};
+pub use update::handle_update;
 
 use serde_json::{Value, json};
 
@@ -99,6 +101,7 @@ pub fn execute_tool(name: &str, params: Value, db: &KnoxDb) -> KnoxResult<Value>
         }
         "knox_record" => handle_record(db, params),
         "knox_ask" => handle_ask(db, params),
+        "knox_update" => handle_update(db, params),
         _ => Err(KnoxError::InvalidInput(format!("Unknown tool: {name}"))),
     }?;
     Ok(result)
@@ -122,6 +125,7 @@ Mandatory protocol:
 5. Navigation: use knox_trace to trace why code exists before refactoring.
 6. End the turn with knox_handoff to close the session and produce the digest the next session resumes from.
 7. Grounded Q&A: call knox_ask to answer architectural questions using grounded project memory with verified citations.
+8. Sync: call knox_update at any point (or during wrap-up) to incrementally ingest conversation transcripts into project memory.
 
 Never delete history; append and supersede. Identify yourself in actor (for example gemini, cursor, claude, codex, human). Use only the canonical tools above.";
 

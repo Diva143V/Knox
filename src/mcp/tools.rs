@@ -9,7 +9,7 @@ use super::protocol::ToolDescription;
 
 /// Tools advertised by `tools/list`. The high-level workflow surface is small
 /// on purpose: agents get one obvious entry point per phase of a turn.
-pub const LISTED_TOOL_NAMES: [&str; 7] = [
+pub const LISTED_TOOL_NAMES: [&str; 8] = [
     "knox_begin",
     "knox_context",
     "knox_check",
@@ -17,6 +17,7 @@ pub const LISTED_TOOL_NAMES: [&str; 7] = [
     "knox_record",
     "knox_handoff",
     "knox_ask",
+    "knox_update",
 ];
 
 /// Canonical number of advertised Knox tools. Documentation and tests derive
@@ -33,6 +34,7 @@ pub fn all_tools() -> Vec<ToolDescription> {
         tool_record(),
         tool_handoff(),
         tool_ask(),
+        tool_update(),
     ]
 }
 
@@ -65,11 +67,11 @@ fn tool_begin() -> ToolDescription {
         json!({
             "type": "object",
             "properties": {
-                "workspace": { "type": "string", "description": "Project path, ID, or unique name" },
-                "actor": { "type": "string", "description": "Agent or software identity" },
-                "task": { "type": "string", "description": "Current task used to focus context" },
+                "workspace": { "type": "string" },
+                "actor": { "type": "string" },
+                "task": { "type": "string" },
                 "budget": { "type": "integer", "minimum": 1, "maximum": 4000, "default": 1200 },
-                "transcript_path": { "type": "string", "description": "Optional path to conversation transcript to auto-capture memory since last offset" }
+                "transcript_path": { "type": "string" }
             },
             "required": ["actor"]
         }),
@@ -79,7 +81,7 @@ fn tool_begin() -> ToolDescription {
 fn tool_context() -> ToolDescription {
     ToolDescription::new(
         "knox_context",
-        "Returns compact, token-budgeted engineering context for a file, symbol, query, or project.",
+        "Returns token-budgeted context for files, symbols, or project.",
         json!({
             "type": "object",
             "properties": {
@@ -89,7 +91,7 @@ fn tool_context() -> ToolDescription {
                 "files": { "type": "array", "items": { "type": "string" } },
                 "symbols": { "type": "array", "items": { "type": "string" } },
                 "query": { "type": "string" },
-                "cursor": { "type": "string", "description": "Pagination cursor from previous next field" },
+                "cursor": { "type": "string" },
                 "budget": { "type": "integer", "minimum": 1, "maximum": 4000, "default": 1200 }
             },
             "required": ["view"]
@@ -100,7 +102,7 @@ fn tool_context() -> ToolDescription {
 fn tool_check() -> ToolDescription {
     ToolDescription::new(
         "knox_check",
-        "Checks proposed work against scoped architectural guardrails and returns overlap-rated violations.",
+        "Checks proposed work against architectural guardrails.",
         json!({
             "type": "object",
             "properties": {
@@ -147,7 +149,7 @@ fn tool_handoff() -> ToolDescription {
         json!({
             "type": "object",
             "properties": {
-                "session_id": { "type": "string", "description": "Open session to close" },
+                "session_id": { "type": "string" },
                 "budget": { "type": "integer", "minimum": 1, "maximum": 4000, "default": 800 }
             },
             "required": ["session_id"]
@@ -158,16 +160,31 @@ fn tool_handoff() -> ToolDescription {
 fn tool_ask() -> ToolDescription {
     ToolDescription::new(
         "knox_ask",
-        "Answers architectural questions across project memory using grounded context with verifiable citations.",
+        "Answers architectural questions using grounded project memory.",
         json!({
             "type": "object",
             "properties": {
-                "question": { "type": "string", "description": "Technical or architectural question to ask project memory" },
-                "project": { "type": "string", "description": "Project scope (canonical path, remote URL, or ID)" },
-                "file_path": { "type": "string", "description": "Optional file path anchor for focused context" },
-                "strict_citations": { "type": "boolean", "description": "Enforce strict citation verification (default: true)" }
+                "question": { "type": "string" },
+                "project": { "type": "string" },
+                "file_path": { "type": "string" },
+                "strict_citations": { "type": "boolean" }
             },
             "required": ["question"]
+        }),
+    )
+}
+
+fn tool_update() -> ToolDescription {
+    ToolDescription::new(
+        "knox_update",
+        "Incrementally ingests agent transcript lines into project memory.",
+        json!({
+            "type": "object",
+            "properties": {
+                "transcript_path": { "type": "string" },
+                "project": { "type": "string" },
+                "discover": { "type": "boolean" }
+            }
         }),
     )
 }
