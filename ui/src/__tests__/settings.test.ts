@@ -11,6 +11,7 @@ interface CategoryDef {
 const CATEGORIES: CategoryDef[] = [
   { id: "general", label: "Appearance", desc: "Theme, density, animations and startup view" },
   { id: "storage", label: "Storage & Database", desc: "SQLite path, timeouts, telemetry and maintenance" },
+  { id: "model", label: "Model & AI", desc: "LLM, embeddings, endpoints and provider settings" },
   { id: "graph", label: "Graph Canvas", desc: "Cards vs Cosmos, D3 physics and default layout" },
   { id: "mcp", label: "AI Agents & MCP", desc: "Command modes, guardrails, and detected clients" },
   { id: "scanner", label: "Git & Scanner", desc: "Human author name, ignore rules and hook policy" },
@@ -44,11 +45,12 @@ function manageIgnorePatterns(existing: string[], action: { type: "add" | "remov
 }
 
 describe("Settings Modal State & Navigation Logic", () => {
-  it("defines all 9 modular settings categories", () => {
-    assert.equal(CATEGORIES.length, 9);
+  it("defines all 10 modular settings categories", () => {
+    assert.equal(CATEGORIES.length, 10);
     const expectedIds: SettingsTabId[] = [
       "general",
       "storage",
+      "model",
       "graph",
       "mcp",
       "scanner",
@@ -61,11 +63,13 @@ describe("Settings Modal State & Navigation Logic", () => {
   });
 
   it("filters categories by label or description search query", () => {
-    assert.equal(filterCategories(CATEGORIES, "").length, 9);
+    assert.equal(filterCategories(CATEGORIES, "").length, 10);
     assert.equal(filterCategories(CATEGORIES, "git").length, 1);
     assert.equal(filterCategories(CATEGORIES, "git")[0].id, "scanner");
     assert.equal(filterCategories(CATEGORIES, "sqlite").length, 1);
     assert.equal(filterCategories(CATEGORIES, "sqlite")[0].id, "storage");
+    assert.equal(filterCategories(CATEGORIES, "embeddings").length, 1);
+    assert.equal(filterCategories(CATEGORIES, "embeddings")[0].id, "model");
     assert.equal(filterCategories(CATEGORIES, "nonexistent-query").length, 0);
   });
 

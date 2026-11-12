@@ -6,6 +6,7 @@ pub mod doctor;
 pub mod graph;
 pub mod ingest;
 pub mod mcp;
+pub mod model;
 pub mod query;
 pub mod scan;
 pub mod sessions;

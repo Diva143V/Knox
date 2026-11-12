@@ -1,5 +1,6 @@
 export { AppearanceTab } from "./AppearanceTab";
 export { StorageTab } from "./StorageTab";
+export { ModelTab } from "./ModelTab";
 export { GraphTab } from "./GraphTab";
 export { McpTab } from "./McpTab";
 export { ScannerTab } from "./ScannerTab";

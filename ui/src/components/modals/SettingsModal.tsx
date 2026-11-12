@@ -4,6 +4,7 @@ import {
   X,
   Palette,
   Database,
+  BrainCircuit,
   Network,
   PlugZap,
   ShieldCheck,
@@ -20,6 +21,7 @@ import type { SettingsTabId } from "@/types/knox";
 import {
   AppearanceTab,
   StorageTab,
+  ModelTab,
   GraphTab,
   McpTab,
   ScannerTab,
@@ -48,6 +50,12 @@ const CATEGORIES: CategoryDef[] = [
     label: "Storage & Database",
     desc: "SQLite path, timeouts, telemetry and maintenance",
     icon: <Database className="size-4" />,
+  },
+  {
+    id: "model",
+    label: "Model & AI",
+    desc: "LLM, embeddings, endpoints and provider settings",
+    icon: <BrainCircuit className="size-4" />,
   },
   {
     id: "graph",
@@ -201,6 +209,7 @@ export const SettingsModal: React.FC = () => {
           <main className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-6 bg-background space-y-6">
             {activeSettingsTab === "general" && <AppearanceTab />}
             {activeSettingsTab === "storage" && <StorageTab />}
+            {activeSettingsTab === "model" && <ModelTab />}
             {activeSettingsTab === "graph" && <GraphTab />}
             {activeSettingsTab === "mcp" && <McpTab />}
             {activeSettingsTab === "scanner" && <ScannerTab />}
