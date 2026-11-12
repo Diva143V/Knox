@@ -1,7 +1,7 @@
 //! Operational database migration, validation, restore, and split commands.
 
 use rusqlite::{Connection, DatabaseName, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -312,6 +312,359 @@ fn newest_backup(path: &Path) -> KnoxResult<PathBuf> {
             path.display()
         ))
     })
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsolidationReport {
+    pub source_path: String,
+    pub target_path: String,
+    pub projects_moved: usize,
+    pub sessions_moved: usize,
+    pub actions_moved: usize,
+    pub actions_skipped: usize,
+    pub edges_moved: usize,
+}
+
+/// Consolidates records from a source project-local SQLite database into the target global database.
+pub fn migration_consolidate(target_db: &KnoxDb, source_path: &Path) -> KnoxResult<ConsolidationReport> {
+    if !source_path.exists() {
+        return Err(KnoxError::InvalidInput(format!(
+            "Source database does not exist: {}",
+            source_path.display()
+        )));
+    }
+    let source_canonical = fs::canonicalize(source_path).unwrap_or_else(|_| source_path.to_path_buf());
+    if let Some(target_path) = target_db.path() {
+        let target_canonical = fs::canonicalize(target_path).unwrap_or_else(|_| target_path.to_path_buf());
+        if source_canonical == target_canonical {
+            return Err(KnoxError::InvalidInput(
+                "Source database and target database cannot be the same file".to_string(),
+            ));
+        }
+    }
+
+    let src_conn = Connection::open_with_flags(source_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let schema_v: i32 = src_conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM knox_meta WHERE key = 'schema_version'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if schema_v == 0 {
+        return Err(KnoxError::InvalidInput(format!(
+            "Invalid source database at {}: missing knox_meta schema_version",
+            source_path.display()
+        )));
+    }
+
+    let mut report = ConsolidationReport {
+        source_path: source_path.display().to_string(),
+        target_path: target_db
+            .path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "in-memory".to_string()),
+        ..Default::default()
+    };
+
+    target_db.with_tx(|tx| {
+        // 1. Projects mapping
+        let mut project_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut project_stmt = src_conn.prepare("SELECT id, name, path, remote, created_at FROM projects")?;
+        let project_rows = project_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })?;
+
+        for p in project_rows {
+            let (src_id, name, path, remote, created_at) = p?;
+            let existing_id: Option<String> = tx
+                .query_row(
+                    "SELECT id FROM projects WHERE path = ?1 OR (remote IS NOT NULL AND remote = ?2) OR id = ?3 LIMIT 1",
+                    params![path, remote, src_id],
+                    |r| r.get(0),
+                )
+                .ok();
+
+            if let Some(target_proj_id) = existing_id {
+                project_map.insert(src_id, target_proj_id);
+            } else {
+                tx.execute(
+                    "INSERT INTO projects (id, name, path, remote, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![src_id, name, path, remote, created_at],
+                )?;
+                project_map.insert(src_id.clone(), src_id);
+                report.projects_moved += 1;
+            }
+        }
+
+        let edges_count_before: usize = tx.query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0)).unwrap_or(0);
+
+        // 2. Sessions mapping
+        let mut session_stmt = src_conn.prepare(
+            "SELECT id, actor, project_id, started_at, ended_at, is_open FROM sessions"
+        )?;
+        let session_rows = session_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })?;
+
+        for s in session_rows {
+            let (id, actor, proj_id, started_at, ended_at, is_open) = s?;
+            let remapped_proj_id = proj_id.and_then(|p| project_map.get(&p).cloned().or(Some(p)));
+            let changes = tx.execute(
+                "INSERT OR IGNORE INTO sessions (id, actor, project_id, started_at, ended_at, is_open)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id, actor, remapped_proj_id, started_at, ended_at, is_open],
+            )?;
+            if changes > 0 {
+                report.sessions_moved += 1;
+            }
+        }
+
+        // 3. Actions migration with deduplication
+        let mut action_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut action_stmt = src_conn.prepare(
+            "SELECT id, actor, action_type, summary, confidence, timestamp,
+                    session_id, parent_action_id, superseded_by, is_current,
+                    rationale, context_summary, rejected_alternatives,
+                    significance, is_resolved, resolution_note, commit_sha,
+                    project_id, timestamp_ms, dedupe_key, seen_count
+             FROM actions ORDER BY timestamp ASC"
+        )?;
+        let action_rows = action_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<f64>>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, i64>(9)?,
+                row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<String>>(12)?,
+                row.get::<_, Option<String>>(13)?,
+                row.get::<_, Option<i64>>(14)?,
+                row.get::<_, Option<String>>(15)?,
+                row.get::<_, Option<String>>(16)?,
+                row.get::<_, Option<String>>(17)?,
+                row.get::<_, Option<i64>>(18)?,
+                row.get::<_, Option<String>>(19)?,
+                row.get::<_, Option<i64>>(20)?,
+            ))
+        })?;
+
+        for a in action_rows {
+            let (
+                id, actor, action_type, summary, confidence, timestamp,
+                session_id, parent_id, superseded_by, is_current,
+                rationale, context_summary, rejected_alternatives,
+                significance, is_resolved, resolution_note, commit_sha,
+                project_id, timestamp_ms, dedupe_key, seen_count
+            ) = a?;
+            
+            let existing_id: Option<String> = if let Some(ref key) = dedupe_key {
+                tx.query_row(
+                    "SELECT id FROM actions WHERE dedupe_key = ?1 LIMIT 1",
+                    params![key],
+                    |r| r.get(0),
+                ).ok()
+            } else {
+                tx.query_row(
+                    "SELECT id FROM actions WHERE timestamp = ?1 AND summary = ?2 AND actor = ?3 LIMIT 1",
+                    params![timestamp, summary, actor],
+                    |r| r.get(0),
+                ).ok()
+            };
+
+            if let Some(target_act_id) = existing_id {
+                action_map.insert(id, target_act_id);
+                report.actions_skipped += 1;
+            } else {
+                let remapped_proj_id = project_id.and_then(|p| project_map.get(&p).cloned().or(Some(p)));
+                let remapped_parent = parent_id.and_then(|p| action_map.get(&p).cloned().or(Some(p)));
+                let remapped_superseded = superseded_by.and_then(|s| action_map.get(&s).cloned().or(Some(s)));
+
+                tx.execute(
+                    "INSERT INTO actions (
+                        id, actor, action_type, summary, confidence, timestamp,
+                        session_id, parent_action_id, superseded_by, is_current,
+                        rationale, context_summary, rejected_alternatives,
+                        significance, is_resolved, resolution_note, commit_sha,
+                        project_id, timestamp_ms, dedupe_key, seen_count
+                    ) VALUES (
+                        ?1, ?2, ?3, ?4, ?5, ?6,
+                        ?7, ?8, ?9, ?10,
+                        ?11, ?12, ?13,
+                        ?14, ?15, ?16, ?17,
+                        ?18, ?19, ?20, ?21
+                    )",
+                    params![
+                        id, actor, action_type, summary, confidence, timestamp,
+                        session_id, remapped_parent, remapped_superseded, is_current,
+                        rationale, context_summary, rejected_alternatives,
+                        significance.as_deref().unwrap_or("major"), is_resolved.unwrap_or(1),
+                        resolution_note, commit_sha,
+                        remapped_proj_id, timestamp_ms, dedupe_key, seen_count.unwrap_or(1)
+                    ],
+                )?;
+                action_map.insert(id.clone(), id);
+                report.actions_moved += 1;
+            }
+        }
+
+        // 4. Child tables
+        if has_table(&src_conn, "action_files")? {
+            let mut stmt = src_conn.prepare("SELECT action_id, file_path FROM action_files")?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            for r in rows {
+                let (act_id, file_path) = r?;
+                if let Some(target_act_id) = action_map.get(&act_id) {
+                    tx.execute(
+                        "INSERT OR IGNORE INTO action_files (action_id, file_path) VALUES (?1, ?2)",
+                        params![target_act_id, file_path],
+                    )?;
+                }
+            }
+        }
+
+        if has_table(&src_conn, "action_tags")? {
+            let mut stmt = src_conn.prepare("SELECT action_id, tag FROM action_tags")?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            for r in rows {
+                let (act_id, tag) = r?;
+                if let Some(target_act_id) = action_map.get(&act_id) {
+                    tx.execute(
+                        "INSERT OR IGNORE INTO action_tags (action_id, tag) VALUES (?1, ?2)",
+                        params![target_act_id, tag],
+                    )?;
+                }
+            }
+        }
+
+        if has_table(&src_conn, "action_symbols")? {
+            let mut stmt = src_conn.prepare("SELECT action_id, symbol FROM action_symbols")?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            for r in rows {
+                let (act_id, symbol) = r?;
+                if let Some(target_act_id) = action_map.get(&act_id) {
+                    tx.execute(
+                        "INSERT OR IGNORE INTO action_symbols (action_id, symbol) VALUES (?1, ?2)",
+                        params![target_act_id, symbol],
+                    )?;
+                }
+            }
+        }
+
+        if has_table(&src_conn, "action_deltas")? {
+            let mut stmt = src_conn.prepare(
+                "SELECT id, action_id, file_path, change_type, old_path, lines_added, lines_deleted, diff_hunk, deleted_code, deletion_reason, created_at FROM action_deltas"
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, i64>(6)?,
+                    r.get::<_, Option<String>>(7)?,
+                    r.get::<_, Option<String>>(8)?,
+                    r.get::<_, Option<String>>(9)?,
+                    r.get::<_, String>(10)?,
+                ))
+            })?;
+            for r in rows {
+                let (id, act_id, file_path, change_type, old_path, added, deleted, diff_hunk, deleted_code, deletion_reason, created_at) = r?;
+                if let Some(target_act_id) = action_map.get(&act_id) {
+                    tx.execute(
+                        "INSERT OR IGNORE INTO action_deltas (
+                            id, action_id, file_path, change_type, old_path, lines_added, lines_deleted, diff_hunk, deleted_code, deletion_reason, created_at
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                        params![id, target_act_id, file_path, change_type, old_path, added, deleted, diff_hunk, deleted_code, deletion_reason, created_at],
+                    )?;
+                }
+            }
+        }
+
+        // 5. Edges
+        if has_table(&src_conn, "edges")? {
+            let mut stmt = src_conn.prepare(
+                "SELECT id, from_action_id, to_id, edge_type, created_at, label, provenance, note FROM edges"
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, Option<String>>(7)?,
+                ))
+            })?;
+            for r in rows {
+                let (edge_id, from_id, to_id, edge_type, created_at, label, provenance, note) = r?;
+                if let Some(target_from) = action_map.get(&from_id) {
+                    let target_to = action_map.get(&to_id).cloned().unwrap_or(to_id);
+                    tx.execute(
+                        "INSERT OR IGNORE INTO edges (id, from_action_id, to_id, edge_type, created_at, label, provenance, note)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                        params![edge_id, target_from, target_to, edge_type, created_at, label, provenance, note],
+                    )?;
+                }
+            }
+        }
+
+        // 6. action_relations
+        if has_table(&src_conn, "action_relations")? {
+            let mut stmt = src_conn.prepare("SELECT from_action_id, to_action_id, relation_type FROM action_relations")?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?;
+            for r in rows {
+                let (from_id, to_id, rel_type) = r?;
+                if let (Some(target_from), Some(target_to)) = (action_map.get(&from_id), action_map.get(&to_id)) {
+                    let _ = tx.execute(
+                        "INSERT OR IGNORE INTO action_relations (from_action_id, to_action_id, relation_type)
+                         VALUES (?1, ?2, ?3)",
+                        params![target_from, target_to, rel_type],
+                    );
+                }
+            }
+        }
+
+        let edges_count_after: usize = tx.query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0)).unwrap_or(0);
+        report.edges_moved = edges_count_after.saturating_sub(edges_count_before);
+
+        // Rebuild FTS
+        let _ = tx.execute("INSERT INTO actions_fts(actions_fts) VALUES('rebuild')", []);
+
+        Ok(())
+    })?;
+
+    Ok(report)
 }
 
 #[cfg(test)]

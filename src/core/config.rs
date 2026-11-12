@@ -50,6 +50,9 @@ pub struct KnoxConfig {
     /// Explicit opt-in permission flag for outbound cloud model requests.
     #[serde(default)]
     pub allow_cloud_egress: bool,
+    /// Persistent flag indicating if the stray database consolidation prompt has been presented.
+    #[serde(default)]
+    pub stray_db_prompted: bool,
 }
 
 fn default_model_profile() -> String {
@@ -84,6 +87,9 @@ impl KnoxConfig {
         if let Ok(global_str) = env::var("KNOX_GLOBAL_MODE") {
             let lower = global_str.trim().to_lowercase();
             config.global_mode = matches!(lower.as_str(), "1" | "true" | "yes");
+            if !config.global_mode {
+                tracing::warn!("KNOX_GLOBAL_MODE is deprecated and will be removed in future releases. Forcing global mode.");
+            }
         }
 
         if let Ok(transcript_str) = env::var("KNOX_TRANSCRIPT_PATH") {
@@ -163,49 +169,44 @@ impl KnoxConfig {
 
     /// Resolves the database used by runtime commands.
     ///
-    /// An explicitly configured `kg_path` always wins. Otherwise `global_mode`
-    /// decides between the shared `~/.knox/knox.db` and the nearest
-    /// project-local `.knox/knox.db`.
+    /// Following the unified storage model, Knox always routes to the shared
+    /// global database (`~/.knox/knox.db`), unless an explicit `kg_path` override was configured.
     pub fn resolve_db_path(&self) -> PathBuf {
-        if self.has_explicit_kg_path() {
-            return self.kg_path.clone();
+        if !self.global_mode {
+            tracing::warn!("KNOX_GLOBAL_MODE is deprecated and will be removed in future releases. Forcing global mode.");
         }
-        if self.global_mode {
-            return self.kg_path.clone();
-        }
-        let start = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        find_project_db_path(&start)
+        self.kg_path.clone()
     }
 
     /// Resolves the database path for a specific project (used by `knox init`).
-    pub fn resolve_db_path_for(&self, project_path: &Path) -> PathBuf {
-        if self.has_explicit_kg_path() || self.global_mode {
-            self.kg_path.clone()
-        } else {
-            project_path
-                .join(DEFAULT_KNOX_DIR)
-                .join(DEFAULT_DB_FILENAME)
-        }
+    /// Aligns with `resolve_db_path` to guarantee consistent global database routing.
+    pub fn resolve_db_path_for(&self, _project_path: &Path) -> PathBuf {
+        self.resolve_db_path()
     }
 
     /// True when `kg_path` was set explicitly rather than left at its default.
-    fn has_explicit_kg_path(&self) -> bool {
+    pub fn has_explicit_kg_path(&self) -> bool {
         self.kg_path != default_global_db_path()
     }
+}
+
+/// Scans upwards from `start` to detect an existing legacy project-local database file.
+pub fn detect_project_db(start: &Path) -> Option<PathBuf> {
+    let mut current = Some(start);
+    while let Some(dir) = current {
+        let candidate = dir.join(DEFAULT_KNOX_DIR).join(DEFAULT_DB_FILENAME);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        current = dir.parent();
+    }
+    None
 }
 
 /// Walks up from `start` to find an existing project-local database, falling
 /// back to `<start>/.knox/knox.db`.
 pub fn find_project_db_path(start: &Path) -> PathBuf {
-    let mut current = Some(start);
-    while let Some(dir) = current {
-        let candidate = dir.join(DEFAULT_KNOX_DIR).join(DEFAULT_DB_FILENAME);
-        if candidate.exists() {
-            return candidate;
-        }
-        current = dir.parent();
-    }
-    start.join(DEFAULT_KNOX_DIR).join(DEFAULT_DB_FILENAME)
+    detect_project_db(start).unwrap_or_else(|| start.join(DEFAULT_KNOX_DIR).join(DEFAULT_DB_FILENAME))
 }
 
 impl Default for KnoxConfig {
@@ -213,7 +214,7 @@ impl Default for KnoxConfig {
         Self {
             kg_path: default_global_db_path(),
             session_timeout: DEFAULT_SESSION_TIMEOUT,
-            global_mode: false,
+            global_mode: true,
             transcript_path: None,
             model_profile: "off".to_string(),
             model_endpoint: None,
@@ -221,6 +222,7 @@ impl Default for KnoxConfig {
             embedding_model: None,
             chat_model: None,
             allow_cloud_egress: false,
+            stray_db_prompted: false,
         }
     }
 }
@@ -282,7 +284,8 @@ mod tests {
     fn test_default_config() {
         let config = KnoxConfig::default();
         assert_eq!(config.session_timeout, DEFAULT_SESSION_TIMEOUT);
-        assert!(!config.global_mode);
+        assert!(config.global_mode);
+        assert!(!config.stray_db_prompted);
         assert!(
             config
                 .kg_path
@@ -324,6 +327,7 @@ mod tests {
             embedding_model: Some("nomic-embed-text".to_string()),
             chat_model: Some("llama3.2".to_string()),
             allow_cloud_egress: false,
+            stray_db_prompted: false,
         };
 
         config.save_to_file(&file_path).unwrap();

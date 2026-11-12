@@ -206,6 +206,11 @@ pub enum MigrationAction {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Consolidate records from a project-local SQLite database into the global database.
+    Consolidate {
+        /// Path to the source SQLite database to import.
+        path: PathBuf,
+    },
 }
 
 #[derive(Args, Clone, Debug, PartialEq, Eq)]

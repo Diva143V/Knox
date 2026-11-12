@@ -25,6 +25,7 @@ pub struct StorageStats {
     pub total_actions: usize,
     pub total_sessions: usize,
     pub total_relations: usize,
+    pub total_edges: usize,
     pub schema_version: i32,
 }
 
@@ -137,12 +138,31 @@ impl KnoxDb {
         Ok(result)
     }
 
-    /// Reclaims unused database pages and defragments storage via SQLite VACUUM.
+    /// Checkpoints and truncates the WAL journal, with retry backoff on contention.
+    pub fn checkpoint_truncate(&self) -> KnoxResult<()> {
+        let mut attempt = 0;
+        loop {
+            let busy: i32 = self
+                .conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))?;
+            if busy == 0 || attempt >= TX_MAX_RETRIES {
+                break;
+            }
+            let backoff = backoff_duration(attempt);
+            std::thread::sleep(backoff);
+            attempt += 1;
+        }
+        Ok(())
+    }
+
+    /// Reclaims unused database pages and defragments storage via SQLite VACUUM after truncating WAL.
     pub fn vacuum(&self) -> KnoxResult<()> {
+        let _ = self.checkpoint_truncate();
         self.conn.execute("VACUUM", [])?;
         // VACUUM can renumber implicit rowids, which invalidates the external-content
         // FTS5 index keyed on content_rowid='rowid'. Rebuild it to keep search correct.
         self.conn.execute("INSERT INTO actions_fts(actions_fts) VALUES('rebuild')", [])?;
+        let _ = self.checkpoint_truncate();
         Ok(())
     }
 
@@ -150,6 +170,34 @@ impl KnoxDb {
     pub fn reindex(&self) -> KnoxResult<()> {
         self.conn.execute("REINDEX", [])?;
         Ok(())
+    }
+
+    /// Executes a read closure against the raw connection reference.
+    pub fn with_conn<T, F>(&self, f: F) -> KnoxResult<T>
+    where
+        F: FnOnce(&Connection) -> KnoxResult<T>,
+    {
+        f(&self.conn)
+    }
+
+    /// Reference to the underlying connection.
+    pub fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
+    /// Path to the SQLite database file on disk, if not an in-memory database.
+    pub fn path(&self) -> Option<&Path> {
+        self.conn.path().map(Path::new)
+    }
+
+    /// Retrieves the current schema version integer from `knox_meta`.
+    pub fn schema_version(&self) -> KnoxResult<i32> {
+        let v: i32 = self.conn.query_row(
+            "SELECT CAST(value AS INTEGER) FROM knox_meta WHERE key = 'schema_version'",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(v)
     }
 
     /// Gathers live storage telemetry, schema version, and node counts.
@@ -175,6 +223,13 @@ impl KnoxDb {
         let total_relations: usize = self
             .conn
             .query_row("SELECT COUNT(*) FROM action_relations", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map(|c| c as usize)
+            .unwrap_or(0);
+        let total_edges: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM edges", [], |r| {
                 r.get::<_, i64>(0)
             })
             .map(|c| c as usize)
@@ -215,13 +270,9 @@ impl KnoxDb {
             total_actions,
             total_sessions,
             total_relations,
+            total_edges,
             schema_version,
         })
-    }
-
-    /// Provides access to the underlying connection for internal storage modules.
-    pub(crate) fn conn(&self) -> &Connection {
-        &self.conn
     }
 }
 

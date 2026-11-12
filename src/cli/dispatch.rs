@@ -12,7 +12,7 @@ use crate::commands::{
     cmd_query, cmd_scan, cmd_status, cmd_trace, export_to_file, format_ask_response, format_doctor_report, format_ingest_report,
     format_metrics_report, format_query_results_json, format_query_results_table,
     format_scan_report, format_status_json, format_status_report, import_from_file,
-    migration_apply, migration_check, migration_restore, migration_split,
+    migration_apply, migration_check, migration_consolidate, migration_restore, migration_split,
 };
 use crate::core::config::KnoxConfig;
 use crate::storage::db::KnoxDb;
@@ -180,6 +180,11 @@ pub fn handle_migrate(args: MigrationArgs, config: &KnoxConfig) -> anyhow::Resul
             for created in migration_split(&path, &output)? {
                 println!("{}", created.display());
             }
+        }
+        MigrationAction::Consolidate { path: source_path } => {
+            let target_db = KnoxDb::open(&path)?;
+            let report = migration_consolidate(&target_db, &source_path)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
         }
     }
     Ok(())

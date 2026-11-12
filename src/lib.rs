@@ -11,3 +11,5 @@ pub mod metrics;
 pub mod models;
 pub mod retrieval;
 pub mod storage;
+
+pub use rusqlite;

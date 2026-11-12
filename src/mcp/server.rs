@@ -29,6 +29,11 @@ pub async fn run_mcp_server(db: KnoxDb) -> KnoxResult<()> {
     } else {
         config.session_timeout
     };
+    // T1.7: Log resolved DB path and schema version to stderr only to prevent corrupting stdio JSON-RPC
+    let db_path = db.path().map(|p| p.display().to_string()).unwrap_or_else(|| "in-memory".to_string());
+    let schema_v = db.schema_version().unwrap_or(0);
+    eprintln!("[knox-mcp] Connected database: {db_path} (schema v{schema_v})");
+    tracing::info!(db_path = %db_path, schema_version = %schema_v, "Knox MCP server started");
     let stdin = tokio::io::BufReader::new(tokio::io::stdin());
     let stdout = tokio::io::stdout();
     run_mcp_server_loop(
