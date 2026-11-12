@@ -12,6 +12,9 @@ target/
 .knox/
 .agents/
 .vscode/
+.freebuff/
+.taste-skill/
+.cloud-attachments/
 
 # Node & Frontend dependencies and bundles
 node_modules/
