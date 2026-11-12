@@ -160,10 +160,10 @@ export const CustomTitlebar: React.FC = () => {
 
           {/* Scope Dropdown Menu */}
           {dropdownOpen && (
-            <div className="absolute top-full left-0 mt-1.5 w-80 rounded-lg border border-border bg-card/95 backdrop-blur-xl shadow-xl p-2 z-50 space-y-1 text-xs">
-              <div className="px-2 py-1 text-2xs font-mono uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                <span>Knowledge Graph Scope</span>
-                <span className="text-2xs bg-primary/10 text-primary border border-primary/20 px-1 py-0.5 rounded-sm">
+            <div className="absolute top-full left-0 mt-1.5 w-80 rounded-lg border border-border bg-popover shadow-md p-2 z-50 space-y-1 text-xs">
+              <div className="px-2 py-1 text-xs text-muted-foreground font-medium flex items-center justify-between">
+                <span>Knowledge graph scope</span>
+                <span className="text-3xs font-mono bg-muted text-muted-foreground border border-border px-1 py-0.5 rounded-sm">
                   Single DB
                 </span>
               </div>
@@ -183,8 +183,8 @@ export const CustomTitlebar: React.FC = () => {
                 )}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="size-6 rounded-md bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
-                    <Globe className="size-3.5 text-primary" />
+                  <div className="size-6 rounded-md bg-muted border border-border flex items-center justify-center shrink-0">
+                    <Globe className="size-3.5 text-muted-foreground" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-semibold leading-tight text-foreground">Global Knowledge Graph</p>
@@ -198,8 +198,8 @@ export const CustomTitlebar: React.FC = () => {
 
               <div className="h-px bg-border my-1" />
 
-              <div className="px-2 py-0.5 text-2xs font-mono uppercase tracking-wider text-muted-foreground">
-                Project Folders (Choice KG)
+              <div className="px-2 py-0.5 text-xs text-muted-foreground font-medium">
+                Project folders
               </div>
 
               {/* Recent Projects List */}
@@ -225,8 +225,8 @@ export const CustomTitlebar: React.FC = () => {
                         }}
                         className="flex items-center gap-2.5 min-w-0 text-left flex-1 cursor-pointer"
                       >
-                        <div className="size-6 rounded-md bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
-                          <HardDrive className="size-3.5 text-primary" />
+                        <div className="size-6 rounded-md bg-muted border border-border flex items-center justify-center shrink-0">
+                          <HardDrive className="size-3.5 text-muted-foreground" />
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs font-semibold leading-tight text-foreground">{proj.name}</p>

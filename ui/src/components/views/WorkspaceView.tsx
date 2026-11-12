@@ -357,22 +357,23 @@ export const WorkspaceView: React.FC = () => {
       />
 
       {/* Connected Workspace Hero Card */}
-      <Card className="border-primary/30 bg-gradient-to-br from-card via-card to-primary/[0.04] shadow-sm relative overflow-visible">
+      <Card className="border border-border bg-card relative overflow-visible">
         <CardContent className="p-4 sm:p-5 space-y-3.5">
           {/* Top Row: Workspace Identity & Switcher */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="size-10 rounded-lg bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shrink-0 shadow-2xs">
-                <FolderGit2 className="size-5" aria-hidden />
+              <div className="size-9 rounded-md bg-muted border border-border flex items-center justify-center text-muted-foreground shrink-0">
+                <FolderGit2 className="size-4" aria-hidden />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-3xs font-mono uppercase tracking-wider text-primary font-semibold">
-                    Connected Workspace
+                  <span className="text-xs text-muted-foreground font-medium">
+                    Connected workspace
                   </span>
-                  <Badge variant="outline" className="text-3xs font-mono py-0 px-1.5 h-4 bg-primary/5 text-primary border-primary/30">
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-3xs font-medium bg-success/10 text-success border border-success/30">
+                    <span className="size-1.5 rounded-full bg-success" aria-hidden />
                     Active
-                  </Badge>
+                  </span>
                 </div>
                 <h2 className="text-base sm:text-lg font-bold text-foreground truncate mt-0.5 tracking-tight" title={currentProject.name}>
                   {currentProject.name}
@@ -387,10 +388,10 @@ export const WorkspaceView: React.FC = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
-                className="gap-1.5 text-xs h-8 border-border/80 hover:border-primary/40"
+                className="gap-1.5 text-xs h-8"
               >
                 <FolderOpen className="size-3.5 text-muted-foreground" />
-                <span>Switch Project</span>
+                <span>Switch project</span>
                 <ChevronDown
                   className={cn(
                     "size-3.5 text-muted-foreground transition-transform duration-200",
@@ -400,10 +401,10 @@ export const WorkspaceView: React.FC = () => {
               </Button>
 
               {projectDropdownOpen && (
-                <div className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 rounded-lg border border-border bg-card/95 backdrop-blur-xl shadow-xl p-2 z-50 space-y-1 text-xs">
-                  <div className="px-2 py-1 text-2xs font-mono uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                    <span>Available Workspaces</span>
-                    <span className="text-3xs font-mono">{availableProjects.length}</span>
+                <div className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 rounded-lg border border-border bg-popover shadow-md p-2 z-50 space-y-1 text-xs">
+                  <div className="px-2 py-1 text-xs text-muted-foreground font-medium flex items-center justify-between">
+                    <span>Available workspaces</span>
+                    <span className="font-mono text-3xs tabular-nums">{availableProjects.length}</span>
                   </div>
 
                   <div className="max-h-56 overflow-y-auto space-y-0.5 pr-0.5">
@@ -520,7 +521,9 @@ export const WorkspaceView: React.FC = () => {
             {/* Actions count */}
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted/60 text-foreground border border-border">
               <Activity className="size-3.5 text-primary shrink-0" aria-hidden />
-              <span>{projectActionsCount} actions recorded</span>
+              <span>
+                <span className="tabular-nums font-semibold">{projectActionsCount}</span> actions recorded
+              </span>
             </div>
           </div>
         </CardContent>
@@ -777,8 +780,8 @@ export const WorkspaceView: React.FC = () => {
 
               <div className="p-4 rounded-md border border-border bg-background flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="size-9 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
-                    <GitCommit className="size-5" aria-hidden />
+                  <div className="size-8 rounded-md bg-muted border border-border flex items-center justify-center text-muted-foreground shrink-0">
+                    <GitCommit className="size-4" aria-hidden />
                   </div>
                   <div className="min-w-0">
                     <h4 className="text-xs font-semibold text-foreground">
