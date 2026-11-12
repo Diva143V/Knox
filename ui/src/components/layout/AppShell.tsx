@@ -10,6 +10,7 @@ import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { OnboardingTourModal } from "@/components/OnboardingTourModal";
 import { SettingsModal } from "@/components/modals/SettingsModal";
 import { EditNodeModal } from "@/components/modals/EditNodeModal";
+import { StrayDbPromptModal } from "@/components/modals/StrayDbPromptModal";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Toast } from "@/components/ui/Toast";
@@ -70,6 +71,7 @@ export const AppShell: React.FC = () => {
       <OnboardingTourModal />
       <SettingsModal />
       <EditNodeModal />
+      <StrayDbPromptModal />
 
       {toast && (
         <Toast
