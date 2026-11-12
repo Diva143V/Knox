@@ -427,7 +427,7 @@ export const QueryView: React.FC = () => {
 
         {/* Cognitive Memory Facet Chips */}
         <div className="px-4 py-2 border-b border-border bg-card/40 flex items-center gap-1.5 overflow-x-auto text-xs shrink-0 select-none">
-          <span className="text-2xs uppercase tracking-wider text-muted-foreground font-mono mr-1">
+          <span className="text-xs text-muted-foreground font-medium mr-1">
             Focus:
           </span>
           <button
@@ -437,13 +437,13 @@ export const QueryView: React.FC = () => {
               setSelectedIndex(-1);
             }}
             className={cn(
-              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer",
+              "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer",
               activeFacet === "all"
-                ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                : "bg-muted/60 text-muted-foreground border-border hover:text-foreground"
+                ? "bg-primary/15 text-primary border-primary/40"
+                : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
             )}
           >
-            All ({results.length})
+            All (<span className="tabular-nums">{results.length}</span>)
           </button>
           <button
             type="button"
@@ -452,14 +452,14 @@ export const QueryView: React.FC = () => {
               setSelectedIndex(-1);
             }}
             className={cn(
-              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
+              "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5",
               activeFacet === "doubts"
-                ? "bg-amber-500 text-white border-amber-600 shadow-xs"
-                : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20"
+                ? "bg-warning/15 text-warning border-warning/40"
+                : "bg-warning/10 text-warning/80 border-warning/20 hover:text-warning"
             )}
           >
             <HelpCircle className="size-3" />
-            <span>Open Doubts ({doubtsCount})</span>
+            <span>Open Doubts (<span className="tabular-nums">{doubtsCount}</span>)</span>
           </button>
           <button
             type="button"
@@ -468,14 +468,14 @@ export const QueryView: React.FC = () => {
               setSelectedIndex(-1);
             }}
             className={cn(
-              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
+              "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5",
               activeFacet === "major"
-                ? "bg-warning text-black border-warning shadow-xs font-semibold"
-                : "bg-warning/10 text-amber-800 dark:text-warning border-warning/30 hover:bg-warning/20"
+                ? "bg-plan/15 text-plan border-plan/40"
+                : "bg-plan/10 text-plan/80 border-plan/20 hover:text-plan"
             )}
           >
             <Sparkles className="size-3" />
-            <span>Major ADRs ({majorCount})</span>
+            <span>Major ADRs (<span className="tabular-nums">{majorCount}</span>)</span>
           </button>
           <button
             type="button"
@@ -484,14 +484,14 @@ export const QueryView: React.FC = () => {
               setSelectedIndex(-1);
             }}
             className={cn(
-              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
+              "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5",
               activeFacet === "minor"
-                ? "bg-muted text-foreground border-primary/50 shadow-xs font-semibold"
-                : "bg-muted/60 text-muted-foreground border-border hover:text-foreground"
+                ? "bg-muted text-foreground border-border"
+                : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
             )}
           >
             <GitCommit className="size-3" />
-            <span>Minor Choices ({minorCount})</span>
+            <span>Minor Choices (<span className="tabular-nums">{minorCount}</span>)</span>
           </button>
           <button
             type="button"
@@ -500,14 +500,14 @@ export const QueryView: React.FC = () => {
               setSelectedIndex(-1);
             }}
             className={cn(
-              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5",
+              "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5",
               activeFacet === "dialogue"
-                ? "bg-cyan-600 text-white border-cyan-700 shadow-xs"
-                : "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20"
+                ? "bg-primary/15 text-primary border-primary/40"
+                : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
             )}
           >
             <MessageSquare className="size-3" />
-            <span>Conversations ({dialogueCount})</span>
+            <span>Conversations (<span className="tabular-nums">{dialogueCount}</span>)</span>
           </button>
         </div>
         <div

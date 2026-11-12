@@ -261,13 +261,13 @@ export const ScanView: React.FC = () => {
             </CardTitle>
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className="font-mono">
-                <span className="text-primary font-semibold">
+                <span className="text-primary font-semibold tabular-nums">
                   {scanReport.human_edits_detected}
                 </span>
                 &nbsp;human edits
               </Badge>
               <Badge variant="secondary" className="font-mono">
-                <span className="text-success font-semibold">
+                <span className="text-success font-semibold tabular-nums">
                   {scanReport.actions_recorded}
                 </span>
                 &nbsp;recorded

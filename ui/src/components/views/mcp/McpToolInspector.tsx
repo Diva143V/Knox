@@ -48,7 +48,7 @@ export const McpToolInspector: React.FC<McpToolInspectorProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <PlugZap className="size-4 text-primary" aria-hidden />
-            Registered MCP Tools ({filteredTools.length})
+            <span>Registered MCP Tools (<span className="tabular-nums">{filteredTools.length}</span>)</span>
           </h2>
           <div
             role="toolbar"

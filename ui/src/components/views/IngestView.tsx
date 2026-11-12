@@ -379,7 +379,7 @@ export const IngestView: React.FC = () => {
           <UploadCloud className="size-3.5" />
           <span>Files & Batch Drop</span>
           {queuedFiles.length > 0 && (
-            <span className="size-4 rounded-full bg-primary/20 text-primary text-3xs font-mono flex items-center justify-center font-bold">
+            <span className="size-4 rounded-full bg-primary/20 text-primary text-3xs font-mono tabular-nums flex items-center justify-center font-bold">
               {queuedFiles.length}
             </span>
           )}
@@ -446,8 +446,8 @@ export const IngestView: React.FC = () => {
                 : "border-border hover:border-primary/50 bg-card/40 hover:bg-card/70"
             )}
           >
-            <div className="size-12 rounded-xl bg-primary/10 text-primary mx-auto flex items-center justify-center border border-primary/20 shadow-xs">
-              <UploadCloud className="size-6" aria-hidden />
+            <div className="size-10 rounded-lg bg-muted text-muted-foreground mx-auto flex items-center justify-center border border-border">
+              <UploadCloud className="size-5" aria-hidden />
             </div>
             <div>
               <p className="text-sm font-semibold text-foreground">
