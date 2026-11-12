@@ -5,6 +5,7 @@ use anyhow::Context;
 use crate::cli::args::{
     AskArgs, CheckArgs, Commands, DoctorArgs, ExportArgs, HookAction, HookArgs, ImportArgs, IngestArgs, InitArgs, KnoxCli,
     MetricsArgs, MigrationAction, MigrationArgs, ModelArgs, ModelSubcommand, QueryArgs, ScanArgs, StatusArgs, TraceArgs,
+    UpdateArgs,
 };
 use crate::commands::{
     cmd_ask, cmd_check, cmd_doctor, cmd_export, cmd_hook_install, cmd_hook_uninstall, cmd_ingest, cmd_init, cmd_metrics,
@@ -46,6 +47,7 @@ pub fn dispatch(cli: KnoxCli, config: &KnoxConfig) -> anyhow::Result<()> {
         Some(Commands::Ask(args)) => handle_ask(args, &open_db(config)?),
         Some(Commands::Check(args)) => handle_check(args, &open_db(config)?),
         Some(Commands::Trace(args)) => handle_trace(args, &open_db(config)?),
+        Some(Commands::Update(args)) => handle_update(args, &open_db(config)?),
         Some(Commands::Serve(_args)) => handle_serve(config),
     }
 }
@@ -329,6 +331,22 @@ pub fn handle_hook(args: HookArgs, config: &KnoxConfig) -> anyhow::Result<()> {
                 println!("Recorded commit into action {}", id);
             }
         }
+    }
+    Ok(())
+}
+
+pub fn handle_update(args: UpdateArgs, db: &KnoxDb) -> anyhow::Result<()> {
+    let report = crate::commands::cmd_update(
+        db,
+        args.path.as_deref(),
+        args.project.as_deref(),
+        args.discover,
+    )?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("{}", crate::commands::format_update_report_table(&report));
     }
     Ok(())
 }

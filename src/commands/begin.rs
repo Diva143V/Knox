@@ -116,6 +116,55 @@ pub fn cmd_begin(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
                 actions_captured = report.actions_imported;
             }
         }
+    } else {
+        // Discovery fallback: if no transcript is configured, check for exactly one local candidate
+        let root = std::path::Path::new(&input.workspace);
+        let root_dir = if root.is_dir() {
+            Some(root.to_path_buf())
+        } else if let Ok(Some(proj)) = crate::storage::nodes::get_project(
+            db,
+            &crate::core::ids::ProjectId::from(input.workspace.as_str()),
+        ) {
+            Some(std::path::PathBuf::from(proj.path))
+        } else {
+            std::env::current_dir().ok()
+        };
+
+        if let Some(r) = root_dir.as_deref() {
+            let canonical_root = r.canonicalize().unwrap_or_else(|_| r.to_path_buf());
+            let candidates: Vec<_> = crate::ingest::detect_local_transcripts(Some(r))
+                .into_iter()
+                .filter(|c| c.source != "Git History" && std::path::Path::new(&c.path).is_file())
+                .collect();
+
+            let project_candidates: Vec<_> = candidates
+                .iter()
+                .filter(|c| {
+                    let p = std::path::Path::new(&c.path);
+                    let cp = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+                    cp.starts_with(&canonical_root)
+                })
+                .cloned()
+                .collect();
+
+            let active_candidates = if !project_candidates.is_empty() {
+                project_candidates
+            } else {
+                candidates
+            };
+
+            if active_candidates.len() == 1 {
+                let disc_path = std::path::Path::new(&active_candidates[0].path);
+                if let Ok(report) = crate::commands::ingest::cmd_ingest_incremental(
+                    disc_path,
+                    db,
+                    Some(&session.id),
+                    Some(&input.workspace),
+                ) {
+                    actions_captured = report.actions_imported;
+                }
+            }
+        }
     }
 
     let mut context = json!({

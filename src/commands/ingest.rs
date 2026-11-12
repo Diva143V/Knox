@@ -402,8 +402,18 @@ pub fn cmd_ingest_incremental(
     active_session_id: Option<&crate::core::ids::SessionId>,
     project_scope: Option<&str>,
 ) -> KnoxResult<IngestReport> {
-    if !transcript_path.exists() {
+    if !transcript_path.exists() || !transcript_path.is_file() {
         return Ok(IngestReport::default());
+    }
+
+    if let Ok(meta) = std::fs::metadata(transcript_path) {
+        if meta.len() > crate::ingest::MAX_INGEST_FILE_BYTES {
+            return Err(crate::core::error::KnoxError::InvalidInput(format!(
+                "Transcript file exceeds maximum allowed size ({} MB limit): {}",
+                crate::ingest::MAX_INGEST_FILE_BYTES / (1024 * 1024),
+                transcript_path.display()
+            )));
+        }
     }
 
     let path_key = transcript_path

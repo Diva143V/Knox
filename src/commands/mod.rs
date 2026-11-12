@@ -18,6 +18,7 @@ pub mod scan;
 pub mod status;
 pub mod trace;
 pub mod transfer;
+pub mod update;
 
 pub use ask::*;
 pub use begin::*;
@@ -37,3 +38,4 @@ pub use scan::*;
 pub use status::*;
 pub use trace::*;
 pub use transfer::*;
+pub use update::*;

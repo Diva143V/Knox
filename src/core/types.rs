@@ -609,6 +609,31 @@ pub struct IngestReport {
     pub tool_detected: String,
 }
 
+/// Summary report returned by `cmd_update` and `knox_update`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateReport {
+    /// Total count of imported actions.
+    pub actions_imported: usize,
+    /// Number of duplicate actions skipped during ingestion.
+    #[serde(default)]
+    pub duplicates_skipped: usize,
+    /// Total count of unique files referenced.
+    #[serde(default)]
+    pub files_touched: usize,
+    /// Name of the detected tool/agent format that was ingested.
+    #[serde(default)]
+    pub tool_detected: String,
+    /// Transcript file path source that was ingested.
+    #[serde(default)]
+    pub source: String,
+    /// Final line or byte offset recorded in `ingest_offsets`.
+    #[serde(default)]
+    pub offset: usize,
+    /// Rendered Markdown summary for MCP and CLI display.
+    #[serde(default)]
+    pub markdown: String,
+}
+
 /// Dry-run preview summary of a transcript before committing to the database.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct IngestPreview {

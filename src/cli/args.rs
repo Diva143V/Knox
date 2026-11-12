@@ -54,6 +54,8 @@ pub enum Commands {
     Check(CheckArgs),
     /// Trace causal ancestry or downstream impact for an action or file.
     Trace(TraceArgs),
+    /// Ingest new lines from an agent conversation transcript into project memory.
+    Update(UpdateArgs),
 }
 
 /// Arguments for `knox init`.
@@ -324,6 +326,26 @@ pub struct TraceArgs {
     pub json: bool,
 }
 
+/// Arguments for `knox update`.
+#[derive(Args, Clone, Debug, PartialEq, Eq)]
+pub struct UpdateArgs {
+    /// Explicit path to a conversation transcript file (.jsonl)
+    #[arg(long)]
+    pub path: Option<PathBuf>,
+
+    /// Scope to a specific project.
+    #[arg(short, long)]
+    pub project: Option<String>,
+
+    /// Auto-discover local transcripts if path is omitted.
+    #[arg(long, default_value_t = true)]
+    pub discover: bool,
+
+    /// Format output as JSON instead of human-readable text.
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,6 +360,20 @@ mod tests {
     fn test_parse_gui_subcommand() {
         let cli = KnoxCli::try_parse_from(["knox", "gui"]).unwrap();
         assert_eq!(cli.command, Some(Commands::Gui));
+    }
+
+    #[test]
+    fn test_parse_update_subcommand() {
+        let cli = KnoxCli::try_parse_from(["knox", "update", "--path", "transcript.jsonl", "--project", "demo", "--json"]).unwrap();
+        match cli.command {
+            Some(Commands::Update(args)) => {
+                assert_eq!(args.path, Some(PathBuf::from("transcript.jsonl")));
+                assert_eq!(args.project, Some("demo".to_string()));
+                assert!(args.discover);
+                assert!(args.json);
+            }
+            _ => panic!("Expected Update command"),
+        }
     }
 
     #[test]
