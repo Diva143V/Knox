@@ -199,6 +199,7 @@ pub fn run() {
             commands::config::reveal_db_folder,
             commands::dialog::open_file_dialog,
             commands::dialog::open_folder_dialog,
+            commands::dialog::reveal_in_explorer,
             commands::mcp::detect_mcp_configs,
             commands::mcp::deep_scan_mcp_configs,
             commands::mcp::inspect_custom_mcp_config,

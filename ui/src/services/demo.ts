@@ -348,6 +348,10 @@ export const DemoAPI = {
     return null;
   },
 
+  async revealInExplorer(path: string): Promise<void> {
+    console.info("[DemoAPI] revealInExplorer:", path);
+  },
+
   async detectMcpConfigs(): Promise<DetectedMcpApp[]> {
     return [
       {

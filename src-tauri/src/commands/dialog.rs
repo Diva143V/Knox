@@ -35,3 +35,42 @@ pub async fn open_folder_dialog(app: AppHandle) -> Result<Option<String>, String
     });
     rx.await.map_err(|e| e.to_string())
 }
+
+/// Opens the specified directory in the platform's native file explorer.
+#[tauri::command]
+pub async fn reveal_in_explorer(path: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let p = std::path::Path::new(&path);
+        if !p.exists() {
+            return Err(format!("Directory path does not exist: {}", path));
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("explorer")
+                .arg(&path)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(&path)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(&path)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

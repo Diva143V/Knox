@@ -8,6 +8,7 @@ import {
   GitCommit,
   Check,
   ChevronRight,
+  ChevronDown,
   AlertTriangle,
   Trash2,
   Database,
@@ -16,6 +17,9 @@ import {
   Globe,
   Folder,
   X,
+  Copy,
+  ExternalLink,
+  Activity,
 } from "lucide-react";
 import { KnoxAPI } from "@/services/api";
 import { useKnoxStore } from "@/store/useKnoxStore";
@@ -33,8 +37,124 @@ import { cn } from "@/lib/cn";
 type WizardStep = 1 | 2 | 3 | 4;
 
 export const WorkspaceView: React.FC = () => {
-  const { showToast, refreshData, setActiveTab, updateConfig } = useKnoxStore();
-  const [workspacePath, setWorkspacePath] = useState(".");
+  const {
+    showToast,
+    refreshData,
+    setActiveTab,
+    updateConfig,
+    activeProjectScope,
+    setProjectScope,
+    projects,
+    recentProjects,
+    addRecentProject,
+    actions,
+  } = useKnoxStore();
+
+  // Merge tracked projects and recent projects for the switcher menu
+  const availableProjects = React.useMemo(() => {
+    const map = new Map<string, { name: string; path: string; id?: string }>();
+    projects.forEach((p) => {
+      map.set(p.path.toLowerCase().replace(/\\/g, "/"), { name: p.name, path: p.path, id: p.id });
+    });
+    recentProjects.forEach((r) => {
+      const key = r.path.toLowerCase().replace(/\\/g, "/");
+      if (!map.has(key)) {
+        map.set(key, { name: r.name, path: r.path });
+      }
+    });
+    if (map.size === 0) {
+      map.set("d:/knox", { name: "Knox", path: "D:\\Knox", id: "default-knox" });
+    }
+    return Array.from(map.values());
+  }, [projects, recentProjects]);
+
+  const currentProject = React.useMemo(() => {
+    if (activeProjectScope) {
+      const match = availableProjects.find(
+        (p) => p.path.toLowerCase().replace(/\\/g, "/") === activeProjectScope.toLowerCase().replace(/\\/g, "/")
+      );
+      if (match) return match;
+      const name = activeProjectScope.replace(/\\/g, "/").split("/").filter(Boolean).pop() || activeProjectScope;
+      return { name, path: activeProjectScope, id: "active-scope" };
+    }
+    if (availableProjects.length > 0) {
+      return availableProjects[0];
+    }
+    return {
+      id: "default-knox",
+      name: "Knox",
+      path: "D:\\Knox",
+    };
+  }, [activeProjectScope, availableProjects]);
+
+  const [workspacePath, setWorkspacePath] = useState(currentProject.path || ".");
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [copiedPath, setCopiedPath] = useState(false);
+
+  useEffect(() => {
+    if (currentProject.path && (workspacePath === "." || !workspacePath)) {
+      setWorkspacePath(currentProject.path);
+    }
+  }, [currentProject.path]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setProjectDropdownOpen(false);
+      }
+    };
+    if (projectDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [projectDropdownOpen]);
+
+  const handleSelectProject = (projectPath: string) => {
+    setProjectScope(projectPath);
+    setWorkspacePath(projectPath);
+    setProjectDropdownOpen(false);
+  };
+
+  const handleCopyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(currentProject.path);
+      setCopiedPath(true);
+      showToast("Workspace path copied to clipboard");
+      setTimeout(() => setCopiedPath(false), 2000);
+    } catch (err) {
+      showToast("Failed to copy path: " + String(err), true);
+    }
+  };
+
+  const handleOpenExplorer = async () => {
+    try {
+      await KnoxAPI.revealInExplorer(currentProject.path);
+      showToast(`Opened ${currentProject.name} in file explorer`);
+    } catch (err) {
+      showToast("Could not open file explorer: " + String(err), true);
+    }
+  };
+
+  const projectActionsCount = React.useMemo(() => {
+    if (!currentProject || !actions) return 0;
+    const normProjPath = currentProject.path.toLowerCase().replace(/\\/g, "/");
+    const projName = currentProject.name.toLowerCase();
+    return actions.filter((a) => {
+      const matchFile =
+        a.files &&
+        a.files.some((f) => {
+          const normF = f.toLowerCase().replace(/\\/g, "/");
+          return normF.startsWith(normProjPath) || normF.includes(projName);
+        });
+      const matchTag = a.tags && a.tags.some((t) => t.toLowerCase() === projName);
+      const matchSummary = a.summary.toLowerCase().includes(projName);
+      return matchFile || matchTag || matchSummary;
+    }).length;
+  }, [currentProject, actions]);
+
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
   const [knoxMdContent, setKnoxMdContent] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
@@ -138,6 +258,8 @@ export const WorkspaceView: React.FC = () => {
       const folder = await KnoxAPI.openFolderDialog();
       if (folder) {
         setWorkspacePath(folder);
+        addRecentProject(folder);
+        setProjectScope(folder);
         setErrorMessage(null);
       }
     } catch (err) {
@@ -151,6 +273,8 @@ export const WorkspaceView: React.FC = () => {
       setErrorMessage(null);
       const res = await KnoxAPI.initProject(workspacePath);
       showToast(res);
+      addRecentProject(workspacePath);
+      setProjectScope(workspacePath);
       await checkStatus(workspacePath, false);
       await refreshData();
       setCurrentStep(3);
@@ -234,6 +358,176 @@ export const WorkspaceView: React.FC = () => {
         description="Initialize a repository with knox.md and optionally install the pre-commit hook that records human edits on commit."
         icon={<FolderGit2 />}
       />
+
+      {/* Connected Workspace Hero Card */}
+      <Card className="border-primary/30 bg-gradient-to-br from-card via-card to-primary/[0.04] shadow-sm relative overflow-visible">
+        <CardContent className="p-4 sm:p-5 space-y-3.5">
+          {/* Top Row: Workspace Identity & Switcher */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="size-10 rounded-lg bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shrink-0 shadow-2xs">
+                <FolderGit2 className="size-5" aria-hidden />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-3xs font-mono uppercase tracking-wider text-primary font-semibold">
+                    Connected Workspace
+                  </span>
+                  <Badge variant="outline" className="text-3xs font-mono py-0 px-1.5 h-4 bg-primary/5 text-primary border-primary/30">
+                    Active
+                  </Badge>
+                </div>
+                <h2 className="text-base sm:text-lg font-bold text-foreground truncate mt-0.5 tracking-tight" title={currentProject.name}>
+                  {currentProject.name}
+                </h2>
+              </div>
+            </div>
+
+            {/* Switch Project Dropdown */}
+            <div className="relative shrink-0" ref={dropdownRef}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+                className="gap-1.5 text-xs h-8 border-border/80 hover:border-primary/40"
+              >
+                <FolderOpen className="size-3.5 text-muted-foreground" />
+                <span>Switch Project</span>
+                <ChevronDown
+                  className={cn(
+                    "size-3.5 text-muted-foreground transition-transform duration-200",
+                    projectDropdownOpen && "rotate-180"
+                  )}
+                />
+              </Button>
+
+              {projectDropdownOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 rounded-lg border border-border bg-card/95 backdrop-blur-xl shadow-xl p-2 z-50 space-y-1 text-xs">
+                  <div className="px-2 py-1 text-2xs font-mono uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                    <span>Available Workspaces</span>
+                    <span className="text-3xs font-mono">{availableProjects.length}</span>
+                  </div>
+
+                  <div className="max-h-56 overflow-y-auto space-y-0.5 pr-0.5">
+                    {availableProjects.map((proj) => {
+                      const isSelected =
+                        currentProject.path.toLowerCase().replace(/\\/g, "/") ===
+                        proj.path.toLowerCase().replace(/\\/g, "/");
+                      return (
+                        <button
+                          key={proj.path}
+                          type="button"
+                          onClick={() => handleSelectProject(proj.path)}
+                          className={cn(
+                            "w-full flex items-center justify-between p-2 rounded-md transition-colors text-left cursor-pointer",
+                            isSelected
+                              ? "bg-primary/15 border border-primary/30 text-foreground"
+                              : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          <div className="min-w-0 pr-2 flex-1">
+                            <p className="font-semibold text-foreground truncate">{proj.name}</p>
+                            <p className="font-mono text-3xs text-muted-foreground truncate" title={proj.path}>
+                              {proj.path}
+                            </p>
+                          </div>
+                          {isSelected && <Check className="size-3.5 text-primary shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="h-px bg-border my-1" />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProjectDropdownOpen(false);
+                      handleBrowseFolder();
+                    }}
+                    className="w-full flex items-center gap-2 p-2 rounded-md hover:bg-muted text-primary transition-colors cursor-pointer font-medium text-xs"
+                  >
+                    <FolderOpen className="size-3.5 shrink-0" />
+                    <span>Browse for new folder…</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Path Box with Copy & Open Explorer actions */}
+          <div className="p-2.5 rounded-md bg-muted/50 border border-border/80 flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Folder className="size-3.5 text-muted-foreground shrink-0" aria-hidden />
+              <span className="font-mono text-foreground text-xs truncate" title={currentProject.path}>
+                {currentProject.path}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={handleCopyPath}
+                className="p-1.5 rounded-md hover:bg-card border border-transparent hover:border-border text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+                title="Copy directory path"
+              >
+                {copiedPath ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenExplorer}
+                className="p-1.5 rounded-md hover:bg-card border border-transparent hover:border-border text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+                title="Open folder in File Explorer"
+              >
+                <ExternalLink className="size-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Real-time Status Badges (knox.md, Git Hook, Actions Count) */}
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            {/* knox.md status */}
+            <div
+              className={cn(
+                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                knoxMdContent
+                  ? "bg-success/10 text-success border-success/30"
+                  : "bg-warning/10 text-warning border-warning/30"
+              )}
+            >
+              {knoxMdContent ? (
+                <CheckCircle2 className="size-3.5 shrink-0" aria-hidden />
+              ) : (
+                <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+              )}
+              <span>{knoxMdContent ? "knox.md active" : "knox.md missing"}</span>
+            </div>
+
+            {/* Hook status */}
+            <div
+              className={cn(
+                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                hookInstalled
+                  ? "bg-success/10 text-success border-success/30"
+                  : "bg-muted/70 text-muted-foreground border-border"
+              )}
+            >
+              {hookInstalled ? (
+                <Check className="size-3.5 shrink-0 text-success" aria-hidden />
+              ) : (
+                <X className="size-3.5 shrink-0" aria-hidden />
+              )}
+              <span>{hookInstalled ? "Pre-commit hook installed" : "Hook not installed"}</span>
+            </div>
+
+            {/* Actions count */}
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted/60 text-foreground border border-border">
+              <Activity className="size-3.5 text-primary shrink-0" aria-hidden />
+              <span>{projectActionsCount} actions recorded</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {config ? (
         <Card>

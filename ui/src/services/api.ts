@@ -389,6 +389,19 @@ export const KnoxAPI = {
     }
   },
 
+  async revealInExplorer(path: string): Promise<void> {
+    if (isDemo) {
+      return (await getDemoApi()).revealInExplorer(path);
+    }
+    if (!isTauri) return;
+    try {
+      await invoke("reveal_in_explorer", { path });
+    } catch (err) {
+      console.warn("Failed to reveal folder in native explorer:", err);
+      throw err;
+    }
+  },
+
   async detectMcpConfigs(): Promise<DetectedMcpApp[]> {
     if (isDemo) {
       return (await getDemoApi()).detectMcpConfigs();
