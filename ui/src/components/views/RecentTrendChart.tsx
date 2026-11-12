@@ -94,11 +94,11 @@ export const RecentTrendChart: React.FC<RecentTrendChartProps> = ({
         <div className="flex items-center gap-4 text-xs font-mono">
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <span>Total</span>
-            <span className="font-semibold text-foreground">{total7Days}</span>
+            <span className="font-semibold text-foreground tabular-nums">{total7Days}</span>
           </div>
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <span>Daily avg</span>
-            <span className="font-semibold text-foreground">{dailyAvg}</span>
+            <span className="font-semibold text-foreground tabular-nums">{dailyAvg}</span>
           </div>
         </div>
       </div>
@@ -118,21 +118,6 @@ export const RecentTrendChart: React.FC<RecentTrendChartProps> = ({
             role="img"
             aria-label={`Activity over 7 days. Total ${total7Days}, daily average ${dailyAvg}.`}
           >
-            <defs>
-              <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="0%"
-                  stopColor="var(--foreground)"
-                  stopOpacity="0.22"
-                />
-                <stop
-                  offset="100%"
-                  stopColor="var(--foreground)"
-                  stopOpacity="0"
-                />
-              </linearGradient>
-            </defs>
-
             <line
               x1={padLeft}
               y1={padTop}
@@ -160,12 +145,12 @@ export const RecentTrendChart: React.FC<RecentTrendChartProps> = ({
               strokeOpacity="0.7"
             />
 
-            <path d={areaPath} fill="url(#trendGradient)" />
+            <path d={areaPath} fill="var(--foreground)" fillOpacity="0.03" />
 
             <polyline
               fill="none"
               stroke="var(--muted-foreground)"
-              strokeWidth="1.5"
+              strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
               points={polylinePoints}

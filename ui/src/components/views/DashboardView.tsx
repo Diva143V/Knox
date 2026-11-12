@@ -663,7 +663,7 @@ export const DashboardView: React.FC = () => {
             <div
               className={cn(
                 ACTION_ROW_GRID,
-                "h-8 border-b border-rule px-4 font-mono text-3xs uppercase tracking-[0.06em] text-muted-foreground"
+                "h-8 border-b border-rule px-4 text-xs font-normal text-muted-foreground"
               )}
               aria-hidden
             >
