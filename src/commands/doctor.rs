@@ -72,6 +72,8 @@ pub struct DoctorReport {
     pub integrity_check: String,
     /// Active SQLite schema version (e.g. 9).
     pub schema_version: i32,
+    /// Proportion of actions with at least one connected graph edge (0.0 - 1.0).
+    pub relation_coverage: f64,
     /// Known or active agent/model bindings in the database or project.
     pub bound_models: Vec<String>,
     /// Status and staleness check of workspace `knox.md` protocol instructions.
@@ -237,6 +239,23 @@ pub fn cmd_doctor(db: &KnoxDb, project: Option<&str>) -> KnoxResult<DoctorReport
         }
     }
 
+    let relation_coverage: f64 = db.with_conn(|conn| {
+        let (connected_actions, total_actions): (i64, i64) = conn
+            .query_row(
+                "SELECT 
+                    (SELECT COUNT(DISTINCT a.id) FROM actions a WHERE EXISTS(SELECT 1 FROM edges e WHERE e.from_action_id = a.id OR e.to_action_id = a.id)),
+                    (SELECT COUNT(*) FROM actions)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or((0, 0));
+        if total_actions == 0 {
+            Ok(0.0)
+        } else {
+            Ok((connected_actions as f64) / (total_actions as f64))
+        }
+    })?;
+
     Ok(DoctorReport {
         empty_rate: stats.empty_rate,
         empty_breakdown: EmptyBreakdown {
@@ -253,6 +272,7 @@ pub fn cmd_doctor(db: &KnoxDb, project: Option<&str>) -> KnoxResult<DoctorReport
         page_size: storage.page_size,
         integrity_check,
         schema_version: storage.schema_version,
+        relation_coverage,
         bound_models,
         knox_md_status: Some(check_knox_md(project)),
     })
@@ -280,6 +300,10 @@ pub fn format_doctor_report(report: &DoctorReport) -> String {
             report.wal_size_bytes
         ));
     }
+    out.push_str(&format!(
+        "Relation Coverage      : {:.1}%\n",
+        report.relation_coverage * 100.0
+    ));
     out.push_str(&format!(
         "Zombie Sessions (>24h) : {}\n",
         report.zombie_sessions
@@ -356,6 +380,7 @@ mod tests {
         assert_eq!(report.schema_version, 11);
         assert_eq!(report.zombie_sessions, 0);
         assert_eq!(report.empty_rate, 0.0);
+        assert_eq!(report.relation_coverage, 0.0);
         assert!(!report.bound_models.is_empty());
 
         let text = format_doctor_report(&report);

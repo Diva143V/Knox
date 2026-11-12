@@ -279,6 +279,21 @@ Ingests new lines from agent conversation transcripts into project memory using 
 - `reverts` — Explicitly rolls back or undoes target action.
 - `resolves` — Action or decision answers and resolves a prior open doubt.
 
+Example relation in `knox_record`:
+```json
+{
+  "entries": [
+    {
+      "type": "write",
+      "summary": "Implemented auth handler",
+      "relations": [
+        { "target": "@ref:1", "type": "implements" }
+      ]
+    }
+  ]
+}
+```
+
 ### 4.2 Action Types (`action_type`)
 - `plan` — Technical roadmap or requirement breakdown.
 - `decide` — Strategic architectural choice or tradeoff evaluation.

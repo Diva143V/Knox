@@ -366,15 +366,26 @@ fn test_c3_doctor_diagnostics_and_report() {
     assert!(report.page_count > 0);
     assert!(report.page_size > 0);
     assert!(report.db_size_bytes > 0);
+    assert!(report.relation_coverage >= 0.0);
 
     // Verify formatted text output
     let text = format_doctor_report(&report);
     assert!(text.contains("=== Knox Health & Diagnostics Report ==="));
     assert!(text.contains("SQLite Integrity Check : ok"));
     assert!(text.contains("Schema Version         : v11"));
+    assert!(text.contains("Relation Coverage      :"));
     assert!(text.contains("Zombie Sessions (>24h) : 1"));
     assert!(text.contains("unsupported_edge"));
     assert!(text.contains("Query Empty Rate       : 66.67%"));
+}
+
+#[test]
+fn test_doctor_relation_coverage() {
+    let temp = tempfile::tempdir().unwrap();
+    let db_path = temp.path().join("knox.db");
+    let db = KnoxDb::open(&db_path).unwrap();
+    let report = cmd_doctor(&db, None).unwrap();
+    assert!(report.relation_coverage >= 0.0 && report.relation_coverage <= 100.0);
 }
 
 #[test]
