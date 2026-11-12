@@ -18,7 +18,7 @@ Knox acts as an external long-term memory for AI agents, providing contextual co
 - **Native Desktop GUI (Tauri v2 + React 19):** Modern, dark-first desktop experience featuring an interactive Knowledge Graph canvas, telemetry dashboard, FTS5 query console, live transcript ingestion studio, and Git human-edit scanner.
 - **Cosmos Orb Mode & Dynamic D3 Physics Simulation:** Dual-mode graph canvas allowing developers to switch between structured rectangular cards and luminous Cosmos circular nodes (`CircleNode.tsx`) with role-based glowing radial auras. Integrated continuous live D3 force physics simulation (`useLivePhysics.ts`) provides interactive node grabbing, spring-link constraints, and fluid reheat motion.
 - **Interactive Getting Started Tour with Peek Window Mode:** 9-step guided walkthrough modal (`OnboardingTourModal.tsx`) with live background tab synchronization, keyboard shortcuts, and instant "Peek Window" toggle (<kbd>P</kbd> or Eye icon) that docks into a floating bottom pill so developers can view the entire live application screen in motion without obstruction.
-- **Focused Model Context Protocol (MCP) Server (7 Tools):** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing seven high-level workflow tools — begin, context, check, trace, record, handoff, and ask. Legacy tool names are no longer routed.
+- **Focused Model Context Protocol (MCP) Server (8 Tools):** Standard JSON-RPC 2.0 stdio server (`knox serve --stdio`) exposing eight high-level workflow tools — begin, context, check, trace, record, handoff, ask, and update. Legacy tool names are no longer routed.
 - **Token-Compact Markdown Digest Engine:** Automatically formats query and context outputs into dense, high-signal Markdown digests, reducing context window token consumption compared to raw JSON envelopes (measured via knox metrics).
 - **Token-Efficiency Measurements:** The public `knox::metrics::measure_token_efficiency` helper reports estimated tool-definition and context-format tokens, plus compact/Markdown savings against serialized action JSON.
 - **Native MCP Resources & Prompts:** Exposes live architectural resources (`knox://project/overview`, `knox://decisions/active`, `knox://context/{file}`) and guided handover prompts (`/architectural-audit`, `/session-handover`).
@@ -296,7 +296,7 @@ cargo test --test test_calibration -- --nocapture
 | **Tokens / Retrieval** | `successful_tokens / hits` | Total successful retrieval queries (`hits`) | Measures average token payload emitted per successful context query. |
 | **Latency (p50 / p95)** | Percentiles of query `latency_ms` | Total queries recorded in `query_log` | Quantifies median and tail response latency in milliseconds under real workloads. |
 | **Duplicate Rate** | `duplicate_actions / total_actions` | Total recorded actions in project | Tracks cohesion and deduplication across multiple sessions and transcript ingests. |
-| **Tool Definition Footprint** | `estimate_tokens(all_tools())` | Registered MCP tools (`TOOL_COUNT = 7`) | Enforces protocol lightness (budgeted target: <= 850 tokens). |
+| **Tool Definition Footprint** | `estimate_tokens(all_tools())` | Registered MCP tools (`TOOL_COUNT = 8`) | Enforces protocol lightness (budgeted target: <= 850 tokens). |
 | **Guardrail Overlap Score** | `matched_tokens / alt_tokens` | Total content tokens in rejected alternative | Evaluates semantic overlap against prohibited ADR alternatives. Calibrated across 50 labeled pairs to empirically justify the 0.60 threshold. |
 
 ---
@@ -331,9 +331,9 @@ Knox operates an in-process, acyclic causal knowledge graph backed by SQLite WAL
 
 ---
 
-## MCP Tools Reference (7 Tools)
+## MCP Tools Reference (8 Tools)
 
-When running `knox serve`, Knox exposes 7 tools (`TOOL_COUNT = 7`) over the Model Context Protocol. Legacy tool names are no longer routed.
+When running `knox serve`, Knox exposes 8 tools (`TOOL_COUNT = 8`) over the Model Context Protocol. Legacy tool names are no longer routed.
 
 ### 1. `knox_begin`
 Resumes or starts a scoped turn session, returning active task context and handoff digests from previous sessions.
@@ -369,6 +369,11 @@ Finalizes an active work session, produces a concise handoff digest, and audits 
 Grounded technical question answering across project memory with verified citation enforcement.
 - **Inputs:** `question` (string, required), `project` (string, required), `budget` (integer, optional, default 1200), `strict_citations` (bool, optional, default true).
 - **Output:** `{ "answer": "...", "citations": [...], "grounded": true, "confidence": 0.95 }`.
+
+### 8. `knox_update`
+Ingests new lines from conversation transcripts into project memory using deterministic incremental offsets.
+- **Inputs:** `transcript_path` (string, optional), `project` (string, optional), `discover` (bool, optional, default true).
+- **Output:** `{ "actions_imported": 14, "duplicates_skipped": 3, "files_touched": 2, "tool_detected": "claude-code", "source": "...", "offset": 4821, "markdown": "..." }`.
 
 ### Database Migration Operations
 

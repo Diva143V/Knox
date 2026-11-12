@@ -37,7 +37,7 @@ pub struct KnoxMdStatus {
     pub path: Option<String>,
     /// Tool count parsed from the header or body (or census of known tools).
     pub tool_count: usize,
-    /// Number of expected tools registered in the runtime (`TOOL_COUNT = 7`).
+    /// Number of expected tools registered in the runtime (`TOOL_COUNT = 8`).
     pub expected_tool_count: usize,
     /// Tools listed in `LISTED_TOOL_NAMES` that are missing from `knox.md`.
     pub missing_tools: Vec<String>,
@@ -124,7 +124,7 @@ pub fn check_knox_md(project: Option<&str>) -> KnoxMdStatus {
         }
     }
 
-    let is_stale = !missing_tools.is_empty() || content.contains("6 tools");
+    let is_stale = !missing_tools.is_empty() || content.contains("6 tools") || content.contains("7 tools");
     let message = if is_stale {
         format!(
             "knox.md is stale: missing {} tool(s) {:?}. Run 'knox init' to refresh.",
@@ -132,7 +132,7 @@ pub fn check_knox_md(project: Option<&str>) -> KnoxMdStatus {
             missing_tools
         )
     } else {
-        "knox.md protocol reference is up to date (7 tools).".to_string()
+        format!("knox.md protocol reference is up to date ({} tools).", crate::mcp::tools::TOOL_COUNT)
     };
 
     KnoxMdStatus {
@@ -415,25 +415,25 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let knox_md_path = temp.path().join("knox.md");
 
-        // 1. Stale knox.md with only 6 tools (missing knox_ask)
-        let stale_content = "# Protocol\nKnox exposes 6 tools:\n- knox_begin\n- knox_context\n- knox_check\n- knox_trace\n- knox_record\n- knox_handoff\n";
+        // 1. Stale knox.md with only 7 tools (missing knox_update)
+        let stale_content = "# Protocol\nKnox exposes 7 tools:\n- knox_begin\n- knox_context\n- knox_check\n- knox_trace\n- knox_record\n- knox_handoff\n- knox_ask\n";
         std::fs::write(&knox_md_path, stale_content).unwrap();
 
         let status = check_knox_md(Some(temp.path().to_str().unwrap()));
         assert!(status.exists);
         assert!(status.is_stale);
-        assert_eq!(status.tool_count, 6);
-        assert!(status.missing_tools.contains(&"knox_ask".to_string()));
+        assert_eq!(status.tool_count, 7);
+        assert!(status.missing_tools.contains(&"knox_update".to_string()));
         assert!(status.message.contains("missing 1 tool(s)"));
 
-        // 2. Fresh knox.md with all 7 tools
-        let fresh_content = "# Protocol\nKnox exposes 7 tools:\n- knox_begin\n- knox_context\n- knox_check\n- knox_trace\n- knox_record\n- knox_handoff\n- knox_ask\n";
+        // 2. Fresh knox.md with all 8 tools
+        let fresh_content = "# Protocol\nKnox exposes 8 tools:\n- knox_begin\n- knox_context\n- knox_check\n- knox_trace\n- knox_record\n- knox_handoff\n- knox_ask\n- knox_update\n";
         std::fs::write(&knox_md_path, fresh_content).unwrap();
 
         let status_fresh = check_knox_md(Some(temp.path().to_str().unwrap()));
         assert!(status_fresh.exists);
         assert!(!status_fresh.is_stale);
-        assert_eq!(status_fresh.tool_count, 7);
+        assert_eq!(status_fresh.tool_count, 8);
         assert!(status_fresh.missing_tools.is_empty());
     }
 }
