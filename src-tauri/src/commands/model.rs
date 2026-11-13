@@ -155,7 +155,7 @@ pub async fn check_local_daemons() -> Result<Vec<LocalDaemonStatus>, String> {
     .map_err(|e| e.to_string())?
 }
 
-/// Asks a question or brainstorms ideas against project memory using the active model engine.
+/// Executes grounded decision intelligence queries against project memory using the active model engine.
 #[tauri::command]
 pub async fn ask_knox(
     state: State<'_, AppState>,

@@ -41,7 +41,7 @@ export const QueryView: React.FC = () => {
     refreshDataQuietly,
   } = useKnoxStore();
 
-  const [consoleMode, setConsoleMode] = useState<"table" | "brainstorm">("table");
+  const [consoleMode, setConsoleMode] = useState<"table" | "intelligence">("table");
   const [askQuestion, setAskQuestion] = useState("");
   const [isAsking, setIsAsking] = useState(false);
   const [currentAnswer, setCurrentAnswer] = useState<AskResultDto | null>(null);
@@ -201,13 +201,13 @@ export const QueryView: React.FC = () => {
     try {
       setIsSavingThought(true);
       await KnoxAPI.recordQuickThought({
-        summary: `[Brainstorm] ${currentAnswer.question}`,
+        summary: `[Decision] ${currentAnswer.question}`,
         category: "thought",
         contextSummary: currentAnswer.answer,
         actor: "human",
         project: activeProjectScope || undefined,
       });
-      showToast("Brainstorm takeaway recorded as thought!");
+      showToast("Decision takeaway recorded as thought!");
       await refreshDataQuietly();
     } catch (e) {
       showToast(`Failed to record thought: ${String(e)}`, true);
@@ -308,15 +308,15 @@ export const QueryView: React.FC = () => {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <div className="px-4 py-3 border-b border-border bg-card/40 shrink-0 flex items-center justify-between gap-4">
           <PageHeader
-            title={consoleMode === "brainstorm" ? "AI Brainstorm & Query" : "Query Console"}
+            title={consoleMode === "intelligence" ? "Decision Intelligence & Query" : "Query Console"}
             description={
-              consoleMode === "brainstorm"
-                ? "Ask natural-language questions and brainstorm architectural decisions grounded in project memory."
+              consoleMode === "intelligence"
+                ? "Ask natural-language questions and analyze architectural decisions grounded in project memory."
                 : "Full-text keyword and code symbol search across recorded actions, architectural decisions, and doubts."
             }
-            icon={consoleMode === "brainstorm" ? <Sparkles className="size-4 text-primary" /> : <Search />}
+            icon={consoleMode === "intelligence" ? <Sparkles className="size-4 text-primary" /> : <Search />}
             status={
-              consoleMode === "brainstorm" ? (
+              consoleMode === "intelligence" ? (
                 <span className="font-mono text-3xs text-primary tabular-nums px-2 py-0.5 rounded-full border border-primary/30 bg-primary/10 font-semibold">
                   Grounded Reasoning
                 </span>
@@ -346,23 +346,23 @@ export const QueryView: React.FC = () => {
             <button
               type="button"
               onClick={() => {
-                setConsoleMode("brainstorm");
+                setConsoleMode("intelligence");
                 setTimeout(() => askInputRef.current?.focus(), 50);
               }}
               className={cn(
                 "px-2.5 py-1 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 cursor-pointer",
-                consoleMode === "brainstorm"
+                consoleMode === "intelligence"
                   ? "bg-primary text-primary-foreground shadow-xs font-semibold"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
               <Sparkles className="size-3.5" />
-              <span>AI Brainstorm & Ask</span>
+              <span>Decision Intelligence & Ask</span>
             </button>
           </div>
         </div>
 
-        {consoleMode === "brainstorm" ? (
+        {consoleMode === "intelligence" ? (
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {/* Hero AI Search Bar */}
             <div className="max-w-3xl mx-auto space-y-3">
@@ -383,7 +383,7 @@ export const QueryView: React.FC = () => {
                         handleAskSubmit();
                       }
                     }}
-                    placeholder="Ask anything about past decisions, why things were built this way, or brainstorm new architectural changes..."
+                    placeholder="Ask anything about past decisions, why things were built this way, or explore architectural trade-offs..."
                     className="w-full bg-transparent text-xs sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none font-sans leading-relaxed"
                   />
                 </div>
@@ -531,7 +531,7 @@ export const QueryView: React.FC = () => {
                 {askHistory.length > 1 && (
                   <div className="pt-4 space-y-3">
                     <span className="text-2xs font-mono uppercase text-muted-foreground font-semibold">
-                      Previous Brainstorms in this Session ({askHistory.length - 1})
+                      Previous Inquiries in this Session ({askHistory.length - 1})
                     </span>
                     <div className="space-y-2">
                       {askHistory.slice(1).map((h, i) => (

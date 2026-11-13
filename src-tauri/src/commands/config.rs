@@ -294,14 +294,10 @@ pub async fn relocate_database(
 
         let old_path = cfg.kg_path.clone();
         if old_path.exists() && old_path != new_path && !new_path.exists() {
-            let _ = db.checkpoint_truncate();
-            std::fs::copy(&old_path, &new_path)
+            let new_path_str = new_path.to_string_lossy().replace('\\', "/");
+            db.conn()
+                .execute("VACUUM INTO ?1", rusqlite::params![new_path_str])
                 .map_err(|e| format!("Failed to copy database: {e}"))?;
-            let old_wal = PathBuf::from(format!("{}-wal", old_path.display()));
-            let new_wal = PathBuf::from(format!("{}-wal", new_path.display()));
-            if old_wal.exists() {
-                let _ = std::fs::copy(old_wal, new_wal);
-            }
         }
 
         // Re-open db at new path

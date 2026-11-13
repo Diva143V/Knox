@@ -97,7 +97,11 @@ pub fn sanitize_delta(delta: &mut ActionDelta) {
 
         // Enforce MAX_HUNK_BYTES ceiling
         if bounded.len() > MAX_HUNK_BYTES {
-            let mut byte_truncated = bounded[..MAX_HUNK_BYTES].to_string();
+            let split_idx = (0..=MAX_HUNK_BYTES)
+                .rev()
+                .find(|&i| bounded.is_char_boundary(i))
+                .unwrap_or(0);
+            let mut byte_truncated = bounded[..split_idx].to_string();
             byte_truncated.push_str("\n... [diff truncated: exceeded byte limit]");
             *hunk = byte_truncated;
         } else {
@@ -110,7 +114,11 @@ pub fn sanitize_delta(delta: &mut ActionDelta) {
 
         // Enforce MAX_DELETED_SNIPPET_BYTES ceiling
         if scrubbed.len() > MAX_DELETED_SNIPPET_BYTES {
-            let mut truncated = scrubbed[..MAX_DELETED_SNIPPET_BYTES].to_string();
+            let split_idx = (0..=MAX_DELETED_SNIPPET_BYTES)
+                .rev()
+                .find(|&i| scrubbed.is_char_boundary(i))
+                .unwrap_or(0);
+            let mut truncated = scrubbed[..split_idx].to_string();
             truncated.push_str("\n... [deleted code snippet truncated: exceeded byte limit]");
             *snippet = truncated;
         } else {
@@ -176,5 +184,29 @@ mod tests {
         assert!(hunk.contains("[REDACTED_SECRET]"));
         assert!(hunk.contains("... [diff truncated: exceeded line limit]"));
         assert!(hunk.lines().count() <= MAX_DIFF_LINES + 2);
+    }
+
+    #[test]
+    fn test_sanitize_delta_multibyte_utf8_truncation() {
+        let prefix = "a".repeat(MAX_HUNK_BYTES - 1);
+        let multi_byte = format!("{prefix}\u{1F600}\u{1F600}");
+
+        let mut delta = ActionDelta {
+            id: "d2".to_string(),
+            action_id: ActionId::new(),
+            file_path: "src/main.rs".to_string(),
+            change_type: DeltaChangeType::Modified,
+            old_path: None,
+            lines_added: 1,
+            lines_deleted: 0,
+            diff_hunk: Some(multi_byte),
+            deleted_code: Some("b".repeat(MAX_DELETED_SNIPPET_BYTES - 1) + "\u{1F600}\u{1F600}"),
+            deletion_reason: None,
+            created_at: Utc::now(),
+        };
+
+        sanitize_delta(&mut delta);
+        assert!(delta.diff_hunk.unwrap().contains("[diff truncated: exceeded byte limit]"));
+        assert!(delta.deleted_code.unwrap().contains("[deleted code snippet truncated: exceeded byte limit]"));
     }
 }

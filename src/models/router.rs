@@ -183,6 +183,24 @@ impl ModelRouter {
         }
     }
 
+    /// Embeds a batch of texts using the active embedding model, or fails gracefully.
+    pub fn embed_batch(&self, texts: &[String]) -> KnoxResult<Vec<Vec<f32>>> {
+        match &self.embedding {
+            Some(m) => m.embed_batch(texts),
+            None => {
+                if self.profile.kind == ModelProfileKind::Cloud && !self.profile.allow_cloud_egress {
+                    Err(KnoxError::Model(
+                        "Cloud model requests blocked: project has not enabled egress and KNOX_ALLOW_CLOUD_EGRESS is not set".to_string(),
+                    ))
+                } else {
+                    Err(KnoxError::Model(
+                        "Model profile is 'off'. Enable models via KNOX_MODEL_PROFILE or config to use embeddings.".to_string(),
+                    ))
+                }
+            }
+        }
+    }
+
     /// Re-ranks candidates; falls back to unchanged order if models are disabled or model call fails.
     pub fn rerank(&self, query: &str, candidates: &[KnoxAction]) -> KnoxResult<Vec<ScoredAction>> {
         match &self.rerank {

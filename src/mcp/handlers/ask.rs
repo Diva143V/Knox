@@ -41,7 +41,7 @@ pub struct AskCitationDto {
     pub file: Option<String>,
 }
 
-/// Structured response DTO for grounded Q&A and brainstorming.
+/// Structured response DTO for grounded Q&A and decision intelligence inquiry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AskResultDto {
     pub question: String,

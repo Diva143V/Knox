@@ -35,7 +35,15 @@ pub const KNOWN_RESOURCES: &[ResourceInfo] = &[
 /// Handles the `resources/list` MCP request.
 pub fn handle_resources_list() -> Value {
     json!({
-        "resources": KNOWN_RESOURCES
+        "resources": KNOWN_RESOURCES,
+        "resourceTemplates": [
+            {
+                "uriTemplate": "knox://context/{path}",
+                "name": "File Context",
+                "description": "Historical decisions, rationales, and actions relevant to a specific repository file path.",
+                "mimeType": "text/markdown"
+            }
+        ]
     })
 }
 

@@ -494,3 +494,28 @@ export interface AskResultDto {
   grounded: boolean;
   confidence: number;
 }
+
+export interface DoctorReport {
+  empty_rate: number;
+  empty_breakdown: {
+    no_records: number;
+    no_match: number;
+    out_of_scope: number;
+  };
+  zombie_sessions: number;
+  top_rejected_edge_types: [string, number][];
+  promotion_candidates: {
+    attempted_type: string;
+    rejection_count: number;
+    threshold: number;
+    promotion_path: string;
+  }[];
+  db_size_bytes: number;
+  wal_size_bytes: number;
+  page_count: number;
+  page_size: number;
+  integrity_check: string;
+  schema_version: number;
+  relation_coverage: number;
+  bound_models: string[];
+}

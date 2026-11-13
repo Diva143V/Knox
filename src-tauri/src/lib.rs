@@ -18,12 +18,16 @@ pub struct AppState {
     pub config: Arc<Mutex<KnoxConfig>>,
 }
 
-/// Logs a fatal startup or runtime error to stderr, temporary directory, and CWD.
+/// Logs a fatal startup or runtime error to stderr and the system temporary directory.
 fn write_fatal_error(msg: &str) {
     eprintln!("{msg}");
     let temp_log = std::env::temp_dir().join("knox-desktop-error.log");
     let _ = std::fs::write(&temp_log, msg);
-    let _ = std::fs::write("knox-desktop-error.log", msg);
+    if let Ok(cwd) = std::env::current_dir() {
+        if cwd != std::env::temp_dir() {
+            let _ = std::fs::write(cwd.join("knox-desktop-error.log"), msg);
+        }
+    }
 }
 
 /// Initializes the SQLite database or exits cleanly on fatal error.

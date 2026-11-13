@@ -742,7 +742,11 @@ fn sanitize_fts_query(input: &str) -> String {
     if words.is_empty() {
         "\"\"".to_string()
     } else {
-        words.join(" ")
+        words
+            .iter()
+            .map(|w| format!("\"{w}\""))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 
@@ -825,5 +829,11 @@ mod tests {
         let results = search_actions(&db, "intermittent latency", 10).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, action.id);
+
+        // Verify FTS5 reserved keywords and trailing operators do not cause SQLite syntax errors
+        assert!(search_actions(&db, "intermittent AND", 10).is_ok());
+        assert!(search_actions(&db, "OR", 10).is_ok());
+        assert!(search_actions(&db, "NOT", 10).is_ok());
+        assert!(search_actions(&db, "network NOT spike", 10).is_ok());
     }
 }

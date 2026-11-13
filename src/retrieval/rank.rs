@@ -70,11 +70,17 @@ pub fn rank_actions_hybrid(
         }
     }
 
-    // Embed missing actions on the fly and cache if db is available
+    // Embed missing actions on the fly via batching and cache if db is available
     let mut missing_embeddings: Vec<(ActionId, Vec<f32>)> = Vec::new();
-    for action in &actions {
-        if !embeddings.contains_key(&action.id) {
-            if let Ok(vec) = router.embed(&action.summary) {
+    let missing_actions: Vec<&KnoxAction> = actions
+        .iter()
+        .filter(|a| !embeddings.contains_key(&a.id))
+        .collect();
+
+    if !missing_actions.is_empty() {
+        let texts: Vec<String> = missing_actions.iter().map(|a| a.summary.clone()).collect();
+        if let Ok(vecs) = router.embed_batch(&texts) {
+            for (action, vec) in missing_actions.into_iter().zip(vecs.into_iter()) {
                 embeddings.insert(action.id.clone(), vec.clone());
                 missing_embeddings.push((action.id.clone(), vec));
             }

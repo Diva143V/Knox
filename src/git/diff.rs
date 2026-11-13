@@ -154,6 +154,62 @@ pub fn capture_untracked_file(
     })
 }
 
+/// Parses path pairs from a "diff --git a/<path> b/<path>" line safely, including paths with spaces.
+pub fn parse_git_diff_header(line: &str) -> (Option<String>, Option<String>) {
+    let rest = match line.strip_prefix("diff --git ") {
+        Some(r) => r.trim(),
+        None => return (None, None),
+    };
+
+    if rest.starts_with('"') {
+        let mut parts = Vec::new();
+        let mut in_quote = false;
+        let mut cur = String::new();
+        let mut escaped = false;
+        for c in rest.chars() {
+            if escaped {
+                cur.push(c);
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_quote = !in_quote;
+                if !in_quote {
+                    parts.push(cur.clone());
+                    cur.clear();
+                }
+            } else if in_quote {
+                cur.push(c);
+            }
+        }
+        if parts.len() >= 2 {
+            let a_path = parts[0].strip_prefix("a/").unwrap_or(&parts[0]).to_string();
+            let b_path = parts[1].strip_prefix("b/").unwrap_or(&parts[1]).to_string();
+            let old = if a_path != b_path { Some(a_path) } else { None };
+            return (Some(b_path), old);
+        }
+    }
+
+    if let Some(b_idx) = rest.rfind(" b/") {
+        let a_part = &rest[..b_idx];
+        let b_part = &rest[b_idx + 1..];
+        let a_path = a_part.strip_prefix("a/").unwrap_or(a_part).to_string();
+        let b_path = b_part.strip_prefix("b/").unwrap_or(b_part).to_string();
+        let old = if a_path != b_path { Some(a_path) } else { None };
+        return (Some(b_path), old);
+    }
+
+    let parts: Vec<&str> = rest.split_whitespace().collect();
+    if parts.len() >= 2 {
+        let a_path = parts[0].strip_prefix("a/").unwrap_or(parts[0]).to_string();
+        let b_path = parts[1].strip_prefix("b/").unwrap_or(parts[1]).to_string();
+        let old = if a_path != b_path { Some(a_path) } else { None };
+        return (Some(b_path), old);
+    }
+
+    (None, None)
+}
+
 /// Parses multi-file unified git diff output into individual `ActionDelta` instances.
 pub fn parse_unified_diff(action_id: &ActionId, diff_text: &str) -> Vec<ActionDelta> {
     let mut deltas = Vec::new();
@@ -222,18 +278,12 @@ pub fn parse_unified_diff(action_id: &ActionId, diff_text: &str) -> Vec<ActionDe
             in_hunk = false;
 
             // Extract file paths from "diff --git a/<path> b/<path>"
-            let parts: Vec<&str> = line
-                .strip_prefix("diff --git ")
-                .unwrap_or(line)
-                .split_whitespace()
-                .collect();
-            if parts.len() >= 2 {
-                let a_path = parts[0].strip_prefix("a/").unwrap_or(parts[0]);
-                let b_path = parts[1].strip_prefix("b/").unwrap_or(parts[1]);
-                current_file = Some(b_path.to_string());
-                if a_path != b_path {
-                    current_old_path = Some(a_path.to_string());
-                }
+            let (file, old) = parse_git_diff_header(line);
+            if let Some(f) = file {
+                current_file = Some(f);
+            }
+            if let Some(o) = old {
+                current_old_path = Some(o);
             }
         } else if line.starts_with("new file mode ") {
             current_change_type = DeltaChangeType::Added;
@@ -412,5 +462,23 @@ new file mode 100644
         assert_eq!(deltas[1].change_type, DeltaChangeType::Added);
         assert_eq!(deltas[1].lines_added, 2);
         assert_eq!(deltas[1].lines_deleted, 0);
+    }
+
+    #[test]
+    fn test_parse_unified_diff_with_spaces_in_path() {
+        let action_id = ActionId::new();
+        let diff = r#"diff --git a/docs/user guide.md b/docs/user guide.md
+index 1111111..2222222 100644
+--- a/docs/user guide.md
++++ b/docs/user guide.md
+@@ -1,2 +1,3 @@
+# User Guide
++New section
+"#;
+        let deltas = parse_unified_diff(&action_id, diff);
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(deltas[0].file_path, "docs/user guide.md");
+        assert_eq!(deltas[0].old_path, None);
+        assert_eq!(deltas[0].change_type, DeltaChangeType::Modified);
     }
 }

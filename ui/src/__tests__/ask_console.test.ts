@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DemoAPI } from "../services/demo.ts";
 
-describe("AI Brainstorm & Query Console Logic", () => {
+describe("Decision Intelligence & Query Console Logic", () => {
   it("executes natural language question and returns grounded synthesis", async () => {
     const res = await DemoAPI.askKnox("Why did we choose SQLite over Postgres?");
     assert.ok(res.answer.includes("SQLite"));
@@ -18,9 +18,9 @@ describe("AI Brainstorm & Query Console Logic", () => {
     assert.ok(res.citations.some((c) => c.action_id === "a-003"));
   });
 
-  it("records brainstorm takeaway as a persisted quick thought", async () => {
+  it("records decision takeaway as a persisted quick thought", async () => {
     const thoughtId = await DemoAPI.recordQuickThought({
-      summary: "[Brainstorm] Why SQLite?",
+      summary: "[Decision] Why SQLite?",
       category: "thought",
       contextSummary: "SQLite provides embedded zero-daemon ACID.",
       actor: "human",

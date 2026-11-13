@@ -84,7 +84,7 @@ pub fn handle_prompts_get(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
                 {}\n\n\
                 Identify any code patterns that violate these decisions, locate files that require updates, \
                 and recommend corrective actions. If an architectural decision needs to be updated or superseded, \
-                document the reasons explicitly using `knox_record_decision`.",
+                document the reasons explicitly using `knox_record`.",
                 decisions_summary
             );
 

@@ -35,7 +35,9 @@ pub(crate) fn insert_action_conn(
 
     let is_resolved_int = match action.is_resolved {
         Some(false) => 0,
-        _ => 1,
+        Some(true) => 1,
+        None if matches!(action.action_type.as_str(), "doubt" | "question") => 0,
+        None => 1,
     };
     let significance_str = action.significance.as_deref().unwrap_or("major");
 
@@ -619,7 +621,10 @@ pub fn update_action(db: &KnoxDb, params: &UpdateActionParams) -> KnoxResult<Kno
         .or(existing.significance.as_deref())
         .unwrap_or("major");
 
-    let is_resolved_bool = params.is_resolved.or(existing.is_resolved).unwrap_or(true);
+    let is_resolved_bool = params
+        .is_resolved
+        .or(existing.is_resolved)
+        .unwrap_or_else(|| !matches!(action_type, "doubt" | "question"));
     let is_resolved_int = if is_resolved_bool { 1 } else { 0 };
 
     let resolution_note = params
@@ -1150,6 +1155,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(updated2.relations.len(), 0);
+
+        // Verify open doubt preserves unresolved status on partial update
+        let doubt = KnoxAction {
+            id: ActionId::new(),
+            actor: "human".to_string(),
+            action_type: "doubt".to_string(),
+            summary: "Is SQLite WAL checkpointing thread-safe?".to_string(),
+            files: vec!["src/storage/db.rs".to_string()],
+            is_resolved: Some(false),
+            ..Default::default()
+        };
+        let doubt_id = insert_action(&db, &doubt).unwrap();
+
+        let updated_doubt = update_action(
+            &db,
+            &UpdateActionParams {
+                id: doubt_id,
+                summary: Some("Is SQLite WAL checkpointing concurrency safe across threads?".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(updated_doubt.is_resolved, Some(false));
     }
 
     #[test]

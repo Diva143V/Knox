@@ -69,22 +69,32 @@ where
     );
 
     let mut lines = reader.lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
+    loop {
+        match lines.next_line().await {
+            Ok(Some(line)) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
 
-        let shared_db_clone = shared_db.clone();
-        let trimmed_owned = trimmed.to_string();
-        let resp = tokio::task::spawn_blocking(move || {
-            handle_line(&trimmed_owned, &shared_db_clone)
-        })
-        .await
-        .map_err(|e| KnoxError::Io(std::io::Error::other(format!("MCP blocking task failed: {e}"))))?;
+                let shared_db_clone = shared_db.clone();
+                let trimmed_owned = trimmed.to_string();
+                let resp = tokio::task::spawn_blocking(move || {
+                    handle_line(&trimmed_owned, &shared_db_clone)
+                })
+                .await
+                .map_err(|e| KnoxError::Io(std::io::Error::other(format!("MCP blocking task failed: {e}"))))?;
 
-        if let Some(resp) = resp {
-            send_response(&mut writer, &resp).await?;
+                if let Some(resp) = resp {
+                    send_response(&mut writer, &resp).await?;
+                }
+            }
+            Ok(None) => break,
+            Err(e) => {
+                tracing::error!("MCP server standard input read failed: {e}");
+                timeout_handle.abort();
+                return Err(KnoxError::Io(e));
+            }
         }
     }
 

@@ -739,7 +739,7 @@ pub fn migration_consolidate(target_db: &KnoxDb, source_path: &Path) -> KnoxResu
         report.edges_moved = edges_count_after.saturating_sub(edges_count_before);
 
         // Rebuild FTS
-        let _ = tx.execute("INSERT INTO actions_fts(actions_fts) VALUES('rebuild')", []);
+        tx.execute("INSERT INTO actions_fts(actions_fts) VALUES('rebuild')", [])?;
 
         Ok(())
     })?;

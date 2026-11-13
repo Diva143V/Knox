@@ -23,6 +23,7 @@ import type {
   ModelTestResultDto,
   LocalDaemonStatus,
   AskResultDto,
+  DoctorReport,
 } from "@/types/knox";
 
 export const mockActions: KnoxAction[] = [
@@ -277,6 +278,24 @@ export const DemoAPI = {
 
   async getHookStatus(_path: string): Promise<boolean> {
     return false;
+  },
+
+  async runDoctor(_project?: string): Promise<DoctorReport> {
+    return {
+      empty_rate: 0.0,
+      empty_breakdown: { no_records: 0, no_match: 0, out_of_scope: 0 },
+      zombie_sessions: 0,
+      top_rejected_edge_types: [],
+      promotion_candidates: [],
+      db_size_bytes: 102400,
+      wal_size_bytes: 0,
+      page_count: 25,
+      page_size: 4096,
+      integrity_check: "ok",
+      schema_version: 10,
+      relation_coverage: 1.0,
+      bound_models: ["mock"],
+    };
   },
 
   async startSession(actor: string, project?: string): Promise<Session> {

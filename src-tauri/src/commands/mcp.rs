@@ -508,6 +508,26 @@ pub async fn inspect_custom_mcp_config(file_path: String) -> Result<DetectedMcpA
     .map_err(|e| e.to_string())?
 }
 
+fn atomic_write_file(path: &Path, content: &str) -> Result<(), String> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_name = format!(
+        ".{}.tmp-{}",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("knox"),
+        nonce
+    );
+    let temp_path = parent.join(temp_name);
+    fs::write(&temp_path, content)
+        .map_err(|e| format!("Failed to write temporary configuration file {}: {e}", temp_path.display()))?;
+    fs::rename(&temp_path, path).map_err(|e| {
+        let _ = fs::remove_file(&temp_path);
+        format!("Failed to atomically replace configuration file {}: {e}", path.display())
+    })
+}
+
 /// Injects Knox MCP stdio configuration into the target JSON file.
 /// If `use_system_command` is true, writes `"command": "knox"`.
 /// Otherwise, resolves active absolute path (e.g. `D:\Knox\target\release\knox.exe`).
@@ -524,11 +544,12 @@ pub async fn inject_mcp_config(
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create directories: {e}"))?;
         }
 
-        // Create a backup copy before writing
+        // Create a pristine backup copy before writing if none exists yet
         if path.exists() {
             let backup_path = path.with_extension("bak");
-            fs::copy(&path, &backup_path)
-                .map_err(|e| format!("Failed to create backup at {}: {e}", backup_path.display()))?;
+            if !backup_path.exists() {
+                let _ = fs::copy(&path, &backup_path);
+            }
         }
 
         let mut json_val: serde_json::Value = if path.exists() {
@@ -592,7 +613,7 @@ pub async fn inject_mcp_config(
         let formatted = serde_json::to_string_pretty(&json_val)
             .map_err(|e| format!("Failed to format JSON: {e}"))?;
 
-        fs::write(&path, formatted).map_err(|e| format!("Failed to write configuration: {e}"))?;
+        atomic_write_file(&path, &formatted)?;
 
         Ok(true)
     })
@@ -609,10 +630,11 @@ pub async fn remove_mcp_config(file_path: String) -> Result<bool, String> {
             return Ok(true);
         }
 
-        // Create a backup copy before writing
+        // Create a pristine backup copy before writing if none exists yet
         let backup_path = path.with_extension("bak");
-        fs::copy(&path, &backup_path)
-            .map_err(|e| format!("Failed to create backup at {}: {e}", backup_path.display()))?;
+        if !backup_path.exists() {
+            let _ = fs::copy(&path, &backup_path);
+        }
 
         let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {e}"))?;
         let mut json_val: serde_json::Value =
@@ -644,7 +666,7 @@ pub async fn remove_mcp_config(file_path: String) -> Result<bool, String> {
         let formatted = serde_json::to_string_pretty(&json_val)
             .map_err(|e| format!("Failed to format JSON: {e}"))?;
 
-        fs::write(&path, formatted).map_err(|e| format!("Failed to write configuration: {e}"))?;
+        atomic_write_file(&path, &formatted)?;
 
         Ok(true)
     })

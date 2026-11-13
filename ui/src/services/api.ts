@@ -24,6 +24,7 @@ import type {
   ModelTestResultDto,
   LocalDaemonStatus,
   AskResultDto,
+  DoctorReport,
 } from "@/types/knox";
 
 const isTauri =
@@ -275,6 +276,14 @@ export const KnoxAPI = {
     }
     ensureRuntime("getHookStatus");
     return invoke<boolean>("get_hook_status", { path });
+  },
+
+  async runDoctor(project?: string): Promise<DoctorReport> {
+    if (isDemo) {
+      return (await getDemoApi()).runDoctor(project);
+    }
+    ensureRuntime("runDoctor");
+    return invoke<DoctorReport>("run_doctor", { project: project || null });
   },
 
   async startSession(actor: string, project?: string): Promise<Session> {

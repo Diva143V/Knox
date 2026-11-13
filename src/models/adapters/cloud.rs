@@ -70,6 +70,38 @@ impl EmbeddingModel for CloudAdapter {
         )))
     }
 
+    fn embed_batch(&self, texts: &[String]) -> KnoxResult<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let payload = json!({
+            "model": self.embedding_model,
+            "input": texts,
+        });
+
+        let res = self.post_json("/embeddings", payload)?;
+        if let Some(arr) = res.get("data").and_then(|v| v.as_array()) {
+            let mut results = vec![Vec::new(); texts.len()];
+            for item in arr {
+                let idx = item.get("index").and_then(|i| i.as_u64()).map(|i| i as usize);
+                let emb = item.get("embedding").and_then(|e| e.as_array()).map(|a| {
+                    a.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect::<Vec<f32>>()
+                });
+                if let (Some(idx), Some(emb)) = (idx, emb) {
+                    if idx < results.len() {
+                        results[idx] = emb;
+                    }
+                }
+            }
+            if results.iter().all(|r| !r.is_empty()) {
+                return Ok(results);
+            }
+        }
+
+        texts.iter().map(|t| self.embed(t)).collect()
+    }
+
     fn dimension(&self) -> usize {
         1536 // Standard for text-embedding-3-small
     }
@@ -81,11 +113,16 @@ impl EmbeddingModel for CloudAdapter {
 
 impl RerankModel for CloudAdapter {
     fn rerank(&self, query: &str, candidates: &[KnoxAction]) -> KnoxResult<Vec<ScoredAction>> {
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
         let q_vec = self.embed(query)?;
 
+        let summaries: Vec<String> = candidates.iter().map(|c| c.summary.clone()).collect();
+        let cand_vecs = self.embed_batch(&summaries)?;
+
         let mut scored = Vec::with_capacity(candidates.len());
-        for candidate in candidates {
-            let cand_vec = self.embed(&candidate.summary)?;
+        for (candidate, cand_vec) in candidates.iter().zip(cand_vecs.into_iter()) {
             let sim = crate::storage::embeddings::cosine_similarity(&q_vec, &cand_vec);
             scored.push(ScoredAction {
                 action: candidate.clone(),

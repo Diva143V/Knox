@@ -35,6 +35,13 @@ pub fn truncate_to_budget(text: &str, budget: usize) -> (String, usize, bool) {
         output = candidate;
     }
 
+    if output.is_empty() && budget > 0 {
+        let max_chars = budget.saturating_mul(4);
+        let chars: String = text.chars().take(max_chars).collect();
+        let used = estimate_tokens(&chars);
+        return (chars, used, true);
+    }
+
     let used = estimate_tokens(&output);
     (output, used, true)
 }
@@ -56,5 +63,14 @@ mod tests {
     fn preserves_text_within_budget() {
         let text = "short";
         assert_eq!(truncate_to_budget(text, 10), (text.to_string(), 2, false));
+    }
+
+    #[test]
+    fn truncates_long_initial_line_sub_line() {
+        let text = "a_very_long_initial_line_that_exceeds_the_requested_budget_amount_significantly";
+        let (trimmed, used, truncated) = truncate_to_budget(text, 4);
+        assert!(!trimmed.is_empty());
+        assert!(used <= 4);
+        assert!(truncated);
     }
 }
