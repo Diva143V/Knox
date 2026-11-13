@@ -21,6 +21,8 @@ import type {
   ConsolidationReport,
   ModelSettingsDto,
   ModelTestResultDto,
+  LocalDaemonStatus,
+  AskResultDto,
 } from "@/types/knox";
 
 export const mockActions: KnoxAction[] = [
@@ -395,6 +397,70 @@ export const DemoAPI = {
       embedding_dim: 384,
       answer_preview: `[Demo] Connection operational with profile ${draft.profile}`,
       error: null,
+    };
+  },
+
+  async checkLocalDaemons(): Promise<LocalDaemonStatus[]> {
+    return [
+      { port: 11434, is_online: true, name: "Ollama" },
+      { port: 1234, is_online: false, name: "LM Studio" },
+      { port: 8080, is_online: false, name: "LocalAI" },
+    ];
+  },
+
+  async askKnox(
+    question: string,
+    _project?: string | null,
+    _filePath?: string | null
+  ): Promise<AskResultDto> {
+    const qLower = question.toLowerCase();
+    let answer =
+      "Based on project memory and recorded decisions, SQLite was chosen as Knox's primary storage engine because it provides zero-daemon embedded persistence with ACID guarantees and FTS5 full-text search without requiring external infrastructure.";
+    let citations = [
+      {
+        action_id: "a-001",
+        summary: "Initialize Knox knowledge graph with SQLite schema",
+        file: "src/storage/db.rs",
+      },
+      {
+        action_id: "a-002",
+        summary: "Decide on WAL mode and busy timeout for concurrent access",
+        file: "src/storage/mod.rs",
+      },
+    ];
+
+    if (qLower.includes("doubt") || qLower.includes("question") || qLower.includes("unresolved")) {
+      answer =
+        "The project tracks open doubts regarding multi-process lock contention under high write volume. While WAL mode enables concurrent readers, write operations remain serialized through SQLite's single writer lock.";
+      citations = [
+        {
+          action_id: "a-003",
+          summary: "Question write contention under multi-agent swarm activity",
+          file: "src/storage/sessions.rs",
+        },
+      ];
+    } else if (qLower.includes("model") || qLower.includes("profile") || qLower.includes("ai")) {
+      answer =
+        "Knox implements a 4-tier model engine (Off, Mock, Local, Cloud). Out-of-the-box it operates with zero inference (Clean-Machine promise). When configured for Local inference, it connects to Ollama on localhost:11434 with zero egress.";
+      citations = [
+        {
+          action_id: "a-004",
+          summary: "Implement ModelRouter with strict cloud zero-egress enforcement",
+          file: "src/models/router.rs",
+        },
+      ];
+    }
+
+    return {
+      question,
+      answer,
+      citations,
+      citations_count: citations.length,
+      model: demoConfigState.model_profile === "off" ? "heuristic-v2.1" : demoConfigState.model_profile,
+      latency_ms: 68,
+      candidates_evaluated: mockActions.length,
+      grounded: true,
+      confidence: 0.94,
     };
   },
 

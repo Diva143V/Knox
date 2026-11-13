@@ -22,6 +22,8 @@ import type {
   ConsolidationReport,
   ModelSettingsDto,
   ModelTestResultDto,
+  LocalDaemonStatus,
+  AskResultDto,
 } from "@/types/knox";
 
 const isTauri =
@@ -380,6 +382,31 @@ export const KnoxAPI = {
     }
     ensureRuntime("testModelConnection");
     return invoke<ModelTestResultDto>("test_model_connection", { draft });
+  },
+
+  async checkLocalDaemons(): Promise<LocalDaemonStatus[]> {
+    if (isDemo) {
+      return (await getDemoApi()).checkLocalDaemons();
+    }
+    ensureRuntime("checkLocalDaemons");
+    return invoke<LocalDaemonStatus[]>("check_local_daemons");
+  },
+
+  async askKnox(
+    question: string,
+    project?: string | null,
+    filePath?: string | null
+  ): Promise<AskResultDto> {
+    if (isDemo) {
+      return (await getDemoApi()).askKnox(question, project, filePath);
+    }
+    ensureRuntime("askKnox");
+    return invoke<AskResultDto>("ask_knox", {
+      question,
+      project: project || null,
+      filePath: filePath || null,
+      file_path: filePath || null,
+    });
   },
 
   async saveConfig(config: KnoxConfig): Promise<KnoxConfig> {

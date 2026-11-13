@@ -367,3 +367,130 @@ export interface UpdateActionPayload {
   add_relations?: ActionRelation[];
   remove_relations?: string[];
 }
+
+export interface ModelPreset {
+  id: string;
+  name: string;
+  profile: "local" | "cloud";
+  endpoint: string;
+  embeddingModel: string;
+  chatModel: string;
+  requiresApiKey: boolean;
+  defaultPort?: number;
+  description: string;
+  troubleshootHelp?: string;
+}
+
+export const LOCAL_PRESETS: ModelPreset[] = [
+  {
+    id: "ollama",
+    name: "Ollama",
+    profile: "local",
+    endpoint: "http://localhost:11434",
+    embeddingModel: "nomic-embed-text",
+    chatModel: "llama3.2",
+    requiresApiKey: false,
+    defaultPort: 11434,
+    description: "Default local daemon on port 11434 with nomic-embed-text and llama3.2.",
+    troubleshootHelp:
+      "Ensure Ollama is running (`ollama serve`) and pull models (`ollama pull nomic-embed-text && ollama pull llama3.2`).",
+  },
+  {
+    id: "lm-studio",
+    name: "LM Studio",
+    profile: "local",
+    endpoint: "http://localhost:1234/v1",
+    embeddingModel: "text-embedding-nomic-embed-text-v1.5",
+    chatModel: "meta-llama-3.1-8b-instruct",
+    requiresApiKey: false,
+    defaultPort: 1234,
+    description: "Local GUI model server on port 1234 with OpenAI-compatible /v1 endpoints.",
+    troubleshootHelp:
+      "Open LM Studio, start the Local Server on port 1234, and ensure both embedding and chat models are loaded.",
+  },
+  {
+    id: "localai",
+    name: "LocalAI / vLLM",
+    profile: "local",
+    endpoint: "http://localhost:8080/v1",
+    embeddingModel: "text-embedding-ada-002",
+    chatModel: "gpt-3.5-turbo",
+    requiresApiKey: false,
+    defaultPort: 8080,
+    description: "Self-hosted OpenAI-compatible inference server on port 8080.",
+    troubleshootHelp: "Ensure LocalAI or vLLM container is running on port 8080.",
+  },
+];
+
+export const CLOUD_PRESETS: ModelPreset[] = [
+  {
+    id: "openai",
+    name: "OpenAI",
+    profile: "cloud",
+    endpoint: "https://api.openai.com/v1",
+    embeddingModel: "text-embedding-3-small",
+    chatModel: "gpt-4o-mini",
+    requiresApiKey: true,
+    description: "Official OpenAI cloud models with high accuracy and fast embeddings.",
+    troubleshootHelp:
+      "Ensure your OpenAI API key (sk-...) has active credits and that Cloud Egress is authorized.",
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    profile: "cloud",
+    endpoint: "https://openrouter.ai/api/v1",
+    embeddingModel: "openai/text-embedding-3-small",
+    chatModel: "meta-llama/llama-3.2-3b-instruct",
+    requiresApiKey: true,
+    description: "Unified AI gateway routing to multiple frontier and open-weights models.",
+    troubleshootHelp: "Verify your OpenRouter API key and confirm credit balance at openrouter.ai.",
+  },
+  {
+    id: "groq",
+    name: "Groq",
+    profile: "cloud",
+    endpoint: "https://api.groq.com/openai/v1",
+    embeddingModel: "nomic-embed-text",
+    chatModel: "llama-3.2-3b-preview",
+    requiresApiKey: true,
+    description: "Ultra-low latency LPU cloud inference.",
+    troubleshootHelp: "Check your Groq API key at console.groq.com.",
+  },
+  {
+    id: "gemini",
+    name: "Google Gemini",
+    profile: "cloud",
+    endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    embeddingModel: "text-embedding-004",
+    chatModel: "gemini-1.5-flash",
+    requiresApiKey: true,
+    description: "Google Gemini OpenAI-compatible endpoint with fast multimodal synthesis.",
+    troubleshootHelp:
+      "Check your Gemini API key from Google AI Studio and ensure Cloud Egress is enabled.",
+  },
+];
+
+export interface LocalDaemonStatus {
+  port: number;
+  is_online: boolean;
+  name: string;
+}
+
+export interface AskCitationDto {
+  action_id: string;
+  summary: string;
+  file?: string | null;
+}
+
+export interface AskResultDto {
+  question: string;
+  answer: string;
+  citations: AskCitationDto[];
+  citations_count: number;
+  model: string;
+  latency_ms: number;
+  candidates_evaluated: number;
+  grounded: boolean;
+  confidence: number;
+}
