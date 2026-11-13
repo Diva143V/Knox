@@ -16,3 +16,4 @@ fn test_resolve_db_path_always_global() {
     let project_dir = Path::new("/some/arbitrary/project");
     assert_eq!(cfg.resolve_db_path_for(project_dir), default_global_db_path());
 }
+
