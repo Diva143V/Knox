@@ -25,6 +25,8 @@ pub struct AskParams {
     pub file_path: Option<String>,
     #[serde(default = "default_strict")]
     pub strict_citations: bool,
+    #[serde(default)]
+    pub model_profile: Option<String>,
 }
 
 fn default_strict() -> bool {
@@ -213,7 +215,10 @@ pub fn handle_ask(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         ));
     }
 
-    let config = KnoxConfig::from_env();
+    let mut config = KnoxConfig::from_env();
+    if let Some(ref profile) = input.model_profile {
+        config.model_profile = profile.clone();
+    }
     let res = execute_ask(
         db,
         &config,

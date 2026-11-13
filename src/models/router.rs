@@ -183,10 +183,27 @@ impl ModelRouter {
         }
     }
 
-    /// Re-ranks candidates; falls back to unchanged order if models are disabled.
+    /// Re-ranks candidates; falls back to unchanged order if models are disabled or model call fails.
     pub fn rerank(&self, query: &str, candidates: &[KnoxAction]) -> KnoxResult<Vec<ScoredAction>> {
         match &self.rerank {
-            Some(m) => m.rerank(query, candidates),
+            Some(m) => match m.rerank(query, candidates) {
+                Ok(scored) => Ok(scored),
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        "Rerank model failed; falling back to heuristic ordering"
+                    );
+                    Ok(candidates
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, act)| ScoredAction {
+                            action: act.clone(),
+                            score: 1.0 / (idx + 1) as f64,
+                            reason: Some(format!("unranked (model error: {err})")),
+                        })
+                        .collect())
+                }
+            },
             None => {
                 // Heuristic fallback: return candidates in incoming order with dummy score
                 Ok(candidates
@@ -202,10 +219,22 @@ impl ModelRouter {
         }
     }
 
-    /// Answers a query; falls back to deterministic extractive summary if models are disabled.
+    /// Answers a query; falls back to deterministic extractive summary if models are disabled or model call fails.
     pub fn answer(&self, request: &AskRequest, context: &[KnoxAction]) -> KnoxResult<AskResponse> {
         match &self.answering {
-            Some(m) => m.answer(request, context),
+            Some(m) => match m.answer(request, context) {
+                Ok(resp) => Ok(resp),
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        "Active model answering failed; falling back to deterministic extractive answering"
+                    );
+                    let mock = MockModelBackend::new();
+                    let mut resp = mock.answer(request, context)?;
+                    resp.model = format!("extractive-fallback (model error: {err})");
+                    Ok(resp)
+                }
+            },
             None => {
                 // Extractive fallback when models are disabled
                 let mock = MockModelBackend::new();
