@@ -573,20 +573,26 @@ export const DemoAPI = {
 
   async recordQuickThought(params: {
     summary: string;
-    category: "doubt" | "minor_decision" | "major_decision" | "thought";
+    category?: "doubt" | "minor_decision" | "major_decision" | "thought";
     actor?: string;
     contextSummary?: string;
     files?: string[];
     project?: string;
   }): Promise<string> {
     const mockId = `mock-action-${Date.now()}`;
+    const category = params.category || "thought";
     mockActions.unshift({
       id: mockId,
       actor: params.actor || "human",
-      action_type: params.category === "doubt" ? "doubt" : params.category.includes("decision") ? "decide" : "dialogue",
+      action_type:
+        category === "doubt"
+          ? "doubt"
+          : category.includes("decision")
+          ? "decide"
+          : "dialogue",
       summary: params.summary,
       files: params.files || [],
-      tags: [params.category],
+      tags: [category],
       confidence: 1.0,
       timestamp: new Date().toISOString(),
       session_id: null,

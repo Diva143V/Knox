@@ -22,8 +22,9 @@ import { Input } from "@/components/ui/Input";
 import { FilterBar } from "@/components/ui/FilterBar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonRow } from "@/components/ui/Skeleton";
+import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
-import type { KnoxAction } from "@/types/knox";
+import type { KnoxAction, AskResultDto } from "@/types/knox";
 
 const selectClass =
   "h-8 bg-background border border-border rounded-md px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring cursor-pointer font-mono";
@@ -36,7 +37,18 @@ export const QueryView: React.FC = () => {
     setSelectedAction,
     setActiveTab,
     showToast,
+    activeProjectScope,
+    refreshDataQuietly,
   } = useKnoxStore();
+
+  const [consoleMode, setConsoleMode] = useState<"table" | "brainstorm">("table");
+  const [askQuestion, setAskQuestion] = useState("");
+  const [isAsking, setIsAsking] = useState(false);
+  const [currentAnswer, setCurrentAnswer] = useState<AskResultDto | null>(null);
+  const [askHistory, setAskHistory] = useState<Array<{ question: string; result: AskResultDto }>>([]);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [isSavingThought, setIsSavingThought] = useState(false);
+  const askInputRef = useRef<HTMLTextAreaElement>(null);
 
   const [searchInput, setSearchInput] = useState("");
   const [filePath, setFilePath] = useState("");
@@ -136,6 +148,95 @@ export const QueryView: React.FC = () => {
     searchInputRef.current?.focus();
   };
 
+  const handleAskSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const q = askQuestion.trim();
+    if (!q) return;
+
+    try {
+      setIsAsking(true);
+      setAskError(null);
+      const res = await KnoxAPI.askKnox(q, activeProjectScope || undefined);
+      setCurrentAnswer(res);
+      setAskHistory((prev) => [{ question: q, result: res }, ...prev]);
+    } catch (err) {
+      setAskError(String(err));
+      showToast(String(err), true);
+    } finally {
+      setIsAsking(false);
+    }
+  };
+
+  const triggerSuggestion = (sug: string) => {
+    setAskQuestion(sug);
+    setIsAsking(true);
+    setAskError(null);
+    KnoxAPI.askKnox(sug, activeProjectScope || undefined)
+      .then((res) => {
+        setCurrentAnswer(res);
+        setAskHistory((prev) => [{ question: sug, result: res }, ...prev]);
+      })
+      .catch((err) => {
+        setAskError(String(err));
+        showToast(String(err), true);
+      })
+      .finally(() => setIsAsking(false));
+  };
+
+  const handleCitationClick = (actionId: string) => {
+    const found = actions.find((a) => a.id === actionId);
+    if (found) {
+      setSelectedAction(found);
+    } else {
+      KnoxAPI.getAction(actionId)
+        .then((act) => {
+          if (act) setSelectedAction(act);
+        })
+        .catch(() => {});
+    }
+  };
+
+  const handleSaveThought = async () => {
+    if (!currentAnswer) return;
+    try {
+      setIsSavingThought(true);
+      await KnoxAPI.recordQuickThought({
+        summary: `[Brainstorm] ${currentAnswer.question}`,
+        category: "thought",
+        contextSummary: currentAnswer.answer,
+        actor: "human",
+        project: activeProjectScope || undefined,
+      });
+      showToast("Brainstorm takeaway recorded as thought!");
+      await refreshDataQuietly();
+    } catch (e) {
+      showToast(`Failed to record thought: ${String(e)}`, true);
+    } finally {
+      setIsSavingThought(false);
+    }
+  };
+
+  const renderGroundedAnswerText = (text: string) => {
+    const parts = text.split(/(\[ref:[a-zA-Z0-9_\-]+\]|\[act-[a-zA-Z0-9_\-]+\])/g);
+    return parts.map((part, i) => {
+      const match = part.match(/\[(?:ref|act):([a-zA-Z0-9_\-]+)\]/);
+      if (match) {
+        const id = match[1];
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => handleCitationClick(id)}
+            className="inline-flex items-center font-mono text-2xs text-primary bg-primary/10 hover:bg-primary/20 px-1 py-0.5 rounded mx-0.5 cursor-pointer border border-primary/30 font-semibold align-baseline"
+          >
+            {part}
+          </button>
+        );
+      }
+      return part;
+    });
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (displayedResults.length === 0) return;
 
@@ -205,19 +306,260 @@ export const QueryView: React.FC = () => {
       aria-label="Knowledge graph search"
     >
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div className="px-4 py-3 border-b border-border bg-card/40 shrink-0">
+        <div className="px-4 py-3 border-b border-border bg-card/40 shrink-0 flex items-center justify-between gap-4">
           <PageHeader
-            title="Query Console"
-            description="Full-text keyword and code symbol search across recorded actions, architectural decisions, and doubts."
-            icon={<Search />}
+            title={consoleMode === "brainstorm" ? "AI Brainstorm & Query" : "Query Console"}
+            description={
+              consoleMode === "brainstorm"
+                ? "Ask natural-language questions and brainstorm architectural decisions grounded in project memory."
+                : "Full-text keyword and code symbol search across recorded actions, architectural decisions, and doubts."
+            }
+            icon={consoleMode === "brainstorm" ? <Sparkles className="size-4 text-primary" /> : <Search />}
             status={
-              <span className="font-mono text-3xs text-muted-foreground tabular-nums px-2 py-0.5 rounded-full border border-border bg-background">
-                {results.length} result{results.length === 1 ? "" : "s"}
-              </span>
+              consoleMode === "brainstorm" ? (
+                <span className="font-mono text-3xs text-primary tabular-nums px-2 py-0.5 rounded-full border border-primary/30 bg-primary/10 font-semibold">
+                  Grounded Reasoning
+                </span>
+              ) : (
+                <span className="font-mono text-3xs text-muted-foreground tabular-nums px-2 py-0.5 rounded-full border border-border bg-background">
+                  {results.length} result{results.length === 1 ? "" : "s"}
+                </span>
+              )
             }
           />
+
+          {/* Mode Switcher */}
+          <div className="flex items-center gap-1 p-1 bg-muted/60 rounded-lg border border-border shrink-0">
+            <button
+              type="button"
+              onClick={() => setConsoleMode("table")}
+              className={cn(
+                "px-2.5 py-1 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 cursor-pointer",
+                consoleMode === "table"
+                  ? "bg-background text-foreground shadow-xs font-semibold"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <FileText className="size-3.5" />
+              <span>Actions Explorer</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setConsoleMode("brainstorm");
+                setTimeout(() => askInputRef.current?.focus(), 50);
+              }}
+              className={cn(
+                "px-2.5 py-1 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 cursor-pointer",
+                consoleMode === "brainstorm"
+                  ? "bg-primary text-primary-foreground shadow-xs font-semibold"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Sparkles className="size-3.5" />
+              <span>AI Brainstorm & Ask</span>
+            </button>
+          </div>
         </div>
-        <form onSubmit={handleSearch}>
+
+        {consoleMode === "brainstorm" ? (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+            {/* Hero AI Search Bar */}
+            <div className="max-w-3xl mx-auto space-y-3">
+              <form
+                onSubmit={handleAskSubmit}
+                className="relative shadow-md rounded-xl border border-border bg-card/80 backdrop-blur-sm overflow-hidden focus-within:ring-2 focus-within:ring-primary/40 focus-within:border-primary transition-all"
+              >
+                <div className="p-3 sm:p-4 flex items-start gap-3">
+                  <Sparkles className="size-5 text-primary shrink-0 mt-1" />
+                  <textarea
+                    ref={askInputRef}
+                    rows={2}
+                    value={askQuestion}
+                    onChange={(e) => setAskQuestion(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleAskSubmit();
+                      }
+                    }}
+                    placeholder="Ask anything about past decisions, why things were built this way, or brainstorm new architectural changes..."
+                    className="w-full bg-transparent text-xs sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none font-sans leading-relaxed"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-t border-border/60 bg-muted/20 text-2xs">
+                  <span className="text-muted-foreground hidden sm:inline">
+                    Press <kbd className="font-mono bg-muted px-1.5 py-0.5 rounded border border-border">Enter ↵</kbd> to ask, <kbd className="font-mono bg-muted px-1.5 py-0.5 rounded border border-border">Shift+Enter</kbd> for newline
+                  </span>
+                  <div className="flex items-center gap-2 ml-auto">
+                    {askQuestion && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setAskQuestion("")}
+                        className="h-7 text-xs text-muted-foreground"
+                      >
+                        Clear
+                      </Button>
+                    )}
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      size="sm"
+                      loading={isAsking}
+                      disabled={isAsking || !askQuestion.trim()}
+                      className="gap-1.5 h-7 text-xs font-medium cursor-pointer"
+                    >
+                      <Sparkles className="size-3" />
+                      <span>{isAsking ? "Grounding…" : "Ask Knox AI"}</span>
+                    </Button>
+                  </div>
+                </div>
+              </form>
+
+              {/* Suggestion Chips */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-2xs font-mono uppercase text-muted-foreground mr-1">Suggestions:</span>
+                {[
+                  "Why did we choose SQLite over Postgres?",
+                  "What are the unresolved doubts in this project?",
+                  "Summarize recent architectural decisions and modified files",
+                  "What are the security boundaries and egress rules?",
+                ].map((sug) => (
+                  <button
+                    key={sug}
+                    type="button"
+                    onClick={() => triggerSuggestion(sug)}
+                    className="px-2.5 py-1 rounded-full text-2xs bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border border-border transition-colors cursor-pointer text-left"
+                  >
+                    {sug}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Answer Display */}
+            {askError && (
+              <div className="max-w-3xl mx-auto p-4 rounded-xl bg-danger/10 border border-danger/30 text-danger text-xs font-mono">
+                {askError}
+              </div>
+            )}
+
+            {isAsking && !currentAnswer && (
+              <div className="max-w-3xl mx-auto p-6 rounded-xl border border-border bg-card/60 space-y-3 animate-pulse">
+                <div className="h-4 bg-muted rounded w-1/3" />
+                <div className="h-3 bg-muted rounded w-full" />
+                <div className="h-3 bg-muted rounded w-5/6" />
+                <div className="h-3 bg-muted rounded w-4/6" />
+              </div>
+            )}
+
+            {currentAnswer && (
+              <div className="max-w-3xl mx-auto space-y-4 animate-in fade-in-50 duration-150">
+                {/* Result Card */}
+                <div className="p-5 rounded-xl border border-border bg-card/70 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between border-b border-border/60 pb-3 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="size-4 text-primary" />
+                      <span className="text-xs font-semibold text-foreground font-mono">
+                        Grounded Synthesis
+                      </span>
+                      <Badge variant="outline" className="text-3xs uppercase font-mono">
+                        {currentAnswer.model}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-3 text-2xs font-mono text-muted-foreground">
+                      <span>Evaluated {currentAnswer.candidates_evaluated} decisions</span>
+                      <span>•</span>
+                      <span>{currentAnswer.latency_ms}ms</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSaveThought}
+                        loading={isSavingThought}
+                        className="h-6 text-2xs gap-1 border-primary/30 hover:bg-primary/10 text-primary cursor-pointer ml-1"
+                      >
+                        <CheckCircle2 className="size-3" />
+                        <span>Record as Thought</span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Markdown Answer Text */}
+                  <div className="text-xs text-foreground leading-relaxed whitespace-pre-wrap font-sans">
+                    {renderGroundedAnswerText(currentAnswer.answer)}
+                  </div>
+
+                  {/* Citations & Evidence */}
+                  {currentAnswer.citations.length > 0 && (
+                    <div className="pt-3 border-t border-border/60 space-y-2">
+                      <div className="flex items-center gap-1.5 text-2xs font-mono uppercase text-muted-foreground font-semibold">
+                        <FileText className="size-3 text-primary" />
+                        <span>Cited Project Memory ({currentAnswer.citations.length})</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {currentAnswer.citations.map((c) => (
+                          <div
+                            key={c.action_id}
+                            onClick={() => handleCitationClick(c.action_id)}
+                            className="p-2.5 rounded-lg border border-border/70 bg-muted/30 hover:bg-muted/70 hover:border-primary/40 transition-all cursor-pointer text-left space-y-1"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono text-3xs font-semibold text-primary">
+                                {c.action_id}
+                              </span>
+                              {c.file && (
+                                <span className="text-3xs font-mono text-muted-foreground truncate max-w-[150px]">
+                                  {c.file}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-2xs text-foreground line-clamp-2">
+                              {c.summary}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Question History list */}
+                {askHistory.length > 1 && (
+                  <div className="pt-4 space-y-3">
+                    <span className="text-2xs font-mono uppercase text-muted-foreground font-semibold">
+                      Previous Brainstorms in this Session ({askHistory.length - 1})
+                    </span>
+                    <div className="space-y-2">
+                      {askHistory.slice(1).map((h, i) => (
+                        <div
+                          key={i}
+                          onClick={() => setCurrentAnswer(h.result)}
+                          className="p-3 rounded-lg border border-border bg-card/40 hover:bg-card text-xs flex items-center justify-between gap-3 cursor-pointer transition-all"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-foreground truncate">{h.question}</p>
+                            <p className="text-2xs text-muted-foreground truncate mt-0.5">
+                              {h.result.answer.slice(0, 100)}…
+                            </p>
+                          </div>
+                          <Badge variant="outline" className="font-mono text-3xs shrink-0">
+                            {h.result.citations.length} citations
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <form onSubmit={handleSearch}>
           <FilterBar
             primary={
               <>
@@ -681,7 +1023,9 @@ export const QueryView: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </>
+    )}
+  </div>
+</div>
   );
 };
