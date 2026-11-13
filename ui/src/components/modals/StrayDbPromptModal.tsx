@@ -20,11 +20,12 @@ export const StrayDbPromptModal: React.FC = () => {
     KnoxAPI.scanStrayDatabases()
       .then((detected) => {
         if (!isMounted) return;
-        if (detected.length > 0) {
+        const totalActions = detected.reduce((acc, s) => acc + s.action_count, 0);
+        if (detected.length > 0 && totalActions > 0) {
           setStrays(detected);
           setIsOpen(true);
         } else {
-          // No stray databases detected; mark as prompted so we don't scan on future launches
+          // No stray databases with pending actions detected; mark as prompted
           updateConfig({ strayDbPrompted: true }).catch(() => {});
         }
       })
@@ -64,23 +65,41 @@ export const StrayDbPromptModal: React.FC = () => {
     setIsConsolidating(true);
     let totalActions = 0;
     let totalEdges = 0;
+    let hadError = false;
 
     try {
       for (const stray of strays) {
-        const report = await KnoxAPI.consolidateStrayDatabase(stray.db_path);
-        totalActions += report.actions_moved;
-        totalEdges += report.edges_moved;
+        try {
+          const report = await KnoxAPI.consolidateStrayDatabase(stray.db_path);
+          totalActions += report.actions_moved;
+          totalEdges += report.edges_moved;
+        } catch (strayErr) {
+          console.warn(`Failed consolidating stray ${stray.db_path}:`, strayErr);
+          hadError = true;
+        }
       }
 
       await updateConfig({ strayDbPrompted: true });
-      showToast(
-        `Consolidated ${totalActions} action(s) and ${totalEdges} edge(s) into global database!`
-      );
+      if (hadError && totalActions === 0) {
+        showToast("Consolidation encountered issues. You can review them in Settings > Storage.", true);
+      } else {
+        showToast(
+          totalActions > 0 || totalEdges > 0
+            ? `Consolidated ${totalActions} action(s) and ${totalEdges} edge(s) into global database!`
+            : "No pending actions to import."
+        );
+      }
       await refreshData();
       setIsOpen(false);
     } catch (err) {
       console.error("Consolidation error:", err);
       showToast(`Consolidation error: ${String(err)}`, true);
+      try {
+        await updateConfig({ strayDbPrompted: true });
+      } catch {
+        // ignore
+      }
+      setIsOpen(false);
     } finally {
       setIsConsolidating(false);
     }

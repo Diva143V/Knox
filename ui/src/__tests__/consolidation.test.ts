@@ -14,7 +14,8 @@ function evaluateStrayPromptState(
   if (configPrompted) {
     return { shouldPrompt: false, autoMarkPrompted: false };
   }
-  if (detectedStrays.length > 0) {
+  const totalActions = detectedStrays.reduce((acc, s) => acc + s.action_count, 0);
+  if (detectedStrays.length > 0 && totalActions > 0) {
     return { shouldPrompt: true, autoMarkPrompted: false };
   }
   return { shouldPrompt: false, autoMarkPrompted: true };
@@ -52,6 +53,25 @@ describe("Stray Database Prompt & Consolidation Logic", () => {
 
   it("does not prompt and automatically marks prompted when no stray databases exist", () => {
     const evalResult = evaluateStrayPromptState(false, []);
+    assert.equal(evalResult.shouldPrompt, false);
+    assert.equal(evalResult.autoMarkPrompted, true);
+  });
+
+  it("does not prompt and automatically marks prompted when detected strays have 0 actions", () => {
+    const mockStrays: StrayDatabaseDto[] = [
+      {
+        project_path: "/workspace/empty-a",
+        db_path: "/workspace/empty-a/.knox/knox.db",
+        action_count: 0,
+      },
+      {
+        project_path: "/workspace/empty-b",
+        db_path: "/workspace/empty-b/.knox/knox.db",
+        action_count: 0,
+      },
+    ];
+
+    const evalResult = evaluateStrayPromptState(false, mockStrays);
     assert.equal(evalResult.shouldPrompt, false);
     assert.equal(evalResult.autoMarkPrompted, true);
   });
