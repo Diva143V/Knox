@@ -327,15 +327,25 @@ export const KnoxAPI = {
     }
     ensureRuntime("updateConfig");
     return invoke<KnoxConfig>("update_config", {
+      sessionTimeoutSeconds: params.sessionTimeoutSeconds,
       session_timeout_seconds: params.sessionTimeoutSeconds,
+      globalMode: params.globalMode,
       global_mode: params.globalMode,
+      kgPath: params.kgPath,
       kg_path: params.kgPath,
+      modelProfile: params.modelProfile,
       model_profile: params.modelProfile,
+      modelEndpoint: params.modelEndpoint,
       model_endpoint: params.modelEndpoint,
+      modelApiKey: params.modelApiKey,
       model_api_key: params.modelApiKey,
+      embeddingModel: params.embeddingModel,
       embedding_model: params.embeddingModel,
+      chatModel: params.chatModel,
       chat_model: params.chatModel,
+      allowCloudEgress: params.allowCloudEgress,
       allow_cloud_egress: params.allowCloudEgress,
+      strayDbPrompted: params.strayDbPrompted,
       stray_db_prompted: params.strayDbPrompted,
     });
   },

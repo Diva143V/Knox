@@ -82,6 +82,19 @@ export const mockActions: KnoxAction[] = [
   },
 ];
 
+let demoConfigState: KnoxConfig = {
+  kg_path: "~/.knox/knox.db",
+  session_timeout_seconds: 1800,
+  global_mode: true,
+  model_profile: "off",
+  model_endpoint: null,
+  model_api_key_masked: null,
+  embedding_model: null,
+  chat_model: null,
+  allow_cloud_egress: false,
+  stray_db_prompted: false,
+};
+
 export const DemoAPI = {
   async getStatus(): Promise<StatusReport> {
     return {
@@ -300,18 +313,7 @@ export const DemoAPI = {
   },
 
   async getConfig(): Promise<KnoxConfig> {
-    return {
-      kg_path: "~/.knox/knox.db",
-      session_timeout_seconds: 1800,
-      global_mode: true,
-      model_profile: "off",
-      model_endpoint: null,
-      model_api_key_masked: null,
-      embedding_model: null,
-      chat_model: null,
-      allow_cloud_egress: false,
-      stray_db_prompted: false,
-    };
+    return { ...demoConfigState };
   },
 
   async updateConfig(params: {
@@ -326,18 +328,28 @@ export const DemoAPI = {
     allowCloudEgress?: boolean;
     strayDbPrompted?: boolean;
   }): Promise<KnoxConfig> {
-    return {
-      kg_path: params.kgPath ?? "~/.knox/knox.db",
-      session_timeout_seconds: params.sessionTimeoutSeconds ?? 1800,
-      global_mode: params.globalMode ?? true,
-      model_profile: params.modelProfile ?? "off",
-      model_endpoint: params.modelEndpoint ?? null,
-      model_api_key_masked: params.modelApiKey ? "••••••••" : null,
-      embedding_model: params.embeddingModel ?? null,
-      chat_model: params.chatModel ?? null,
-      allow_cloud_egress: params.allowCloudEgress ?? false,
-      stray_db_prompted: params.strayDbPrompted ?? false,
+    demoConfigState = {
+      ...demoConfigState,
+      ...(params.kgPath !== undefined && { kg_path: params.kgPath }),
+      ...(params.sessionTimeoutSeconds !== undefined && {
+        session_timeout_seconds: params.sessionTimeoutSeconds,
+      }),
+      ...(params.globalMode !== undefined && { global_mode: params.globalMode }),
+      ...(params.modelProfile !== undefined && { model_profile: params.modelProfile }),
+      ...(params.modelEndpoint !== undefined && { model_endpoint: params.modelEndpoint }),
+      ...(params.modelApiKey !== undefined && {
+        model_api_key_masked: params.modelApiKey ? "••••••••" : null,
+      }),
+      ...(params.embeddingModel !== undefined && { embedding_model: params.embeddingModel }),
+      ...(params.chatModel !== undefined && { chat_model: params.chatModel }),
+      ...(params.allowCloudEgress !== undefined && {
+        allow_cloud_egress: params.allowCloudEgress,
+      }),
+      ...(params.strayDbPrompted !== undefined && {
+        stray_db_prompted: params.strayDbPrompted,
+      }),
     };
+    return { ...demoConfigState };
   },
 
   async saveConfig(config: KnoxConfig): Promise<KnoxConfig> {
