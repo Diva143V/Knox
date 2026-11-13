@@ -370,7 +370,13 @@ pub fn migration_consolidate(target_db: &KnoxDb, source_path: &Path) -> KnoxResu
     target_db.with_tx(|tx| {
         // 1. Projects mapping
         let mut project_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-        let mut project_stmt = src_conn.prepare("SELECT id, name, path, remote, created_at FROM projects")?;
+        let has_remote = has_column(&src_conn, "projects", "remote")?;
+        let proj_sql = if has_remote {
+            "SELECT id, name, path, remote, created_at FROM projects"
+        } else {
+            "SELECT id, name, path, NULL, created_at FROM projects"
+        };
+        let mut project_stmt = src_conn.prepare(proj_sql)?;
         let project_rows = project_stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -435,14 +441,38 @@ pub fn migration_consolidate(target_db: &KnoxDb, source_path: &Path) -> KnoxResu
 
         // 3. Actions migration with deduplication
         let mut action_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-        let mut action_stmt = src_conn.prepare(
+        let has_rationale = has_column(&src_conn, "actions", "rationale")?;
+        let has_context_summary = has_column(&src_conn, "actions", "context_summary")?;
+        let has_rejected_alternatives = has_column(&src_conn, "actions", "rejected_alternatives")?;
+        let has_significance = has_column(&src_conn, "actions", "significance")?;
+        let has_is_resolved = has_column(&src_conn, "actions", "is_resolved")?;
+        let has_resolution_note = has_column(&src_conn, "actions", "resolution_note")?;
+        let has_commit_sha = has_column(&src_conn, "actions", "commit_sha")?;
+        let has_project_id = has_column(&src_conn, "actions", "project_id")?;
+        let has_timestamp_ms = has_column(&src_conn, "actions", "timestamp_ms")?;
+        let has_dedupe_key = has_column(&src_conn, "actions", "dedupe_key")?;
+        let has_seen_count = has_column(&src_conn, "actions", "seen_count")?;
+
+        let action_sql = format!(
             "SELECT id, actor, action_type, summary, confidence, timestamp,
                     session_id, parent_action_id, superseded_by, is_current,
-                    rationale, context_summary, rejected_alternatives,
-                    significance, is_resolved, resolution_note, commit_sha,
-                    project_id, timestamp_ms, dedupe_key, seen_count
-             FROM actions ORDER BY timestamp ASC"
-        )?;
+                    {}, {}, {},
+                    {}, {}, {}, {},
+                    {}, {}, {}, {}
+             FROM actions ORDER BY timestamp ASC",
+            if has_rationale { "rationale" } else { "NULL" },
+            if has_context_summary { "context_summary" } else { "NULL" },
+            if has_rejected_alternatives { "rejected_alternatives" } else { "NULL" },
+            if has_significance { "significance" } else { "'major'" },
+            if has_is_resolved { "is_resolved" } else { "1" },
+            if has_resolution_note { "resolution_note" } else { "NULL" },
+            if has_commit_sha { "commit_sha" } else { "NULL" },
+            if has_project_id { "project_id" } else { "NULL" },
+            if has_timestamp_ms { "timestamp_ms" } else { "NULL" },
+            if has_dedupe_key { "dedupe_key" } else { "NULL" },
+            if has_seen_count { "seen_count" } else { "1" },
+        );
+        let mut action_stmt = src_conn.prepare(&action_sql)?;
         let action_rows = action_stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -603,11 +633,43 @@ pub fn migration_consolidate(target_db: &KnoxDb, source_path: &Path) -> KnoxResu
             }
         }
 
-        // 5. Edges
+        // 5. Polymorphic refs
+        if has_table(&src_conn, "refs")? {
+            let mut stmt = src_conn.prepare("SELECT id, kind, value, project_id, created_at FROM refs")?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, String>(4)?,
+                ))
+            })?;
+            for r in rows {
+                let (id, kind, value, project_id, created_at) = r?;
+                let remapped_proj_id = project_id.and_then(|p| project_map.get(&p).cloned().or(Some(p)));
+                tx.execute(
+                    "INSERT OR IGNORE INTO refs (id, kind, value, project_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![id, kind, value, remapped_proj_id, created_at],
+                )?;
+            }
+        }
+
+        // 6. Edges
         if has_table(&src_conn, "edges")? {
-            let mut stmt = src_conn.prepare(
-                "SELECT id, from_action_id, to_id, edge_type, created_at, label, provenance, note FROM edges"
-            )?;
+            let has_to_id = has_column(&src_conn, "edges", "to_id")?;
+            let has_label = has_column(&src_conn, "edges", "label")?;
+            let has_provenance = has_column(&src_conn, "edges", "provenance")?;
+            let has_note = has_column(&src_conn, "edges", "note")?;
+
+            let edge_sql = format!(
+                "SELECT id, from_action_id, {}, edge_type, created_at, {}, {}, {} FROM edges",
+                if has_to_id { "to_id" } else { "to_action_id" },
+                if has_label { "label" } else { "NULL" },
+                if has_provenance { "provenance" } else { "NULL" },
+                if has_note { "note" } else { "NULL" },
+            );
+            let mut stmt = src_conn.prepare(&edge_sql)?;
             let rows = stmt.query_map([], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
@@ -624,16 +686,34 @@ pub fn migration_consolidate(target_db: &KnoxDb, source_path: &Path) -> KnoxResu
                 let (edge_id, from_id, to_id, edge_type, created_at, label, provenance, note) = r?;
                 if let Some(target_from) = action_map.get(&from_id) {
                     let target_to = action_map.get(&to_id).cloned().unwrap_or(to_id);
-                    tx.execute(
-                        "INSERT OR IGNORE INTO edges (id, from_action_id, to_id, edge_type, created_at, label, provenance, note)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                        params![edge_id, target_from, target_to, edge_type, created_at, label, provenance, note],
-                    )?;
+
+                    // Normalize legacy edge types (e.g. 'follows' -> 'caused_by')
+                    let normalized_edge_type = match edge_type.as_str() {
+                        "follows" => "caused_by",
+                        "caused_by" | "contradicts" | "implements" | "depends_on" | "verifies"
+                        | "relates_to" | "reverts" | "supersedes" | "resolves" => edge_type.as_str(),
+                        _ => "relates_to",
+                    };
+
+                    // Guard against orphan to_id violating edges_bi_check_to_id trigger
+                    let to_exists: bool = tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM actions WHERE id = ?1 UNION ALL SELECT 1 FROM refs WHERE id = ?1)",
+                        params![target_to],
+                        |r| r.get(0),
+                    ).unwrap_or(false);
+
+                    if to_exists {
+                        tx.execute(
+                            "INSERT OR IGNORE INTO edges (id, from_action_id, to_id, edge_type, created_at, label, provenance, note)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                            params![edge_id, target_from, target_to, normalized_edge_type, created_at, label, provenance, note],
+                        )?;
+                    }
                 }
             }
         }
 
-        // 6. action_relations
+        // 7. action_relations
         if has_table(&src_conn, "action_relations")? {
             let mut stmt = src_conn.prepare("SELECT from_action_id, to_action_id, relation_type FROM action_relations")?;
             let rows = stmt.query_map([], |r| {
