@@ -206,6 +206,8 @@ pub fn run() {
             commands::config::consolidate_stray_database,
             commands::config::relocate_database,
             commands::model::test_model_connection,
+            commands::model::check_local_daemons,
+            commands::model::ask_knox,
             commands::dialog::open_file_dialog,
             commands::dialog::open_folder_dialog,
             commands::dialog::reveal_in_explorer,

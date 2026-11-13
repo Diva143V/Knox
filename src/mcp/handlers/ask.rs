@@ -3,7 +3,7 @@
 //! Synthesizes grounded answers to technical questions across project memory
 //! with verified citations, prompt injection defense, and clean fallbacks.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::core::config::KnoxConfig;
@@ -31,51 +31,75 @@ fn default_strict() -> bool {
     true
 }
 
-/// Executes `knox_ask`.
-pub fn handle_ask(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
-    let start_time = std::time::Instant::now();
-    let input: AskParams = serde_json::from_value(params)
-        .map_err(|e| KnoxError::InvalidInput(format!("Failed to parse knox_ask parameters: {e}")))?;
+/// DTO for a verified citation within an answer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AskCitationDto {
+    pub action_id: String,
+    pub summary: String,
+    pub file: Option<String>,
+}
 
-    if input.question.trim().is_empty() {
+/// Structured response DTO for grounded Q&A and brainstorming.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AskResultDto {
+    pub question: String,
+    pub answer: String,
+    pub citations: Vec<AskCitationDto>,
+    pub citations_count: usize,
+    pub model: String,
+    pub latency_ms: u64,
+    pub candidates_evaluated: usize,
+    pub grounded: bool,
+    pub confidence: f64,
+}
+
+/// Core logic for executing grounded ask query, reusable by both MCP and Tauri commands.
+pub fn execute_ask(
+    db: &KnoxDb,
+    config: &KnoxConfig,
+    question: &str,
+    project_input: Option<&str>,
+    file_path: Option<&str>,
+    strict_citations: bool,
+) -> KnoxResult<AskResultDto> {
+    let start_time = std::time::Instant::now();
+    let trimmed_question = question.trim();
+    if trimmed_question.is_empty() {
         return Err(KnoxError::InvalidInput(
             "'question' parameter cannot be empty".to_string(),
         ));
     }
 
-    // 1. Enforce project scope (Workstream C)
-    let project_id = match input.project.as_deref() {
-        Some(p) => resolve_project_identifier(db, p)?,
-        None => {
-            return Err(KnoxError::NoScope(
-                "no project scope provided — pass `project` to scope the call".to_string(),
-            ));
-        }
+    // Resolve project scope if provided, or fallback to most recent project
+    let project_id = match project_input {
+        Some(p) if !p.trim().is_empty() => resolve_project_identifier(db, p)?,
+        _ => crate::storage::list_projects(db)
+            .ok()
+            .and_then(|list| list.into_iter().next().map(|p| p.id.as_str().to_string())),
     };
 
-    // 2. Retrieve candidate actions from project memory
+    // 1. Retrieve candidate actions from project memory
     let filter = crate::core::types::QueryFilter {
         project: project_id.clone(),
-        file_path: input.file_path.clone(),
+        file_path: file_path.map(str::to_string),
         limit: 30,
         ..Default::default()
     };
 
     let mut candidates = query_actions(db, &filter)?.results;
 
-    // 3. Prompt injection defense: sanitize question
-    let sanitized_question = sanitize_prompt(&input.question);
+    // 2. Prompt injection defense: sanitize question
+    let sanitized_question = sanitize_prompt(trimmed_question);
 
     let ask_req = AskRequest {
         question: sanitized_question.clone(),
-        file_path: input.file_path.clone(),
+        file_path: file_path.map(str::to_string),
         project: project_id.clone(),
-        strict_citations: input.strict_citations,
+        strict_citations,
     };
 
-    // 4. ModelRouter resolution & embedding-based search if active (fails closed on cloud without egress)
-    let config = KnoxConfig::from_env();
-    let router = ModelRouter::for_project(&config, Some(db), project_id.as_deref());
+    // 3. ModelRouter resolution & embedding-based search if active
+    let router = ModelRouter::for_project(config, Some(db), project_id.as_deref());
     router.check_egress()?;
 
     if router.is_enabled() {
@@ -90,7 +114,7 @@ pub fn handle_ask(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
                 let sim_ids: Vec<ActionId> = similar.into_iter().map(|(id, _)| id).collect();
                 if let Ok(extra_actions) = crate::storage::queries::get_actions_by_ids(db, &sim_ids) {
                     for act in extra_actions {
-                        if act.project_id.as_ref().map(|p| p.as_str()) == project_id.as_deref()
+                        if (project_id.is_none() || act.project_id.as_ref().map(|p| p.as_str()) == project_id.as_deref())
                             && !candidates.iter().any(|c| c.id == act.id)
                         {
                             candidates.push(act);
@@ -101,24 +125,26 @@ pub fn handle_ask(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         }
     }
 
-    // 5. Rank candidates by relevance to the question
+    let candidates_count = candidates.len();
+
+    // 4. Rank candidates by relevance to the question
     let ranked = rank_actions_hybrid(
         candidates,
-        input.file_path.as_deref(),
+        file_path,
         &[],
         Some(&sanitized_question),
         Some(&router),
         Some(db),
     );
 
-    // 6. Answer generation via ModelRouter
+    // 5. Answer generation via ModelRouter
     let mut resp = router.answer(&ask_req, &ranked)?;
 
-    // 7. Citation verification
+    // 6. Citation verification
     let valid_ids: std::collections::HashSet<ActionId> =
         ranked.iter().map(|a| a.id.clone()).collect();
 
-    if input.strict_citations {
+    if strict_citations {
         resp.citations.retain(|c| valid_ids.contains(&c.action_id));
         resp.answer = filter_hallucinated_citations(&resp.answer, &valid_ids);
     }
@@ -142,13 +168,68 @@ pub fn handle_ask(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
         },
     );
 
+    let citations_dto: Vec<AskCitationDto> = resp
+        .citations
+        .into_iter()
+        .map(|c| AskCitationDto {
+            action_id: c.action_id.as_str().to_string(),
+            summary: c.summary,
+            file: c.file,
+        })
+        .collect();
+
+    let citations_count = citations_dto.len();
+    let grounded = resp.grounded && citations_count > 0;
+
+    Ok(AskResultDto {
+        question: trimmed_question.to_string(),
+        answer: resp.answer,
+        citations: citations_dto,
+        citations_count,
+        model: resp.model,
+        latency_ms,
+        candidates_evaluated: candidates_count,
+        grounded,
+        confidence: resp.confidence,
+    })
+}
+
+/// Executes `knox_ask`.
+pub fn handle_ask(db: &KnoxDb, params: Value) -> KnoxResult<Value> {
+    let input: AskParams = serde_json::from_value(params)
+        .map_err(|e| KnoxError::InvalidInput(format!("Failed to parse knox_ask parameters: {e}")))?;
+
+    if input.question.trim().is_empty() {
+        return Err(KnoxError::InvalidInput(
+            "'question' parameter cannot be empty".to_string(),
+        ));
+    }
+
+    // 1. Enforce project scope (Workstream C for MCP agents)
+    let project_str = input.project.as_deref().unwrap_or("").trim();
+    if project_str.is_empty() {
+        return Err(KnoxError::NoScope(
+            "no project scope provided — pass `project` to scope the call".to_string(),
+        ));
+    }
+
+    let config = KnoxConfig::from_env();
+    let res = execute_ask(
+        db,
+        &config,
+        &input.question,
+        Some(project_str),
+        input.file_path.as_deref(),
+        input.strict_citations,
+    )?;
+
     Ok(json!({
-        "question": input.question,
-        "answer": resp.answer,
-        "citations": resp.citations,
-        "citations_count": resp.citations.len(),
-        "grounded": resp.grounded && !resp.citations.is_empty(),
-        "model": resp.model,
+        "question": res.question,
+        "answer": res.answer,
+        "citations": res.citations,
+        "citations_count": res.citations_count,
+        "grounded": res.grounded,
+        "model": res.model,
     }))
 }
 

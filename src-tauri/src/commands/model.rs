@@ -1,12 +1,21 @@
 //! IPC command handler for model configuration testing.
 
 use knox::core::config::KnoxConfig;
+use knox::mcp::handlers::ask::{execute_ask, AskResultDto};
 use knox::models::router::ModelRouter;
 use knox::models::traits::AskRequest;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::AppState;
+
+/// Status for a detected local model daemon (Ollama, LM Studio, etc.).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalDaemonStatus {
+    pub port: u16,
+    pub is_online: bool,
+    pub name: String,
+}
 
 /// Form draft values passed from ModelTab when testing connectivity.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -125,6 +134,56 @@ pub async fn test_model_connection(
         .map_err(|e| e.to_string())?
 }
 
+/// Probes localhost ports for active local LLM daemons (Ollama, LM Studio, LocalAI).
+#[tauri::command]
+pub async fn check_local_daemons() -> Result<Vec<LocalDaemonStatus>, String> {
+    tokio::task::spawn_blocking(|| {
+        let targets = [(11434, "Ollama"), (1234, "LM Studio"), (8080, "LocalAI")];
+        let mut res = Vec::new();
+        for (port, name) in targets {
+            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+            let is_online = std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(150)).is_ok();
+            res.push(LocalDaemonStatus {
+                port,
+                is_online,
+                name: name.to_string(),
+            });
+        }
+        Ok(res)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Asks a question or brainstorms ideas against project memory using the active model engine.
+#[tauri::command]
+pub async fn ask_knox(
+    state: State<'_, AppState>,
+    question: String,
+    project: Option<String>,
+    file_path: Option<String>,
+) -> Result<AskResultDto, String> {
+    let db_arc = state.db.clone();
+    let cfg_arc = state.config.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let db = db_arc.blocking_lock();
+        let cfg = cfg_arc.blocking_lock();
+
+        execute_ask(
+            &db,
+            &cfg,
+            &question,
+            project.as_deref(),
+            file_path.as_deref(),
+            true,
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,6 +219,41 @@ mod tests {
         let res = test_model_connection_impl(stored_secret, draft).unwrap();
         assert!(res.success);
         assert!(res.embedding_ok);
+    }
+
+    #[tokio::test]
+    async fn test_check_local_daemons() {
+        let daemons = check_local_daemons().await.unwrap();
+        assert_eq!(daemons.len(), 3);
+        assert_eq!(daemons[0].name, "Ollama");
+        assert_eq!(daemons[0].port, 11434);
+        assert_eq!(daemons[1].name, "LM Studio");
+        assert_eq!(daemons[1].port, 1234);
+        assert_eq!(daemons[2].name, "LocalAI");
+        assert_eq!(daemons[2].port, 8080);
+    }
+
+    #[test]
+    fn test_execute_ask_mock() {
+        use knox::storage::db::KnoxDb;
+        let db = KnoxDb::open_memory().unwrap();
+        let cfg = KnoxConfig {
+            model_profile: "mock".to_string(),
+            ..Default::default()
+        };
+
+        let res = execute_ask(
+            &db,
+            &cfg,
+            "Why did we use SQLite for the knowledge graph?",
+            None,
+            None,
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(res.model, "mock-deterministic-v1");
+        assert!(!res.answer.is_empty());
     }
 }
 
