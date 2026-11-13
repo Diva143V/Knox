@@ -69,7 +69,9 @@ export interface Project {
   id: string;
   name: string;
   path: string;
+  remote?: string | null;
   created_at: string;
+  egress?: boolean;
 }
 
 export interface StatusReport {

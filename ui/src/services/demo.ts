@@ -230,8 +230,13 @@ export const DemoAPI = {
         name: "Knox",
         path: "D:\\Knox",
         created_at: new Date().toISOString(),
+        egress: false,
       },
     ];
+  },
+
+  async setProjectEgress(_projectId: string, _allowed: boolean): Promise<void> {
+    return;
   },
 
   async scanStaged(_project?: string): Promise<ScanReport> {

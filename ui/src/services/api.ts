@@ -227,6 +227,14 @@ export const KnoxAPI = {
     return invoke<Project[]>("get_projects");
   },
 
+  async setProjectEgress(projectId: string, allowed: boolean): Promise<void> {
+    if (isDemo) {
+      return (await getDemoApi()).setProjectEgress(projectId, allowed);
+    }
+    ensureRuntime("setProjectEgress");
+    return invoke<void>("set_project_egress", { projectId, allowed });
+  },
+
   async scanStaged(project?: string): Promise<ScanReport> {
     if (isDemo) {
       return (await getDemoApi()).scanStaged(project);

@@ -2,10 +2,10 @@ import React, { useState, useEffect } from "react";
 import {
   BrainCircuit,
   Server,
-  ShieldAlert,
   Play,
   Sparkles,
   Lock,
+  CheckCircle2,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { KnoxAPI } from "@/services/api";
@@ -26,7 +26,6 @@ export const ModelTab: React.FC = () => {
 
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<ModelTestResultDto | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
 
   useEffect(() => {
@@ -45,6 +44,63 @@ export const ModelTab: React.FC = () => {
       .then(setProjects)
       .catch((e) => console.warn("Failed to load projects for egress:", e));
   }, []);
+
+  const handleProfileSelect = async (newProfile: string) => {
+    setProfile(newProfile);
+    try {
+      await updateConfig({ modelProfile: newProfile });
+      showToast(`Model profile updated to ${newProfile.toUpperCase()}`);
+    } catch (e) {
+      console.warn("Failed to auto-save profile:", e);
+    }
+  };
+
+  const handleToggleCloudEgress = async (val: boolean) => {
+    setAllowCloudEgress(val);
+    try {
+      await updateConfig({ allowCloudEgress: val });
+      showToast(
+        val
+          ? "Global cloud egress authorized: outbound requests permitted across all projects."
+          : "Global cloud egress revoked: repositories restricted by per-project policy."
+      );
+    } catch (e) {
+      showToast(String(e), true);
+    }
+  };
+
+  const handleFieldBlur = async () => {
+    try {
+      await updateConfig({
+        modelEndpoint: endpoint.trim() || null,
+        modelApiKey: apiKey.trim() || null,
+        embeddingModel: embeddingModel.trim() || null,
+        chatModel: chatModel.trim() || null,
+      });
+    } catch (e) {
+      console.warn("Failed to auto-save model coordinates:", e);
+    }
+  };
+
+  const handleToggleProjectEgress = async (projId: string, currentVal: boolean) => {
+    const nextVal = !currentVal;
+    setProjects((prev) =>
+      prev.map((p) => (p.id === projId ? { ...p, egress: nextVal } : p))
+    );
+    try {
+      await KnoxAPI.setProjectEgress(projId, nextVal);
+      showToast(
+        nextVal
+          ? "Project cloud egress enabled for this repository."
+          : "Project cloud egress revoked: repository restricted to local only."
+      );
+    } catch (err) {
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projId ? { ...p, egress: currentVal } : p))
+      );
+      showToast(`Failed to update project egress: ${String(err)}`, true);
+    }
+  };
 
   const handleTestConnection = async () => {
     try {
@@ -78,27 +134,6 @@ export const ModelTab: React.FC = () => {
       setIsTesting(false);
     }
   };
-
-  const handleSaveSettings = async () => {
-    try {
-      setIsSaving(true);
-      await updateConfig({
-        modelProfile: profile,
-        modelEndpoint: endpoint.trim() || null,
-        modelApiKey: apiKey.trim() || null,
-        embeddingModel: embeddingModel.trim() || null,
-        chatModel: chatModel.trim() || null,
-        allowCloudEgress,
-      });
-      showToast("Model settings saved to ~/.knox/config.json");
-    } catch (err) {
-      showToast(String(err), true);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const isCloudWithoutEgress = profile === "cloud" && !allowCloudEgress;
 
   return (
     <div className="space-y-6 animate-in fade-in-50 duration-150">
@@ -148,7 +183,7 @@ export const ModelTab: React.FC = () => {
               <button
                 key={p.id}
                 type="button"
-                onClick={() => setProfile(p.id)}
+                onClick={() => handleProfileSelect(p.id)}
                 className={cn(
                   "p-3 rounded-lg border text-left transition-all cursor-pointer flex flex-col justify-between",
                   profile === p.id
@@ -184,6 +219,7 @@ export const ModelTab: React.FC = () => {
                   type="text"
                   value={endpoint}
                   onChange={(e) => setEndpoint(e.target.value)}
+                  onBlur={handleFieldBlur}
                   placeholder={
                     profile === "local" ? "http://localhost:11434" : "https://api.openai.com/v1"
                   }
@@ -200,6 +236,7 @@ export const ModelTab: React.FC = () => {
                     type="text"
                     value={embeddingModel}
                     onChange={(e) => setEmbeddingModel(e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder={
                       profile === "local" ? "nomic-embed-text" : "text-embedding-3-small"
                     }
@@ -214,6 +251,7 @@ export const ModelTab: React.FC = () => {
                     type="text"
                     value={chatModel}
                     onChange={(e) => setChatModel(e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder={profile === "local" ? "llama3.2" : "gpt-4o-mini"}
                     className="w-full px-3 py-1.5 rounded-md bg-muted/60 border border-border text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                   />
@@ -229,6 +267,7 @@ export const ModelTab: React.FC = () => {
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder="Enter provider API key (persisted safely in config.json)"
                     className="w-full px-3 py-1.5 rounded-md bg-muted/60 border border-border text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary pr-20"
                   />
@@ -237,7 +276,10 @@ export const ModelTab: React.FC = () => {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => setApiKey("")}
+                      onClick={() => {
+                        setApiKey("");
+                        updateConfig({ modelApiKey: null }).catch((e) => console.warn(e));
+                      }}
                       className="absolute right-1 top-1 h-6 text-2xs text-muted-foreground hover:text-danger px-2"
                     >
                       Clear
@@ -262,7 +304,7 @@ export const ModelTab: React.FC = () => {
               <input
                 type="checkbox"
                 checked={allowCloudEgress}
-                onChange={(e) => setAllowCloudEgress(e.target.checked)}
+                onChange={(e) => handleToggleCloudEgress(e.target.checked)}
                 className="sr-only peer"
               />
               <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
@@ -274,36 +316,89 @@ export const ModelTab: React.FC = () => {
             and question prompts. Knox enforces zero-egress by default to preserve IP privacy.
           </p>
 
-          {isCloudWithoutEgress && (
-            <div className="p-3 rounded-md bg-danger/10 border border-danger/30 flex items-start gap-2.5 text-xs text-danger">
-              <ShieldAlert className="size-4 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold">Cloud Profile Blocked</p>
-                <p className="text-2xs text-danger/90 mt-0.5">
-                  Cloud model profile cannot be activated without explicitly authorizing outbound
-                  cloud egress above.
-                </p>
-              </div>
-            </div>
-          )}
-
           {projects.length > 0 && (
             <div className="pt-2 border-t border-border/60">
               <p className="text-2xs uppercase font-mono text-muted-foreground mb-2">
                 Project Scope Egress Flags ({projects.length} Tracked)
               </p>
-              <div className="max-h-32 overflow-y-auto space-y-1.5 pr-1">
-                {projects.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between p-2 rounded-md bg-muted/40 text-xs font-mono"
-                  >
-                    <span className="truncate max-w-[240px] text-foreground">{p.name}</span>
-                    <Badge variant="outline" className="text-3xs">
-                      {allowCloudEgress ? "Egress Permitted" : "Local Only"}
-                    </Badge>
-                  </div>
-                ))}
+              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                {projects.map((p) => {
+                  const isAgentWorkspace =
+                    p.path.includes(".gemini") ||
+                    p.path.includes("antigravity\\brain") ||
+                    p.path.includes("antigravity/brain") ||
+                    /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(p.name);
+                  const isEgressAllowed = allowCloudEgress || Boolean(p.egress);
+
+                  return (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between p-2.5 rounded-md bg-muted/40 border border-border/60 text-xs"
+                    >
+                      <div className="min-w-0 flex-1 mr-3">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="font-medium text-foreground truncate max-w-[200px]"
+                            title={p.path}
+                          >
+                            {isAgentWorkspace ? "Agent Scratch Space" : p.name}
+                          </span>
+                          {isAgentWorkspace && (
+                            <Badge
+                              variant="outline"
+                              className="text-3xs uppercase font-mono px-1 py-0 text-muted-foreground shrink-0"
+                            >
+                              Agent
+                            </Badge>
+                          )}
+                        </div>
+                        <div
+                          className="text-3xs font-mono text-muted-foreground truncate"
+                          title={p.path}
+                        >
+                          {p.path}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={cn(
+                            "text-2xs font-mono px-1.5 py-0.5 rounded",
+                            isEgressAllowed
+                              ? "bg-success/10 text-success border border-success/20"
+                              : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          {allowCloudEgress
+                            ? "Global Allowed"
+                            : p.egress
+                            ? "Project Allowed"
+                            : "Local Only"}
+                        </span>
+
+                        <label
+                          className="relative inline-flex items-center cursor-pointer"
+                          title={
+                            allowCloudEgress
+                              ? "Global egress overrides project settings"
+                              : p.egress
+                              ? "Click to revoke egress for this project"
+                              : "Click to permit cloud egress for this project"
+                          }
+                        >
+                          <input
+                            type="checkbox"
+                            checked={Boolean(p.egress)}
+                            disabled={allowCloudEgress}
+                            onChange={() => handleToggleProjectEgress(p.id, Boolean(p.egress))}
+                            className="sr-only peer"
+                          />
+                          <div className="w-7 h-4 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary peer-disabled:opacity-40 peer-disabled:cursor-not-allowed"></div>
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -316,29 +411,23 @@ export const ModelTab: React.FC = () => {
               <Sparkles className="size-4 text-primary" />
               <span className="text-xs font-semibold text-foreground">Resolved Runtime State</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 text-2xs text-muted-foreground font-mono">
+                <CheckCircle2 className="size-3 text-success shrink-0" />
+                <span>Auto-saved</span>
+              </div>
+
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={handleTestConnection}
                 loading={isTesting}
-                disabled={profile === "off" || isCloudWithoutEgress}
+                disabled={profile === "off"}
                 className="gap-1.5 h-7 text-xs"
               >
                 <Play className="size-3 text-primary" />
                 <span>Test Connection</span>
-              </Button>
-
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                onClick={handleSaveSettings}
-                loading={isSaving}
-                className="h-7 text-xs"
-              >
-                Save Preferences
               </Button>
             </div>
           </div>
