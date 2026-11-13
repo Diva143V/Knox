@@ -193,27 +193,34 @@ pub async fn scan_stray_databases(state: State<'_, AppState>) -> Result<Vec<Stra
     let db_arc = state.db.clone();
     let cfg_arc = state.config.clone();
     tokio::task::spawn_blocking(move || {
-        let global_db = db_arc.blocking_lock();
-        let cfg = cfg_arc.blocking_lock();
-        let global_canonical = global_db
-            .path()
-            .and_then(|p| std::fs::canonicalize(p).ok())
-            .unwrap_or_else(|| std::fs::canonicalize(&cfg.kg_path).unwrap_or_else(|_| cfg.kg_path.clone()));
+        let kg_path = {
+            let cfg = cfg_arc.blocking_lock();
+            cfg.kg_path.clone()
+        };
 
-        // Query distinct project paths
-        let project_paths: Vec<String> = global_db
-            .with_conn(|conn| {
-                let mut stmt = conn
-                    .prepare("SELECT DISTINCT path FROM projects WHERE path IS NOT NULL AND path != ''")
-                    .map_err(knox::core::error::KnoxError::Database)?;
-                let rows = stmt
-                    .query_map([], |r| r.get::<_, String>(0))
-                    .map_err(knox::core::error::KnoxError::Database)?
-                    .filter_map(|res| res.ok())
-                    .collect();
-                Ok(rows)
-            })
-            .map_err(|e| e.to_string())?;
+        let (global_canonical, project_paths) = {
+            let global_db = db_arc.blocking_lock();
+            let canonical = global_db
+                .path()
+                .and_then(|p| std::fs::canonicalize(p).ok())
+                .unwrap_or_else(|| std::fs::canonicalize(&kg_path).unwrap_or_else(|_| kg_path.clone()));
+
+            let paths: Vec<String> = global_db
+                .with_conn(|conn| {
+                    let mut stmt = conn
+                        .prepare("SELECT DISTINCT path FROM projects WHERE path IS NOT NULL AND path != ''")
+                        .map_err(knox::core::error::KnoxError::Database)?;
+                    let rows = stmt
+                        .query_map([], |r| r.get::<_, String>(0))
+                        .map_err(knox::core::error::KnoxError::Database)?
+                        .filter_map(|res| res.ok())
+                        .collect();
+                    Ok(rows)
+                })
+                .map_err(|e| e.to_string())?;
+
+            (canonical, paths)
+        };
 
         let mut strays = Vec::new();
         for proj_path_str in project_paths {
@@ -270,8 +277,8 @@ pub async fn relocate_database(
     let db_arc = state.db.clone();
     let cfg_arc = state.config.clone();
     tokio::task::spawn_blocking(move || {
-        let mut db = db_arc.blocking_lock();
         let mut cfg = cfg_arc.blocking_lock();
+        let mut db = db_arc.blocking_lock();
 
         let target_dir = PathBuf::from(new_dir.trim());
         let new_path = if target_dir.extension().and_then(|s| s.to_str()) == Some("db") {
@@ -328,9 +335,12 @@ pub async fn get_db_stats(state: State<'_, AppState>) -> Result<StorageStats, St
     let cfg_arc = state.config.clone();
     let db_arc = state.db.clone();
     tokio::task::spawn_blocking(move || {
-        let cfg = cfg_arc.blocking_lock();
+        let kg_path = {
+            let cfg = cfg_arc.blocking_lock();
+            cfg.kg_path.clone()
+        };
         let db = db_arc.blocking_lock();
-        db.get_storage_stats(Some(&cfg.kg_path))
+        db.get_storage_stats(Some(&kg_path))
             .map_err(|e| e.to_string())
     })
     .await
