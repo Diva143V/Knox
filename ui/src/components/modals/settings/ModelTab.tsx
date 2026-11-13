@@ -6,13 +6,22 @@ import {
   Sparkles,
   Lock,
   CheckCircle2,
+  RefreshCw,
+  Terminal,
 } from "lucide-react";
 import { useKnoxStore } from "@/store/useKnoxStore";
 import { KnoxAPI } from "@/services/api";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
-import type { ModelTestResultDto, Project } from "@/types/knox";
+import {
+  LOCAL_PRESETS,
+  CLOUD_PRESETS,
+  type ModelPreset,
+  type LocalDaemonStatus,
+  type ModelTestResultDto,
+  type Project,
+} from "@/types/knox";
 
 export const ModelTab: React.FC = () => {
   const { config, updateConfig, showToast } = useKnoxStore();
@@ -27,6 +36,8 @@ export const ModelTab: React.FC = () => {
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<ModelTestResultDto | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [daemons, setDaemons] = useState<LocalDaemonStatus[]>([]);
+  const [isScanningDaemons, setIsScanningDaemons] = useState(false);
 
   useEffect(() => {
     if (config) {
@@ -45,13 +56,79 @@ export const ModelTab: React.FC = () => {
       .catch((e) => console.warn("Failed to load projects for egress:", e));
   }, []);
 
+  const scanDaemons = async () => {
+    try {
+      setIsScanningDaemons(true);
+      const res = await KnoxAPI.checkLocalDaemons();
+      setDaemons(res);
+    } catch (e) {
+      console.debug("Failed daemon check:", e);
+    } finally {
+      setIsScanningDaemons(false);
+    }
+  };
+
+  useEffect(() => {
+    if (profile === "local") {
+      scanDaemons();
+    }
+  }, [profile]);
+
   const handleProfileSelect = async (newProfile: string) => {
     setProfile(newProfile);
+
+    // Auto-populate default preset if switching to local or cloud with empty endpoint
+    let nextEndpoint = endpoint;
+    let nextEmbedding = embeddingModel;
+    let nextChat = chatModel;
+
+    if (newProfile === "local" && (!endpoint || endpoint.trim() === "")) {
+      const def = LOCAL_PRESETS[0]; // Ollama
+      nextEndpoint = def.endpoint;
+      nextEmbedding = def.embeddingModel;
+      nextChat = def.chatModel;
+      setEndpoint(nextEndpoint);
+      setEmbeddingModel(nextEmbedding);
+      setChatModel(nextChat);
+    } else if (newProfile === "cloud" && (!endpoint || endpoint.trim() === "")) {
+      const def = CLOUD_PRESETS[0]; // OpenAI
+      nextEndpoint = def.endpoint;
+      nextEmbedding = def.embeddingModel;
+      nextChat = def.chatModel;
+      setEndpoint(nextEndpoint);
+      setEmbeddingModel(nextEmbedding);
+      setChatModel(nextChat);
+    }
+
     try {
-      await updateConfig({ modelProfile: newProfile });
+      await updateConfig({
+        modelProfile: newProfile,
+        modelEndpoint: nextEndpoint.trim() || null,
+        embeddingModel: nextEmbedding.trim() || null,
+        chatModel: nextChat.trim() || null,
+      });
       showToast(`Model profile updated to ${newProfile.toUpperCase()}`);
     } catch (e) {
       console.warn("Failed to auto-save profile:", e);
+    }
+  };
+
+  const applyPreset = async (preset: ModelPreset) => {
+    setProfile(preset.profile);
+    setEndpoint(preset.endpoint);
+    setEmbeddingModel(preset.embeddingModel);
+    setChatModel(preset.chatModel);
+
+    try {
+      await updateConfig({
+        modelProfile: preset.profile,
+        modelEndpoint: preset.endpoint,
+        embeddingModel: preset.embeddingModel,
+        chatModel: preset.chatModel,
+      });
+      showToast(`Applied ${preset.name} preset coordinates`);
+    } catch (e) {
+      showToast(`Failed to apply preset: ${String(e)}`, true);
     }
   };
 
@@ -208,6 +285,72 @@ export const ModelTab: React.FC = () => {
             <div className="flex items-center gap-2 border-b border-border/60 pb-2.5">
               <Server className="size-4 text-primary" />
               <span className="text-xs font-semibold text-foreground">Provider Coordinates</span>
+            </div>
+
+            {/* 1-Click Presets */}
+            <div className="space-y-1.5 p-3 rounded-md bg-muted/30 border border-border/70">
+              <div className="flex items-center justify-between">
+                <span className="text-2xs font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 font-semibold">
+                  <span>1-Click Provider Presets</span>
+                </span>
+                {profile === "local" && (
+                  <button
+                    type="button"
+                    onClick={scanDaemons}
+                    disabled={isScanningDaemons}
+                    className="text-3xs text-muted-foreground hover:text-foreground font-mono flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <RefreshCw className={cn("size-2.5", isScanningDaemons && "animate-spin text-primary")} />
+                    <span>Scan ports</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap pt-1">
+                {(profile === "local" ? LOCAL_PRESETS : CLOUD_PRESETS).map((preset) => {
+                  const isSelected =
+                    endpoint === preset.endpoint &&
+                    embeddingModel === preset.embeddingModel &&
+                    chatModel === preset.chatModel;
+                  const daemon = daemons.find((d) => d.port === preset.defaultPort);
+                  const isOnline = daemon?.is_online;
+
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyPreset(preset)}
+                      title={preset.description}
+                      className={cn(
+                        "px-2.5 py-1.5 rounded-md text-xs font-medium border transition-all cursor-pointer flex items-center gap-2",
+                        isSelected
+                          ? "bg-primary/15 border-primary text-foreground ring-1 ring-primary/40 font-semibold shadow-xs"
+                          : "bg-background/80 hover:bg-muted text-muted-foreground hover:text-foreground border-border"
+                      )}
+                    >
+                      <span>{preset.name}</span>
+                      {preset.defaultPort && (
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1 text-3xs font-mono px-1 py-0.5 rounded",
+                            isOnline
+                              ? "bg-success/15 text-success border border-success/30 font-semibold"
+                              : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "size-1.5 rounded-full",
+                              isOnline ? "bg-success animate-pulse" : "bg-muted-foreground/40"
+                            )}
+                          />
+                          {isOnline ? "Online" : `:${preset.defaultPort}`}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -489,6 +632,31 @@ export const ModelTab: React.FC = () => {
               )}
               {testResult.error && (
                 <p className="text-2xs text-danger break-words">{testResult.error}</p>
+              )}
+              {!testResult.success && (
+                <div className="mt-2.5 pt-2 border-t border-danger/20 text-2xs space-y-1.5 text-foreground font-sans">
+                  <div className="flex items-center gap-1.5 font-semibold text-danger">
+                    <Terminal className="size-3.5" />
+                    <span>Quick Troubleshooting Guidance</span>
+                  </div>
+                  {profile === "local" ? (
+                    <div className="bg-background/80 p-2.5 rounded border border-border/80 space-y-1 font-mono text-3xs">
+                      <p className="text-muted-foreground">To start Ollama with recommended models, run:</p>
+                      <code className="text-primary block bg-muted/80 p-1.5 rounded select-all font-mono">
+                        ollama serve && ollama pull nomic-embed-text && ollama pull llama3.2
+                      </code>
+                      <p className="text-muted-foreground mt-1">
+                        If using LM Studio, open the app, ensure your model is loaded, and start the local server on port 1234.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-background/80 p-2.5 rounded border border-border/80 space-y-1 text-3xs">
+                      <p className="text-muted-foreground">
+                        Ensure your provider API key is entered above and that <strong>Cloud Egress Authorization</strong> is enabled.
+                      </p>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
