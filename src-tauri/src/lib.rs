@@ -186,6 +186,7 @@ pub fn run() {
             commands::ingest::detect_local_transcripts,
             commands::workspace::init_project,
             commands::workspace::get_projects,
+            commands::workspace::set_project_egress,
             commands::workspace::install_hook,
             commands::workspace::uninstall_hook,
             commands::workspace::get_knox_md,

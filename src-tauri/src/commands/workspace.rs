@@ -3,9 +3,21 @@
 use std::path::{Path, PathBuf};
 
 use knox::commands::{cmd_hook_install, cmd_hook_uninstall, cmd_init};
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::AppState;
+
+/// Project representation sent to the frontend with egress permission state.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectDto {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub remote: Option<String>,
+    pub created_at: String,
+    pub egress: bool,
+}
 
 /// Initializes Knox in a project workspace, generating knox.md and registering in SQLite.
 #[tauri::command]
@@ -79,15 +91,58 @@ pub async fn get_hook_status(path: String) -> Result<bool, String> {
     .map_err(|e| e.to_string())?
 }
 
-/// Fetches all tracked projects from the database.
+/// Fetches all tracked projects from the database with egress permission state.
 #[tauri::command]
 pub async fn get_projects(
     state: State<'_, AppState>,
-) -> Result<Vec<knox::core::types::Project>, String> {
+) -> Result<Vec<ProjectDto>, String> {
     let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
         let db = db.blocking_lock();
-        knox::storage::list_projects(&db).map_err(|e| e.to_string())
+        db.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT id, name, path, remote, created_at, egress FROM projects ORDER BY created_at ASC")
+                .map_err(knox::core::error::KnoxError::Database)?;
+            let rows = stmt
+                .query_map([], |r| {
+                    let mut path: String = r.get(2)?;
+                    if let Some(stripped) = path.strip_prefix(r"\\?\") {
+                        path = stripped.to_string();
+                    }
+                    Ok(ProjectDto {
+                        id: r.get(0)?,
+                        name: r.get(1)?,
+                        path,
+                        remote: r.get(3)?,
+                        created_at: r.get(4)?,
+                        egress: r.get::<_, i64>(5).unwrap_or(0) == 1,
+                    })
+                })
+                .map_err(knox::core::error::KnoxError::Database)?;
+            let mut projs = Vec::new();
+            for r in rows {
+                projs.push(r.map_err(knox::core::error::KnoxError::Database)?);
+            }
+            Ok(projs)
+        })
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Sets or revokes outbound cloud model egress permission for a project.
+#[tauri::command]
+pub async fn set_project_egress(
+    state: State<'_, AppState>,
+    project_id: String,
+    allowed: bool,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let db = db.blocking_lock();
+        knox::storage::set_project_egress(&db, &project_id, allowed)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -96,6 +151,30 @@ pub async fn get_projects(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_project_egress_toggle() {
+        let db = knox::storage::KnoxDb::open_memory().unwrap();
+        let proj = knox::core::types::Project {
+            id: knox::core::ProjectId::new(),
+            name: "Egress Test".to_string(),
+            path: "/path/to/egress_test".to_string(),
+            remote: None,
+            created_at: chrono::Utc::now(),
+        };
+        knox::storage::insert_project(&db, &proj).unwrap();
+
+        // Default is false
+        assert!(!knox::storage::is_project_egress_allowed(&db, proj.id.as_str()).unwrap());
+
+        // Toggle to true
+        knox::storage::set_project_egress(&db, proj.id.as_str(), true).unwrap();
+        assert!(knox::storage::is_project_egress_allowed(&db, proj.id.as_str()).unwrap());
+
+        // Toggle back to false
+        knox::storage::set_project_egress(&db, proj.id.as_str(), false).unwrap();
+        assert!(!knox::storage::is_project_egress_allowed(&db, proj.id.as_str()).unwrap());
+    }
 
     #[tokio::test]
     async fn test_hook_status_lifecycle() {
